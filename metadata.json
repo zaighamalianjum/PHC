@@ -1,0 +1,6 @@
+{
+  "name": "Punjab Clinic Management System",
+  "description": "Comprehensive clinic management system featuring patient registration, token queue management, electronic medical records, pharmacy POS, stock ledger, and a balanced double-entry accounting Chart of Accounts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
