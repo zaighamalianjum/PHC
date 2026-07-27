@@ -85,7 +85,7 @@ export default function Dashboard({
       <div className="flex flex-col md:flex-row md:items-center md:justify-between space-y-3 md:space-y-0">
         <div>
           <h2 className="text-xl md:text-2xl font-bold text-slate-900 tracking-tight">Clinic Operations Control</h2>
-          <p className="text-xs md:text-sm text-slate-500 font-medium">Real-time indicators for Clinic, Pharmacy, and Accounts of Punjab CMS</p>
+          <p className="text-xs md:text-sm text-slate-500 font-medium">Real-time indicators for Clinic, Pharmacy, and Accounts of PHC CMS</p>
         </div>
         <div className="flex items-center space-x-2 bg-white border border-slate-200 px-3.5 py-1.5 rounded-xl shadow-xs text-xs font-semibold text-slate-600 w-fit">
           <Clock className="w-4 h-4 text-blue-600 shrink-0" />
@@ -231,8 +231,8 @@ export default function Dashboard({
             {lowStockItems.length === 0 ? (
               <p className="p-5 text-xs text-slate-400 font-medium text-center">All pharmaceutical products have satisfactory inventory balances.</p>
             ) : (
-              lowStockItems.map((item) => (
-                <div key={item.ItemID} className="p-4 flex items-center justify-between hover:bg-slate-50/50 transition duration-150">
+              lowStockItems.map((item, idx) => (
+                <div key={`${item.ItemID}-${idx}`} className="p-4 flex items-center justify-between hover:bg-slate-50/50 transition duration-150">
                   <div className="min-w-0">
                     <p className="text-xs font-bold text-slate-800 truncate">{item.ItemName}</p>
                     <p className="text-xxs text-slate-400 font-mono mt-0.5">ID: {item.ItemID} | Unit: {item.Unit}</p>

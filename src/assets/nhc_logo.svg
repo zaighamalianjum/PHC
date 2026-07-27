@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="100%" height="100%">
+  <defs>
+    <!-- Gradients matching Punjab Homeopathic Clinic (PHC) branding -->
+    <linearGradient id="nhc-red" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#db2777" />
+      <stop offset="40%" stop-color="#be123c" />
+      <stop offset="100%" stop-color="#881337" />
+    </linearGradient>
+
+    <linearGradient id="nhc-purple" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#9333ea" />
+      <stop offset="50%" stop-color="#7e22ce" />
+      <stop offset="100%" stop-color="#4c1d95" />
+    </linearGradient>
+
+    <linearGradient id="nhc-orange" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fb923c" />
+      <stop offset="50%" stop-color="#ea580c" />
+      <stop offset="100%" stop-color="#9a3412" />
+    </linearGradient>
+
+    <linearGradient id="nhc-teal" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#14b8a6" />
+      <stop offset="50%" stop-color="#0f766e" />
+      <stop offset="100%" stop-color="#042f2e" />
+    </linearGradient>
+
+    <linearGradient id="nhc-green" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4ade80" />
+      <stop offset="100%" stop-color="#15803d" />
+    </linearGradient>
+
+    <!-- Curved Text Paths -->
+    <!-- Path for "NATIONAL HOMEOPATHIC CLINIC" -->
+    <path id="textPathInner" d="M 68,250 A 182,182 0 0,0 432,250" />
+    <!-- Path for "HEALING NATURALLY. RESTORING BALANCE." -->
+    <path id="textPathOuter" d="M 46,250 A 204,204 0 0,0 454,250" />
+  </defs>
+
+  <!-- Background Circle Glow -->
+  <circle cx="250" cy="250" r="240" fill="#ffffff" stroke="#0f766e" stroke-width="2.5" />
+
+  <!-- Outer Double Concentric Ring Borders -->
+  <circle cx="250" cy="250" r="232" fill="none" stroke="#0f766e" stroke-width="2" />
+  <circle cx="250" cy="250" r="222" fill="none" stroke="#115e59" stroke-width="1.2" />
+  <circle cx="250" cy="250" r="172" fill="none" stroke="#0f766e" stroke-width="1.8" />
+
+  <!-- TOP EMBLEM: Mortar & Pestle inside upper Teal C Ring -->
+  <g transform="translate(0, -10)">
+    <!-- Teal C Arc above NHC -->
+    <path d="M 298,90 A 62,62 0 1,0 298,175" fill="none" stroke="url(#nhc-teal)" stroke-width="14" stroke-linecap="round" />
+    
+    <!-- Mortar & Pestle -->
+    <!-- Pestle -->
+    <path d="M 262,94 L 274,116" stroke="url(#nhc-teal)" stroke-width="8" stroke-linecap="round" />
+    <!-- Bowl -->
+    <path d="M 232,122 C 232,142 268,142 268,122 Z" fill="url(#nhc-teal)" />
+    <path d="M 226,120 L 274,120" stroke="url(#nhc-teal)" stroke-width="3" stroke-linecap="round" />
+    <!-- Natural Medicine Drops / Leaves -->
+    <path d="M 242,108 C 242,102 246,98 246,98 C 246,98 250,102 250,108 C 250,111 246,113 246,113 C 246,113 242,111 242,108 Z" fill="url(#nhc-green)" />
+    <path d="M 252,104 C 252,99 255,96 255,96 C 255,96 258,99 258,104 C 258,107 255,108 255,108 C 255,108 252,107 252,104 Z" fill="url(#nhc-green)" />
+  </g>
+
+  <!-- CENTER EMBLEM: Overlapping Stylized N H C Letters -->
+  <!-- N (Crimson Red) -->
+  <g font-family="Georgia, serif" font-weight="900">
+    <path d="M 176,165 L 176,275 M 176,170 L 246,275 M 246,165 L 246,275" 
+          fill="none" stroke="url(#nhc-red)" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" />
+
+    <!-- H (Royal Purple) -->
+    <path d="M 228,180 L 228,270 M 228,225 L 278,225 M 278,180 L 278,270" 
+          fill="none" stroke="url(#nhc-purple)" stroke-width="20" stroke-linecap="round" stroke-linejoin="round" />
+
+    <!-- C (Warm Orange) -->
+    <path d="M 322,185 A 46,46 0 1,0 322,265" 
+          fill="none" stroke="url(#nhc-orange)" stroke-width="22" stroke-linecap="round" />
+  </g>
+
+  <!-- Orange Leaf Swoosh extending from upper C -->
+  <path d="M 276,224 C 286,210 300,160 338,120 C 315,145 292,190 276,224 Z" fill="url(#nhc-orange)" />
+  <path d="M 298,168 C 315,145 338,120 338,120 C 338,120 328,150 298,168 Z" fill="url(#nhc-orange)" opacity="0.9" />
+
+  <!-- SOLID TRICOLOR TEXT: P H C -->
+  <g text-anchor="middle" font-family="'Trebuchet MS', 'Arial Black', sans-serif" font-weight="900" font-size="44" letter-spacing="4">
+    <text x="206" y="358" fill="url(#nhc-red)">P</text>
+    <text x="250" y="358" fill="url(#nhc-purple)">H</text>
+    <text x="294" y="358" fill="url(#nhc-orange)">C</text>
+  </g>
+
+  <!-- CURVED TEXT AROUND BOTTOM -->
+  <!-- "PUNJAB HOMEOPATHIC CLINIC" -->
+  <text font-family="'Arial Black', 'Impact', sans-serif" font-weight="900" font-size="20" fill="#0b4f4c" letter-spacing="2">
+    <textPath href="#textPathInner" startOffset="50%" text-anchor="middle">
+      PUNJAB HOMEOPATHIC CLINIC
+    </textPath>
+  </text>
+
+  <!-- "HEALING NATURALLY. RESTORING BALANCE." -->
+  <text font-family="'Arial', sans-serif" font-weight="800" font-size="12" fill="#0f766e" letter-spacing="1.5">
+    <textPath href="#textPathOuter" startOffset="50%" text-anchor="middle">
+      HEALING NATURALLY. RESTORING BALANCE.
+    </textPath>
+  </text>
+</svg>

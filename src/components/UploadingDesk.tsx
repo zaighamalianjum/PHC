@@ -14,9 +14,11 @@ import {
   Plus, 
   Trash2, 
   RefreshCw, 
-  Check 
+  Check,
+  Sparkles,
+  Search
 } from 'lucide-react';
-import { Item, LabTest } from '../types';
+import { Item, LabTest, MongoDbSettings, NhcPatientHistory, SmartLocatorMedicine } from '../types';
 
 interface UploadingDeskProps {
   items: Item[];
@@ -24,23 +26,35 @@ interface UploadingDeskProps {
   labTests: LabTest[];
   // Since we want to update the master labTests, we'll pass down the setter from App.tsx as well!
   setLabTests: React.Dispatch<React.SetStateAction<LabTest[]>>;
+  mongoDbSettings: MongoDbSettings;
+  nhcPatients?: NhcPatientHistory[];
+  setNhcPatients?: React.Dispatch<React.SetStateAction<NhcPatientHistory[]>>;
+  smartLocatorMedicines: SmartLocatorMedicine[];
+  setSmartLocatorMedicines: React.Dispatch<React.SetStateAction<SmartLocatorMedicine[]>>;
 }
 
 export default function UploadingDesk({
   items,
   setItems,
   labTests,
-  setLabTests
+  setLabTests,
+  mongoDbSettings,
+  nhcPatients,
+  setNhcPatients,
+  smartLocatorMedicines,
+  setSmartLocatorMedicines
 }: UploadingDeskProps) {
-  const [activeUploadTab, setActiveUploadTab] = useState<'medicines' | 'labtests' | 'barcode'>('medicines');
+  const [activeUploadTab, setActiveUploadTab] = useState<'medicines' | 'labtests' | 'nhcpatienthistory' | 'barcode' | 'smartlocator'>('medicines');
   
   // Paste inputs
   const [medicinePasteText, setMedicinePasteText] = useState('');
   const [labTestPasteText, setLabTestPasteText] = useState('');
+  const [nhcPasteText, setNhcPasteText] = useState('');
   
   // Previews
   const [medicinePreview, setMedicinePreview] = useState<Item[]>([]);
   const [labTestPreview, setLabTestPreview] = useState<LabTest[]>([]);
+  const [nhcPreview, setNhcPreview] = useState<NhcPatientHistory[]>([]);
   
   // Statuses
   const [errorMsg, setErrorMsg] = useState('');
@@ -50,6 +64,223 @@ export default function UploadingDesk({
   const [barcodeInput, setBarcodeInput] = useState('');
   const [barcodeQty, setBarcodeQty] = useState(1);
   const [barcodeLog, setBarcodeLog] = useState<{ id: string; timestamp: string; item: string; barcode: string; qty: number; newStock: number }[]>([]);
+
+  // NHC File Uploader states
+  const [isUploadingNhc, setIsUploadingNhc] = useState(false);
+  const [uploadProgressTextNhc, setUploadProgressTextNhc] = useState('');
+  const [uploadModeNhc, setUploadModeNhc] = useState<'wipe' | 'merge'>('wipe');
+  const [dragActiveNhc, setDragActiveNhc] = useState(false);
+  const fileInputNhcRef = React.useRef<HTMLInputElement>(null);
+
+  // Smart Locator States
+  const fileInputSmartRef = React.useRef<HTMLInputElement>(null);
+  const [smartLocatorPasteText, setSmartLocatorPasteText] = useState('');
+  const [smartLocatorPreview, setSmartLocatorPreview] = useState<SmartLocatorMedicine[]>([]);
+  const [uploadModeSmart, setUploadModeSmart] = useState<'wipe' | 'merge'>('wipe');
+  const [dragActiveSmart, setDragActiveSmart] = useState(false);
+  const [smartLocatorSearch, setSmartLocatorSearch] = useState('');
+
+  // Handle processing of pasted text
+  const handleSmartLocatorProcess = () => {
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const res = parseSmartLocatorMedicines(smartLocatorPasteText);
+      if (res.length === 0) {
+        setErrorMsg('Could not find any valid smart locator row. Copy-paste columns: Symptoms, MedicineName, Dosage, Composition.');
+        return;
+      }
+      setSmartLocatorPreview(res);
+      setSuccessMsg(`Successfully parsed ${res.length} smart locator records. Please review the table preview below.`);
+    } catch (e: any) {
+      setErrorMsg(`Error parsing data: ${e.message}`);
+    }
+  };
+
+  const parseSmartLocatorMedicines = (text: string): SmartLocatorMedicine[] => {
+    if (!text.trim()) return [];
+    const lines = text.trim().split(/\r?\n/);
+    const parsed: SmartLocatorMedicine[] = [];
+    
+    let startIndex = 0;
+    if (lines.length > 0) {
+      const firstLine = lines[0].toLowerCase();
+      if (firstLine.includes('symptom') || firstLine.includes('medicine') || firstLine.includes('dosage') || firstLine.includes('composition')) {
+        startIndex = 1;
+      }
+    }
+    
+    for (let i = startIndex; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.trim()) continue;
+      
+      let cols = line.split('\t');
+      if (cols.length < 2) cols = line.split(',');
+      if (cols.length < 2) cols = line.split(';');
+      
+      if (cols.length >= 2) {
+        const symptoms = cols[0]?.trim() || '';
+        const medicineName = cols[1]?.trim() || '';
+        const dosage = cols[2]?.trim() || '';
+        const composition = cols[3]?.trim() || '';
+        
+        if (symptoms || medicineName) {
+          parsed.push({
+            Symptoms: symptoms,
+            MedicineName: medicineName,
+            Dosage: dosage,
+            Composition: composition
+          });
+        }
+      }
+    }
+    return parsed;
+  };
+
+  const handleSmartFileRead = (file: File) => {
+    if (!file) return;
+    const fileExt = file.name.split('.').pop()?.toLowerCase();
+    if (fileExt !== 'xlsx' && fileExt !== 'xls' && fileExt !== 'csv') {
+      setErrorMsg('Invalid file format. Please upload an Excel (.xlsx, .xls) or CSV (.csv) spreadsheet.');
+      return;
+    }
+
+    setErrorMsg('');
+    setSuccessMsg('');
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        import('xlsx').then((XLSX) => {
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          const rawData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+          
+          if (rawData.length === 0) {
+            setErrorMsg('The Excel sheet appears to be empty.');
+            return;
+          }
+
+          const headers = rawData[0].map(h => String(h || '').toLowerCase().trim());
+          const symptomsIndex = headers.findIndex(h => h.includes('symptom') || h.includes('indication') || h.includes('disease'));
+          const medicineIndex = headers.findIndex(h => h.includes('medicinename') || h.includes('medicine name') || h.includes('medicine') || h === 'name');
+          const dosageIndex = headers.findIndex(h => h.includes('dosage') || h.includes('dose') || h.includes('frequency'));
+          const compositionIndex = headers.findIndex(h => h.includes('composition') || h.includes('formula') || h.includes('ingredient'));
+
+          const startRow = (symptomsIndex >= 0 || medicineIndex >= 0 || dosageIndex >= 0 || compositionIndex >= 0) ? 1 : 0;
+          
+          const symIdx = symptomsIndex >= 0 ? symptomsIndex : 0;
+          const medIdx = medicineIndex >= 0 ? medicineIndex : 1;
+          const dosIdx = dosageIndex >= 0 ? dosageIndex : 2;
+          const compIdx = compositionIndex >= 0 ? compositionIndex : 3;
+
+          const parsed: SmartLocatorMedicine[] = [];
+          for (let i = startRow; i < rawData.length; i++) {
+            const row = rawData[i];
+            if (!row || row.length === 0) continue;
+            
+            const symptoms = String(row[symIdx] || '').trim();
+            const medicineName = String(row[medIdx] || '').trim();
+            const dosage = String(row[dosIdx] || '').trim();
+            const composition = String(row[compIdx] || '').trim();
+            
+            if (symptoms || medicineName) {
+              parsed.push({
+                Symptoms: symptoms,
+                MedicineName: medicineName,
+                Dosage: dosage,
+                Composition: composition
+              });
+            }
+          }
+
+          if (parsed.length === 0) {
+            setErrorMsg('Could not extract any symptoms or medicine rows. Check column headers.');
+          } else {
+            setSmartLocatorPreview(parsed);
+            setSuccessMsg(`Loaded ${parsed.length} rows from ${file.name}. Review below and click Save!`);
+          }
+        });
+      } catch (err: any) {
+        setErrorMsg(`Excel Parse Error: ${err.message}`);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const handleDragSmart = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === 'dragenter' || e.type === 'dragover') {
+      setDragActiveSmart(true);
+    } else if (e.type === 'dragleave') {
+      setDragActiveSmart(false);
+    }
+  };
+
+  const handleDropSmart = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActiveSmart(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleSmartFileRead(e.dataTransfer.files[0]);
+    }
+  };
+
+  const onFileInputChangeSmart = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      handleSmartFileRead(e.target.files[0]);
+    }
+  };
+
+  const handleSmartLocatorSave = (append: boolean) => {
+    if (smartLocatorPreview.length === 0) return;
+
+    let updatedList: SmartLocatorMedicine[] = [];
+    setSmartLocatorMedicines(prev => {
+      let updated: SmartLocatorMedicine[] = [];
+      if (!append) {
+        updated = [...smartLocatorPreview];
+      } else {
+        const existingKeys = new Set(prev.map(p => `${p.MedicineName.toLowerCase()}::${p.Symptoms.toLowerCase()}`));
+        const newItems = smartLocatorPreview.filter(n => !existingKeys.has(`${n.MedicineName.toLowerCase()}::${n.Symptoms.toLowerCase()}`));
+        updated = [...prev, ...newItems];
+      }
+      updatedList = updated;
+      return updated;
+    });
+
+    if (mongoDbSettings.SyncEnabled) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || window.location.origin;
+      fetch(`${bridgeUrl}/api/smart-locator/bulk?wipe=${!append}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(append ? smartLocatorPreview : updatedList)
+      })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP Status ${res.status}`);
+        return res.json();
+      })
+      .then(() => {
+        console.log('Successfully synchronized smart locator database with MongoDB.');
+      })
+      .catch(err => {
+        console.error('Failed to sync smart locator data to MongoDB:', err.message);
+        setErrorMsg(`Smart locator updated locally but MongoDB sync failed: ${err.message}`);
+      });
+    }
+
+    if (!append) {
+      setSuccessMsg(`Smart Locator DB successfully overwritten with ${smartLocatorPreview.length} records!`);
+    } else {
+      setSuccessMsg(`Smart Locator DB updated successfully! Merged ${smartLocatorPreview.length} records into the existing database.`);
+    }
+
+    setSmartLocatorPreview([]);
+    setSmartLocatorPasteText('');
+  };
 
   // Parser: Comma, Tab or Semicolon Separated text
   const parseMedicineData = (text: string): Item[] => {
@@ -81,6 +312,8 @@ export default function UploadingDesk({
         const cStock = parseInt(cols[4]?.trim() || '0', 10) || 0;
         const minStock = parseInt(cols[5]?.trim() || '0', 10) || 10;
         const unit = cols[6]?.trim() || 'Tab';
+        const rawType = cols[7]?.trim().toUpperCase() || 'P';
+        const medType: 'C' | 'P' = (rawType.startsWith('C') || rawType === 'CLINICAL') ? 'C' : 'P';
         
         parsed.push({
           ItemID: itemid,
@@ -89,7 +322,8 @@ export default function UploadingDesk({
           PurchasePrice: purchasePrice,
           CStock: cStock,
           MinStock: minStock,
-          Unit: unit
+          Unit: unit,
+          MedicineType: medType
         });
       }
     }
@@ -136,7 +370,7 @@ export default function UploadingDesk({
     try {
       const res = parseMedicineData(medicinePasteText);
       if (res.length === 0) {
-        setErrorMsg('Could not find any valid row. Copy-paste columns: ItemID, ItemName, RetailPrice, PurchasePrice, CurrentStock, MinStock, Unit.');
+        setErrorMsg('Could not find any valid row. Copy-paste columns: ItemID, ItemName, RetailPrice, PurchasePrice, CurrentStock, MinStock, Unit, MedicineType (C=Clinical, P=Patent).');
         return;
       }
       setMedicinePreview(res);
@@ -149,6 +383,7 @@ export default function UploadingDesk({
   const handleMedicineSave = (append: boolean) => {
     if (medicinePreview.length === 0) return;
     
+    let updatedList: Item[] = [];
     setItems((prev) => {
       let updated = [...prev];
       if (!append) {
@@ -179,8 +414,29 @@ export default function UploadingDesk({
       
       // Save to localStorage
       localStorage.setItem('cms_items', JSON.stringify(updated));
+      updatedList = updated;
       return updated;
     });
+
+    if (mongoDbSettings.SyncEnabled) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || window.location.origin;
+      fetch(`${bridgeUrl}/api/items/bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedList)
+      })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP Status ${res.status}`);
+        return res.json();
+      })
+      .then(() => {
+        console.log('Successfully synchronized updated items catalog with MongoDB.');
+      })
+      .catch(err => {
+        console.error('Failed to sync updated items catalog to MongoDB:', err.message);
+        setErrorMsg(`Items saved locally but MongoDB synchronization failed: ${err.message}`);
+      });
+    }
 
     setSuccessMsg(`Master Medicines DB updated successfully with ${medicinePreview.length} items!`);
     setMedicinePreview([]);
@@ -206,6 +462,7 @@ export default function UploadingDesk({
   const handleLabTestSave = () => {
     if (labTestPreview.length === 0) return;
     
+    let updatedList: LabTest[] = [];
     setLabTests((prev) => {
       const updated = [...prev];
       labTestPreview.forEach(newTest => {
@@ -217,12 +474,242 @@ export default function UploadingDesk({
         }
       });
       localStorage.setItem('cms_lab_tests', JSON.stringify(updated));
+      updatedList = updated;
       return updated;
     });
+
+    if (mongoDbSettings.SyncEnabled) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || window.location.origin;
+      fetch(`${bridgeUrl}/api/lab-tests/bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedList)
+      })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP Status ${res.status}`);
+        return res.json();
+      })
+      .then(() => {
+        console.log('Successfully synchronized updated lab tests catalog with MongoDB.');
+      })
+      .catch(err => {
+        console.error('Failed to sync updated lab tests to MongoDB:', err.message);
+        setErrorMsg(`Lab tests saved locally but MongoDB synchronization failed: ${err.message}`);
+      });
+    }
 
     setSuccessMsg(`Master Diagnostics DB updated successfully with ${labTestPreview.length} test codes!`);
     setLabTestPreview([]);
     setLabTestPasteText('');
+  };
+
+  const parseNhcPatientHistoryData = (text: string): NhcPatientHistory[] => {
+    if (!text.trim()) return [];
+    const lines = text.trim().split(/\r?\n/);
+    const parsed: NhcPatientHistory[] = [];
+    
+    let startIndex = 0;
+    const firstLine = lines[0].toLowerCase();
+    if (firstLine.includes('patientid') || firstLine.includes('patientname') || firstLine.includes('id') || firstLine.includes('name')) {
+      startIndex = 1; // skip header line
+    }
+    
+    for (let i = startIndex; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.trim()) continue;
+      
+      let cols = line.split('\t');
+      if (cols.length < 2) cols = line.split(',');
+      if (cols.length < 2) cols = line.split(';');
+      
+      if (cols.length >= 2) {
+        const pId = cols[0]?.trim() || `NHC-${Math.floor(1000 + Math.random() * 9000)}`;
+        const name = cols[1]?.trim() || 'Unnamed Patient';
+        const guardian = cols[2]?.trim() || '';
+        const ageVal = cols[3]?.trim();
+        const age = ageVal ? parseInt(ageVal, 10) : undefined;
+        const sex = cols[4]?.trim() || 'Male';
+        const phone = cols[5]?.trim() || '';
+        const visitDate = cols[6]?.trim() || new Date().toISOString().split('T')[0];
+        const symptoms = cols[7]?.trim() || '';
+        const condition = cols[8]?.trim() || '';
+        const labs = cols[9]?.trim() || '';
+        const medDetail = cols[10]?.trim() || '';
+        const dosage = cols[11]?.trim() || '';
+        const medType = cols[12]?.trim() || '';
+        
+        parsed.push({
+          PatientID: pId,
+          PatientName: name,
+          Father_husband: guardian,
+          AgeYears: age !== undefined && !isNaN(age) ? age : undefined,
+          Sex: sex,
+          PhoneMobile: phone,
+          VisitDate: visitDate,
+          Symptoms: symptoms,
+          Diagnosis: symptoms,
+          MedicalCondition: condition,
+          PrescribedMedicines: medDetail ? `${medDetail} [${dosage || '1 Daily'}] (${medType || 'P'})` : '',
+          LabTests: labs,
+          RegistrationDate: visitDate,
+          MedicineDetail: medDetail,
+          Dosage: dosage,
+          MedicineType: medType
+        });
+      }
+    }
+    return parsed;
+  };
+
+  const handleNhcProcess = () => {
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const res = parseNhcPatientHistoryData(nhcPasteText);
+      if (res.length === 0) {
+        setErrorMsg('Could not find any valid row. Copy-paste columns: PatientID, PatientName, Father/Husband, AgeYears, Sex, PhoneMobile, VisitDate, Symptoms, MedicalCondition, LabTests.');
+        return;
+      }
+      setNhcPreview(res);
+      setSuccessMsg(`Successfully parsed ${res.length} patient history records. Please review the table preview below.`);
+    } catch (e: any) {
+      setErrorMsg(`Error parsing data: ${e.message}`);
+    }
+  };
+
+  const handleNhcSave = () => {
+    if (nhcPreview.length === 0) return;
+    
+    const bridgeUrl = mongoDbSettings.BridgeUrl || window.location.origin;
+    fetch(`${bridgeUrl}/api/nhc-patient-history/bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(nhcPreview)
+    })
+    .then(res => {
+      if (!res.ok) throw new Error(`HTTP Status ${res.status}`);
+      return res.json();
+    })
+    .then((data) => {
+      setSuccessMsg(`Database updated successfully with ${nhcPreview.length} patient history records!`);
+      
+      // Merge newly uploaded records into the global react state
+      if (setNhcPatients) {
+        setNhcPatients(prev => {
+          const merged = [...prev];
+          nhcPreview.forEach(newRec => {
+            const index = merged.findIndex(r => 
+              r.PatientID === newRec.PatientID && 
+              (r.VisitDate || r.RegistrationDate || 'N/A') === (newRec.VisitDate || newRec.RegistrationDate || 'N/A') && 
+              (r.MedicineDetail || '') === (newRec.MedicineDetail || '')
+            );
+            if (index > -1) {
+              merged[index] = { ...merged[index], ...newRec };
+            } else {
+              merged.push(newRec);
+            }
+          });
+          return merged;
+        });
+      }
+
+      setNhcPreview([]);
+      setNhcPasteText('');
+    })
+    .catch(err => {
+      console.error('Failed to sync patient history to MongoDB:', err.message);
+      setErrorMsg(`Failed to save records: ${err.message}`);
+    });
+  };
+
+  const loadSampleNhcData = () => {
+    const sample = `PatientID\tPatientName\tGuardian\tAgeYears\tSex\tPhone\tVisitDate\tSymptoms\tCondition\tLabAdvice\tMedicineDetail\tDosage\tMedicineType
+NHC-1001\tMuhammad Ali\tAhmad\t45\tMale\t03001234567\t2026-07-10\tFever & Cough\tPneumonia\tCBC, Chest X-Ray\tPanadol 500mg\t1+1+1\tP
+NHC-1002\tFatima Bibi\tSajid\t32\tFemale\t03129876543\t2026-07-11\tJoint Pain\tArthritis\tRA Factor\tLofnac 50mg\t1+0+1\tC
+NHC-1003\tZainab Khan\tIrfan\t12\tFemale\t03451122334\t2026-07-12\tSore Throat\tTonsillitis\tThroat Swab\tAugmentin 625mg\t1+0+1\tP`;
+    setNhcPasteText(sample);
+  };
+
+  const handleDragNhc = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActiveNhc(true);
+    } else if (e.type === "dragleave") {
+      setDragActiveNhc(false);
+    }
+  };
+
+  const handleDropNhc = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActiveNhc(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleNhcFileUpload(e.dataTransfer.files[0]);
+    }
+  };
+
+  const onFileInputChangeNhc = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      handleNhcFileUpload(e.target.files[0]);
+    }
+  };
+
+  const handleNhcFileUpload = (file: File) => {
+    if (!file) return;
+
+    const fileExt = file.name.split('.').pop()?.toLowerCase();
+    if (fileExt !== 'xlsx' && fileExt !== 'xls' && fileExt !== 'csv') {
+      setErrorMsg('Invalid file format. Please upload an Excel (.xlsx, .xls) or CSV (.csv) spreadsheet.');
+      return;
+    }
+
+    setIsUploadingNhc(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+    setUploadProgressTextNhc('Establishing data stream connection and transferring file...');
+
+    const bridgeUrl = mongoDbSettings.BridgeUrl || window.location.origin;
+
+    fetch(`${bridgeUrl}/api/nhc-patient-history/upload-file?wipe=${uploadModeNhc === 'wipe'}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+      },
+      body: file
+    })
+      .then(res => {
+        if (!res.ok) {
+          return res.json().then(errData => {
+            throw new Error(errData.error || `HTTP Status ${res.status}`);
+          }).catch(() => {
+            throw new Error(`HTTP Status ${res.status}`);
+          });
+        }
+        return res.json();
+      })
+      .then(data => {
+        if (data.success) {
+          setSuccessMsg(
+            `Data processed successfully! Imported ${data.totalCount.toLocaleString()} clinical history rows into the database using [${data.mode === 'wipe-insert' ? 'Wipe & Re-index' : 'Smart Merge'}] mode.`
+          );
+          if (setNhcPatients && Array.isArray(data.preview || data.data)) {
+            setNhcPatients(data.preview || data.data);
+          }
+        } else {
+          throw new Error(data.error || 'Unknown parsing failure.');
+        }
+      })
+      .catch(err => {
+        console.error('File upload failed:', err);
+        setErrorMsg(`Failed to upload or parse patient history file: ${err.message}`);
+      })
+      .finally(() => {
+        setIsUploadingNhc(false);
+        setUploadProgressTextNhc('');
+        if (fileInputNhcRef.current) fileInputNhcRef.current.value = '';
+      });
   };
 
   // Barcode entry stock incrementing
@@ -254,6 +741,25 @@ export default function UploadingDesk({
       localStorage.setItem('cms_items', JSON.stringify(updated));
       return updated;
     });
+
+    if (mongoDbSettings.SyncEnabled) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || window.location.origin;
+      fetch(`${bridgeUrl}/api/items/${matchedItem.ItemID}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...matchedItem, CStock: updatedStock })
+      })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(() => {
+        console.log('Successfully synchronized barcode stock level change with MongoDB.');
+      })
+      .catch(err => {
+        console.error('Failed to sync barcode stock update to MongoDB:', err.message);
+      });
+    }
 
     // Record in audit log
     const logEntry = {
@@ -313,6 +819,18 @@ export default function UploadingDesk({
           </button>
           <button
             onClick={() => {
+              setActiveUploadTab('nhcpatienthistory');
+              setErrorMsg('');
+              setSuccessMsg('');
+            }}
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition ${
+              activeUploadTab === 'nhcpatienthistory' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            Bulk Excel/CSV Importer
+          </button>
+          <button
+            onClick={() => {
               setActiveUploadTab('barcode');
               setErrorMsg('');
               setSuccessMsg('');
@@ -323,6 +841,19 @@ export default function UploadingDesk({
           >
             <Barcode className="w-3.5 h-3.5 mr-1" />
             <span>Barcode Stock Entry</span>
+          </button>
+          <button
+            onClick={() => {
+              setActiveUploadTab('smartlocator');
+              setErrorMsg('');
+              setSuccessMsg('');
+            }}
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition flex items-center space-x-1 ${
+              activeUploadTab === 'smartlocator' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5 mr-1 text-amber-500 animate-pulse" />
+            <span>Smart Locator Upload</span>
           </button>
         </div>
       </div>
@@ -355,9 +886,10 @@ export default function UploadingDesk({
             {/* Template Sample */}
             <div className="bg-slate-50 p-3 rounded border border-slate-150 font-mono text-[9px] text-slate-600 space-y-1">
               <span className="font-extrabold text-indigo-600 block">EXPECTED COLUMN STRUCTURE:</span>
-              <p className="border-b border-slate-200 pb-1">ItemID [TAB] ItemName [TAB] RetailPrice [TAB] PurchasePrice [TAB] Stock [TAB] MinStock [TAB] Unit</p>
-              <p className="text-slate-400">ITM-011   Amoxil 500mg Cap   15.50   12.00   600   100   Cap</p>
-              <p className="text-slate-400">ITM-012   Entamizole Tab     9.00    7.20    450   50    Tab</p>
+              <p className="border-b border-slate-200 pb-1">ItemID [TAB] ItemName [TAB] RetailPrice [TAB] PurchasePrice [TAB] Stock [TAB] MinStock [TAB] Unit [TAB] MedicineType</p>
+              <p className="text-slate-400">ITM-011   Amoxil 500mg Cap   15.50   12.00   600   100   Cap   P</p>
+              <p className="text-slate-400">ITM-012   Entamizole Tab     9.00    7.20    450   50    Tab   P</p>
+              <p className="text-slate-400">ITM-003   Clinical Comp Salt 20.00   15.00   120   10    Gram  C</p>
             </div>
 
             <textarea
@@ -423,6 +955,7 @@ export default function UploadingDesk({
                       <th className="px-3 py-2 text-right">Cost</th>
                       <th className="px-3 py-2 text-right">Initial Stock</th>
                       <th className="px-3 py-2">Unit</th>
+                      <th className="px-3 py-2">Type</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
@@ -434,6 +967,15 @@ export default function UploadingDesk({
                         <td className="px-3 py-2 text-right font-mono text-slate-600">Rs. {itm.PurchasePrice.toFixed(2)}</td>
                         <td className="px-3 py-2 text-right font-mono text-slate-900 font-bold">{itm.CStock}</td>
                         <td className="px-3 py-2 text-slate-500 font-bold">{itm.Unit}</td>
+                        <td className="px-3 py-2">
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-black uppercase ${
+                            itm.MedicineType === 'C'
+                              ? 'bg-indigo-50 border border-indigo-100 text-indigo-700'
+                              : 'bg-emerald-50 border border-emerald-100 text-emerald-700'
+                          }`}>
+                            {itm.MedicineType === 'C' ? 'Clinical' : 'Patent'}
+                          </span>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -532,6 +1074,192 @@ export default function UploadingDesk({
         </div>
       )}
 
+      {/* Uploading PHC Patient History Section */}
+      {activeUploadTab === 'nhcpatienthistory' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          
+          {/* Bulk Excel/CSV Importer file dropzone */}
+          <div className="lg:col-span-5 bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-4 flex flex-col">
+            <div className="border-b border-slate-100 pb-2 flex justify-between items-center">
+              <div>
+                <span className="text-xs font-black text-slate-800 uppercase tracking-wider">Bulk Excel/CSV Importer</span>
+                <p className="text-[10px] text-slate-400 mt-0.5">Copy-paste columns directly from your Excel sheet or .csv file.</p>
+              </div>
+            </div>
+
+            {/* Import Strategy */}
+            <div className="space-y-2.5">
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">Import Strategy</span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setUploadModeNhc('wipe')}
+                  className={`p-2 rounded-xl border text-center transition cursor-pointer flex flex-col items-center gap-1 ${
+                    uploadModeNhc === 'wipe'
+                      ? 'border-indigo-600 bg-indigo-50/45 text-indigo-950 font-bold'
+                      : 'border-slate-200 hover:border-slate-300 text-slate-500'
+                  }`}
+                >
+                  <span className="text-xxs font-black">Wipe & Re-index</span>
+                  <span className="text-[8px] text-slate-400 font-medium">Drop old table & insert</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUploadModeNhc('merge')}
+                  className={`p-2 rounded-xl border text-center transition cursor-pointer flex flex-col items-center gap-1 ${
+                    uploadModeNhc === 'merge'
+                      ? 'border-indigo-600 bg-indigo-50/45 text-indigo-950 font-bold'
+                      : 'border-slate-200 hover:border-slate-300 text-slate-500'
+                  }`}
+                >
+                  <span className="text-xxs font-black">Smart Merge</span>
+                  <span className="text-[8px] text-slate-400 font-medium">Incremental upsert by ID</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Dropzone Container */}
+            <div className="flex-1 flex flex-col">
+              <div
+                onDragEnter={handleDragNhc}
+                onDragOver={handleDragNhc}
+                onDragLeave={handleDragNhc}
+                onDrop={handleDropNhc}
+                onClick={() => fileInputNhcRef.current?.click()}
+                className={`flex-1 min-h-[180px] border-2 border-dashed rounded-2xl flex flex-col items-center justify-center p-6 text-center cursor-pointer transition-all duration-150 ${
+                  dragActiveNhc
+                    ? 'border-indigo-600 bg-indigo-50/15'
+                    : 'border-slate-200 hover:border-indigo-400 bg-slate-50/30 hover:bg-slate-50/60'
+                }`}
+              >
+                <input
+                  ref={fileInputNhcRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  onChange={onFileInputChangeNhc}
+                  className="hidden"
+                />
+
+                {isUploadingNhc ? (
+                  <div className="space-y-3 flex flex-col items-center justify-center">
+                    <div className="relative flex items-center justify-center">
+                      <div className="animate-ping absolute inline-flex h-8 w-8 rounded-full bg-indigo-400 opacity-75"></div>
+                      <Database className="w-8 h-8 text-indigo-600 animate-bounce relative z-10" />
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-xs font-extrabold text-slate-800 animate-pulse block">Database Processing Active</span>
+                      <p className="text-[10px] text-slate-500 max-w-xs">{uploadProgressTextNhc}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2 flex flex-col items-center">
+                    <div className="w-10 h-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                      <UploadCloud className="w-5 h-5 animate-pulse" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-black text-slate-700 block">Drag & drop your patient history file here</span>
+                      <span className="text-[10px] text-slate-400 block mt-0.5">Supports Excel (.xlsx, .xls) and CSV (.csv) formats</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="px-4 py-1.5 bg-white border border-slate-200 hover:border-slate-300 text-slate-700 font-extrabold text-xxs rounded-lg shadow-2xs transition cursor-pointer"
+                    >
+                      Select File From Device
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Preview grid */}
+          <div className="lg:col-span-7 bg-white p-5 rounded-xl border border-slate-200 shadow-xs flex flex-col h-[520px]">
+            <div className="border-b border-slate-100 pb-2 mb-4 flex justify-between items-center">
+              <div>
+                <span className="text-xs font-black text-slate-800 uppercase tracking-wider">PHC History Stage Preview</span>
+                <p className="text-[10px] text-slate-400 mt-0.5">Please review the mapped clinical structures before committing to database.</p>
+              </div>
+              {nhcPreview.length > 0 && (
+                <button
+                  onClick={handleNhcSave}
+                  className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg flex items-center space-x-1.5 transition shadow-xs hover:shadow-indigo-100 cursor-pointer animate-bounce"
+                >
+                  <Database className="w-3.5 h-3.5" />
+                  <span>Save Records ({nhcPreview.length})</span>
+                </button>
+              )}
+            </div>
+
+            <div className="flex-1 overflow-auto border border-slate-150 rounded-lg bg-slate-50/40">
+              {nhcPreview.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-slate-400 text-center p-8 space-y-1.5">
+                  <FileSpreadsheet className="w-8 h-8 text-slate-300" />
+                  <span className="text-xxs font-bold uppercase tracking-wider text-slate-500">No Records Staged</span>
+                  <p className="text-[9px] max-w-xs text-slate-400">Upload your Excel sheet or .csv file above to automatically parse and load clinical history preview records.</p>
+                </div>
+              ) : (
+                <table className="w-full text-left border-collapse text-xxs">
+                  <thead>
+                    <tr className="bg-slate-100 text-slate-500 font-bold border-b border-slate-200 uppercase tracking-wider">
+                      <th className="p-3">ID</th>
+                      <th className="p-3">Name</th>
+                      <th className="p-3">Guardian</th>
+                      <th className="p-3">Age/Sex</th>
+                      <th className="p-3">Visit Date</th>
+                      <th className="p-3">Symptoms & Cond.</th>
+                      <th className="p-3">Meds & Dosage</th>
+                      <th className="p-3 text-center">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-150 bg-white">
+                    {nhcPreview.map((item, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50/50">
+                        <td className="p-3 font-mono text-indigo-600 font-bold whitespace-nowrap">{item.PatientID}</td>
+                        <td className="p-3 font-bold text-slate-700">{item.PatientName}</td>
+                        <td className="p-3 text-slate-500">{item.Father_husband || '—'}</td>
+                        <td className="p-3 text-slate-600">
+                          {item.AgeYears ? `${item.AgeYears}y` : '—'} / <span className="capitalize">{item.Sex || '—'}</span>
+                        </td>
+                        <td className="p-3 text-slate-500 whitespace-nowrap">{item.VisitDate || '—'}</td>
+                        <td className="p-3 text-slate-600 truncate max-w-[120px]" title={item.Symptoms}>
+                          {item.Symptoms || '—'} {item.MedicalCondition ? `(${item.MedicalCondition})` : ''}
+                        </td>
+                        <td className="p-3 text-slate-600 truncate max-w-[130px]">
+                          {item.MedicineDetail ? (
+                            <div>
+                              <span className="font-bold text-slate-800 block">{item.MedicineDetail}</span>
+                              {item.Dosage && <span className="text-slate-400 font-mono text-[9px] block">Dosage: {item.Dosage}</span>}
+                              {item.MedicineType && (
+                                <span className={`text-[8px] font-bold px-1 py-0.2 rounded uppercase mt-0.5 inline-block ${
+                                  item.MedicineType === 'C' ? 'bg-amber-100 text-amber-800' : 'bg-teal-100 text-teal-800'
+                                }`}>
+                                  {item.MedicineType === 'C' ? 'Clinical (C)' : item.MedicineType === 'P' ? 'Patent (P)' : item.MedicineType}
+                                </span>
+                              )}
+                            </div>
+                          ) : '—'}
+                        </td>
+                        <td className="p-3 text-center">
+                          <button
+                            onClick={() => {
+                              setNhcPreview(prev => prev.filter((_, i) => i !== idx));
+                            }}
+                            className="text-slate-400 hover:text-rose-600 p-1 transition"
+                            title="Remove from staging"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Barcode stock updating section */}
       {activeUploadTab === 'barcode' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -559,10 +1287,10 @@ export default function UploadingDesk({
                   />
                 </div>
                 <div className="flex space-x-1.5 mt-2">
-                  {items.slice(0, 5).map((itm) => (
+                  {items.slice(0, 5).map((itm, idx) => (
                     <button
                       type="button"
-                      key={itm.ItemID}
+                      key={`${itm.ItemID}-${idx}`}
                       onClick={() => setBarcodeInput(itm.ItemID)}
                       className="px-2 py-1 bg-slate-800 hover:bg-slate-750 text-[10px] font-mono rounded text-slate-300"
                     >
@@ -631,6 +1359,283 @@ export default function UploadingDesk({
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {activeUploadTab === 'smartlocator' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fadeIn">
+          
+          {/* Paste card & File uploader (Left: 5 columns) */}
+          <div className="lg:col-span-5 space-y-6">
+            
+            {/* Card 1: Paste Excel List */}
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-4">
+              <div className="border-b border-slate-100 pb-2">
+                <span className="text-xs font-black text-slate-800 uppercase tracking-wider block">Paste Excel Smart Locator List</span>
+                <p className="text-[10px] text-slate-400 mt-0.5">Copy columns from Excel sheet (or .csv) and paste them directly into this area.</p>
+              </div>
+
+              {/* Template Sample */}
+              <div className="bg-slate-50 p-3 rounded border border-slate-150 font-mono text-[9px] text-slate-600 space-y-1">
+                <span className="font-extrabold text-indigo-600 block">EXPECTED COLUMN STRUCTURE:</span>
+                <p className="border-b border-slate-200 pb-1">Symptoms [TAB] MedicineName [TAB] Dosage [TAB] Composition</p>
+                <p className="text-slate-400">fever, body pain, headache	Panadol 500mg Tab	1-1-1	Paracetamol 500mg</p>
+                <p className="text-slate-400">cough, throat congestion	Amoxil 500mg Cap	1-0-1	Amoxicillin 500mg</p>
+                <p className="text-slate-400">stomach acidity, heartburn	Risek 20mg Cap	1-0-0	Omeprazole 20mg</p>
+              </div>
+
+              <textarea
+                value={smartLocatorPasteText}
+                onChange={(e) => setSmartLocatorPasteText(e.target.value)}
+                placeholder="Paste raw data here from your excel spreadsheet..."
+                rows={10}
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg p-3 font-mono text-[11px] focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+              />
+
+              <button
+                onClick={handleSmartLocatorProcess}
+                className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg flex items-center justify-center space-x-1.5 transition cursor-pointer"
+              >
+                <UploadCloud className="w-4 h-4" />
+                <span>Validate & Preview Rows</span>
+              </button>
+            </div>
+
+            {/* Card 2: Drag & Drop File Stream */}
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-4">
+              <div className="border-b border-slate-100 pb-2">
+                <span className="text-xs font-black text-indigo-600 uppercase tracking-wider block">Excel File Stream Uploader</span>
+                <p className="text-[10px] text-slate-400 mt-0.5">Drag and drop or select an Excel/CSV file with columns: Symptoms, MedicineName, Dosage, Composition.</p>
+              </div>
+
+              <div
+                onDragEnter={handleDragSmart}
+                onDragOver={handleDragSmart}
+                onDragLeave={handleDragSmart}
+                onDrop={handleDropSmart}
+                onClick={() => fileInputSmartRef.current?.click()}
+                className={`min-h-[140px] border-2 border-dashed rounded-2xl flex flex-col items-center justify-center p-6 text-center cursor-pointer transition-all duration-150 ${
+                  dragActiveSmart
+                    ? 'border-indigo-600 bg-indigo-50/15'
+                    : 'border-slate-200 hover:border-indigo-400 bg-slate-50/30 hover:bg-slate-50/60'
+                }`}
+              >
+                <input
+                  ref={fileInputSmartRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  onChange={onFileInputChangeSmart}
+                  className="hidden"
+                />
+                <div className="p-2.5 bg-indigo-50 rounded-full mb-2">
+                  <UploadCloud className="w-5 h-5 text-indigo-600 animate-bounce" />
+                </div>
+                <span className="text-xs font-bold text-slate-700">Drag & Drop Excel File here</span>
+                <span className="text-[10px] text-slate-400 block mt-1">Supports Excel (.xlsx, .xls) and CSV (.csv) formats</span>
+              </div>
+            </div>
+
+          </div>
+
+          {/* Dynamic Preview or Database View (Right: 7 columns) */}
+          <div className="lg:col-span-7 bg-white p-5 rounded-xl border border-slate-200 shadow-xs flex flex-col h-[520px]">
+            
+            {smartLocatorPreview.length > 0 ? (
+              // Bulk Import Preview Mode
+              <>
+                <div className="border-b border-slate-100 pb-2 mb-4 flex justify-between items-center shrink-0">
+                  <div>
+                    <span className="text-xs font-black text-slate-800 uppercase tracking-wider">Bulk Import Preview ({smartLocatorPreview.length} rows)</span>
+                    <p className="text-[10px] text-slate-400 mt-0.5">Review smart locator mapping before saving to local database.</p>
+                  </div>
+                  
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => handleSmartLocatorSave(true)}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xxs font-bold rounded flex items-center shadow-xs cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5 mr-1" />
+                      Merge & Add Records
+                    </button>
+                    <button
+                      onClick={() => handleSmartLocatorSave(false)}
+                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xxs font-bold rounded flex items-center shadow-xs cursor-pointer"
+                    >
+                      <Check className="w-3.5 h-3.5 mr-1" />
+                      Replace Existing DB
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSmartLocatorPreview([]);
+                        setSuccessMsg('');
+                      }}
+                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xxs font-bold rounded flex items-center cursor-pointer border border-slate-250"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-auto border border-slate-100 rounded-lg">
+                  <table className="min-w-full divide-y divide-slate-100 text-xxs">
+                    <thead className="bg-slate-50 sticky top-0 text-slate-500 text-[10px] font-semibold text-left">
+                      <tr>
+                        <th className="px-3 py-2 w-1/3">Symptoms / Indications</th>
+                        <th className="px-3 py-2">Medicine Name</th>
+                        <th className="px-3 py-2">Dosage</th>
+                        <th className="px-3 py-2">Composition</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                      {smartLocatorPreview.map((itm, index) => (
+                        <tr key={index} className="hover:bg-slate-55">
+                          <td className="px-3 py-2 font-medium text-slate-900 leading-normal">{itm.Symptoms}</td>
+                          <td className="px-3 py-2 font-extrabold text-indigo-700">{itm.MedicineName}</td>
+                          <td className="px-3 py-2 font-mono text-slate-600">{itm.Dosage || '—'}</td>
+                          <td className="px-3 py-2 text-slate-500 font-mono italic">{itm.Composition || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : (
+              // Database view mode when no active preview
+              <>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-3 mb-4 gap-2 shrink-0">
+                  <div>
+                    <span className="text-xs font-black text-slate-800 uppercase tracking-wider block">Smart Locator Medicine Database</span>
+                    <p className="text-[10px] text-slate-400 mt-0.5">Currently loaded smart locator definitions ({smartLocatorMedicines.length} rows).</p>
+                  </div>
+                  
+                  {/* Clear All Button */}
+                  {smartLocatorMedicines.length > 0 && (
+                    <button
+                      onClick={() => {
+                        if (window.confirm("Are you sure you want to delete all smart locator medicines?")) {
+                          setSmartLocatorMedicines([]);
+                          setSuccessMsg("Successfully cleared all smart locator records.");
+                          if (mongoDbSettings.SyncEnabled) {
+                            const bridgeUrl = mongoDbSettings.BridgeUrl || window.location.origin;
+                            fetch(`${bridgeUrl}/api/smart-locator/all`, { method: 'DELETE' })
+                            .then(res => {
+                              if (!res.ok) throw new Error(`HTTP status ${res.status}`);
+                              return res.json();
+                            })
+                            .then(() => {
+                              console.log('Cleared smart locator table in MongoDB.');
+                            })
+                            .catch(err => {
+                              console.error('Failed to clear smart locator table in MongoDB:', err.message);
+                            });
+                          }
+                        }
+                      }}
+                      className="text-xxs font-extrabold text-rose-600 bg-rose-50 hover:bg-rose-100 px-2 py-1 rounded border border-rose-100 flex items-center space-x-1 cursor-pointer shrink-0"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Clear All</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Search Database */}
+                <div className="relative mb-3 shrink-0">
+                  <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search symptoms, medicines, composition..."
+                    value={smartLocatorSearch}
+                    onChange={(e) => setSmartLocatorSearch(e.target.value)}
+                    className="w-full text-xs border border-slate-200 rounded-lg pl-8 pr-3 py-2 bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+
+                {/* Database List */}
+                <div className="flex-1 overflow-y-auto border border-slate-100 rounded-lg divide-y divide-slate-100">
+                  {(() => {
+                    const filtered = smartLocatorMedicines.filter(m => {
+                      if (!smartLocatorSearch.trim()) return true;
+                      const q = smartLocatorSearch.toLowerCase();
+                      return m.Symptoms.toLowerCase().includes(q) ||
+                             m.MedicineName.toLowerCase().includes(q) ||
+                             m.Composition.toLowerCase().includes(q) ||
+                             m.Dosage.toLowerCase().includes(q);
+                    });
+
+                    if (filtered.length === 0) {
+                      return (
+                        <div className="h-full flex flex-col items-center justify-center p-8 text-center text-slate-400 space-y-1.5">
+                          <Sparkles className="w-8 h-8 text-slate-300 animate-pulse" />
+                          <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">No Records Loaded</span>
+                          <p className="text-[10px] max-w-xs text-slate-400">
+                            Validate paste data on the left panel or upload an Excel file to build your symptom index.
+                          </p>
+                        </div>
+                      );
+                    }
+
+                    return filtered.map((m, idx) => (
+                      <div key={idx} className="p-3 hover:bg-slate-50 flex justify-between items-start text-xxs">
+                        <div className="space-y-1 pr-3 leading-relaxed">
+                          <div className="flex items-center space-x-2">
+                            <span className="font-extrabold text-[11px] text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100/30">
+                              {m.MedicineName}
+                            </span>
+                            {m.Dosage && (
+                              <span className="text-slate-500 font-bold font-mono text-[9px] bg-slate-100 px-1 py-0.5 rounded">
+                                {m.Dosage}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-slate-850">
+                            <strong className="text-slate-400 font-bold font-sans">Symptoms: </strong>
+                            {m.Symptoms}
+                          </div>
+                          {m.Composition && (
+                            <div className="text-[9px] text-slate-500 font-mono">
+                              <strong className="text-slate-400 font-bold font-sans">Comp: </strong>
+                              {m.Composition}
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => {
+                            setSmartLocatorMedicines(prev => prev.filter((_, i) => i !== smartLocatorMedicines.indexOf(m)));
+                            setSuccessMsg(`Deleted smart locator entry: ${m.MedicineName}`);
+                            if (mongoDbSettings.SyncEnabled) {
+                              const bridgeUrl = mongoDbSettings.BridgeUrl || window.location.origin;
+                              fetch(`${bridgeUrl}/api/smart-locator`, {
+                                method: 'DELETE',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ Symptoms: m.Symptoms, MedicineName: m.MedicineName })
+                              })
+                              .then(res => {
+                                if (!res.ok) throw new Error(`HTTP status ${res.status}`);
+                                return res.json();
+                              })
+                              .then(() => {
+                                console.log('Successfully deleted smart locator entry from MongoDB.');
+                              })
+                              .catch(err => {
+                                console.error('Failed to delete smart locator entry from MongoDB:', err.message);
+                              });
+                            }
+                          }}
+                          className="text-slate-300 hover:text-rose-600 transition p-1 cursor-pointer shrink-0"
+                          title="Delete entry"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              </>
+            )}
+
+          </div>
+
         </div>
       )}
 

@@ -46,7 +46,9 @@ import {
   VchDetail,
   ACLedger,
   User,
-  UserRight
+  UserRight,
+  NhcPatientHistory,
+  SmartLocatorMedicine
 } from './types';
 
 import {
@@ -59,17 +61,22 @@ import {
   BarChart3,
   Settings,
   ShieldCheck,
-  LogOut
+  LogOut,
+  DatabaseBackup,
+  Code,
+  RefreshCw,
+  CheckCircle
 } from 'lucide-react';
 
 const MENU_ITEMS = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, restricted: false },
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, restricted: true },
+  { id: 'nhc_history', label: 'PHC Patient History', icon: DatabaseBackup, restricted: false },
   { id: 'patients', label: 'Patient Intake & Queue', icon: Users, restricted: true },
-  { id: 'emr', label: 'Clinical EMR Desk', icon: FileText, restricted: true },
   { id: 'pharmacy', label: 'Pharmacy POS & Inventory', icon: ShoppingCart, restricted: true },
   { id: 'accounts', label: 'Double-Entry Accounting', icon: BookOpen, restricted: true },
   { id: 'uploads', label: 'Excel Upload & Barcode', icon: UploadCloud, restricted: true },
   { id: 'reports', label: 'Financial Audit & P&L', icon: BarChart3, restricted: true },
+  { id: 'query_handler', label: 'Query Handler Console', icon: Code, restricted: true },
   { id: 'settings', label: 'Clinic Setup & Users', icon: Settings, restricted: true }
 ];
 
@@ -82,14 +89,13 @@ import UploadingDesk from './components/UploadingDesk';
 import SettingsDesk from './components/SettingsDesk';
 import ReportingDesk from './components/ReportingDesk';
 import LoginDesk from './components/LoginDesk';
-import { ClinicSettings, SmsSettings, SqlServerSettings } from './types';
+import NhcPatientHistoryDesk from './components/NhcPatientHistoryDesk';
+import QueryHandlerDesk from './components/QueryHandlerDesk';
+import { ClinicSettings, SmsSettings, MongoDbSettings } from './types';
 
 export default function App() {
   // Users List State (backed up by local storage)
-  const [usersList, setUsersList] = useState<User[]>(() => {
-    const cached = localStorage.getItem('cms_users');
-    return cached ? JSON.parse(cached) : INITIAL_USERS;
-  });
+  const [usersList, setUsersList] = useState<User[]>(INITIAL_USERS);
 
   // Current Active Applet Session State
   const [currentUser, setCurrentUser] = useState<User>(() => {
@@ -99,9 +105,7 @@ export default function App() {
         return JSON.parse(cachedUser);
       } catch (e) {}
     }
-    const cachedUsersList = localStorage.getItem('cms_users');
-    const uList = cachedUsersList ? JSON.parse(cachedUsersList) : INITIAL_USERS;
-    return uList[0]; // Default: Admin
+    return INITIAL_USERS[0]; // Default: Admin
   });
 
   useEffect(() => {
@@ -113,54 +117,66 @@ export default function App() {
   // Clinic setup settings
   const [clinicSettings, setClinicSettings] = useState<ClinicSettings>(() => {
     const cached = localStorage.getItem('cms_clinic_settings');
-    if (cached) return JSON.parse(cached);
-    return {
-      ClinicName: 'Punjab Clinic',
-      ClinicLogoText: 'P',
-      DoctorName: 'Dr. Amjad Malik',
-      DoctorSignatureText: 'Dr. Amjad Malik, MBBS, FCPS',
-      ClinicAddress: 'Saddar Bazar, Lahore Cantt',
-      PhoneMobile: '+92-42-36612345',
-      OPDFee: 1500
-    };
-  });
-
-  // SMS Service settings
-  const [smsSettings, setSmsSettings] = useState<SmsSettings>(() => {
-    const cached = localStorage.getItem('cms_sms_settings');
-    if (cached) return JSON.parse(cached);
-    return {
-      Provider: 'twilio',
-      Enabled: true,
-      ApiUrl: 'https://api.twilio.com/2010-04-01/Accounts/AC72680cf793/Messages.json',
-      ApiKey: 'SG.twilio_secret_token_placeholder_key',
-      SenderID: 'PUNJAB_CL',
-      BookingTemplate: 'Dear {PATIENT}, your OPD Token No. {TOKEN} for {SHIFT} Shift is booked successfully at Punjab Clinic for {DATE}. Ref ID: {APPID}.',
-      RepeatTemplate: 'Dear {PATIENT}, your Follow-up OPD Token No. {TOKEN} ({SHIFT} Shift) is booked at Punjab Clinic for {DATE}. Ref ID: {APPID}.'
-    };
-  });
-
-  // SQL Server settings
-  const [sqlServerSettings, setSqlServerSettings] = useState<SqlServerSettings>(() => {
-    const cached = localStorage.getItem('cms_sql_settings');
     if (cached) {
-      const parsed = JSON.parse(cached);
-      // If cached settings correspond to local SQL, discard and reset to remote
-      if (parsed.ServerAddress === 'DBSERVER' || parsed.ServerAddress === 'DBSERVER\\SQLEXPRESS' || parsed.BridgeUrl) {
-        localStorage.removeItem('cms_sql_settings');
-      } else {
-        return parsed;
-      }
+      try {
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.ClinicName) {
+          return parsed;
+        }
+      } catch (e) {}
     }
     return {
-      ServerAddress: 'punjab-clinic-mssql.database.windows.net',
-      Port: 1433,
-      DatabaseName: 'punjab_clinic_db',
-      Username: 'sa_punjab_admin',
-      PasswordHash: 'P@kistan123_Secure',
-      IntegratedSecurity: false,
+      ClinicName: 'Punjab Homeopathic Clinic',
+      ClinicLogoText: 'PHC',
+      DoctorName: 'Dr. Ejaz Ahmad, D.H.M.S (Pak)',
+      DoctorSignatureText: 'Dr. Ejaz Ahmad, D.H.M.S (Pak) • Registered Homeopathic Medical Practitioner No: 48776',
+      ClinicAddress: '10 Shalimar Road, Garhi Shahu, Lahore 39 Pakistan',
+      PhoneMobile: '+92-300-4208323',
+      OPDFee: 1500,
+      ClinicLogoImage: '/nhc_logo.svg',
+      ThermalPrinterName: 'Thermal Printer',
+      ThermalPaperWidth: '60mm',
+      ThermalPaperHeight: 'auto',
+      ThermalDirectPrint: true,
+      ThermalWidthOffset: '+0in',
+      ThermalFontSize: '11px',
+      ThermalBadgeStyle: 'white',
+      ThermalShowPrinterHeader: true
+    };
+  });
+
+  useEffect(() => {
+    localStorage.setItem('cms_clinic_settings', JSON.stringify(clinicSettings));
+  }, [clinicSettings]);
+
+  // SMS Service settings
+  const [smsSettings, setSmsSettings] = useState<SmsSettings>({
+    Provider: 'twilio',
+    Enabled: true,
+    ApiUrl: 'https://api.twilio.com/2010-04-01/Accounts/AC72680cf793/Messages.json',
+    ApiKey: 'SG.twilio_secret_token_placeholder_key',
+    SenderID: 'PUNJAB_CL',
+    BookingTemplate: 'Dear {PATIENT}, your OPD Token No. {TOKEN} for {SHIFT} Shift is booked successfully at Punjab Clinic for {DATE}. Ref ID: {APPID}.',
+    RepeatTemplate: 'Dear {PATIENT}, your Follow-up OPD Token No. {TOKEN} ({SHIFT} Shift) is booked at Punjab Clinic for {DATE}. Ref ID: {APPID}.'
+  });
+
+  // MongoDB Connection settings
+  const [mongoDbSettings, setMongoDbSettings] = useState<MongoDbSettings>(() => {
+    const cached = localStorage.getItem('cms_mongodb_settings');
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        if (parsed.BridgeUrl === 'http://localhost:5000' || !parsed.BridgeUrl) {
+          parsed.BridgeUrl = window.location.origin;
+        }
+        return parsed;
+      } catch (e) {}
+    }
+    return {
+      ConnectionString: 'mongodb://localhost:27017/PharmacyPOSDB',
+      DatabaseName: 'PharmacyPOSDB',
       SyncEnabled: true,
-      ConnectionString: 'Server=tcp:punjab-clinic-mssql.database.windows.net,1433;Initial Catalog=punjab_clinic_db;Persist Security Info=False;User ID=sa_punjab_admin;Password=P@kistan123_Secure;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=True;Connection Timeout=30;'
+      BridgeUrl: window.location.origin
     };
   });
 
@@ -170,215 +186,187 @@ export default function App() {
   });
 
 
-  // Master Database States (backed up by client side localStorage for robust persistence)
-  const [patients, setPatients] = useState<Patient[]>(() => {
-    const cached = localStorage.getItem('cms_patients');
-    return cached ? JSON.parse(cached) : INITIAL_PATIENTS;
-  });
-
-  const [appointments, setAppointments] = useState<Appointment[]>(() => {
-    const cached = localStorage.getItem('cms_appointments');
-    return cached ? JSON.parse(cached) : INITIAL_APPOINTMENTS;
-  });
-
-  const [tokens, setTokens] = useState<Token[]>(() => {
-    const cached = localStorage.getItem('cms_tokens');
-    return cached ? JSON.parse(cached) : INITIAL_TOKENS;
-  });
-
-  const [items, setItems] = useState<Item[]>(() => {
-    const cached = localStorage.getItem('cms_items');
-    return cached ? JSON.parse(cached) : INITIAL_ITEMS;
-  });
-
-  const [suppliers] = useState<Supplier[]>(INITIAL_SUPPLIERS);
-  const [labTests, setLabTests] = useState<LabTest[]>(() => {
-    const cached = localStorage.getItem('cms_lab_tests');
-    return cached ? JSON.parse(cached) : INITIAL_LAB_TESTS;
-  });
-
-  useEffect(() => {
-    localStorage.setItem('cms_lab_tests', JSON.stringify(labTests));
-  }, [labTests]);
-
-  const [visits, setVisits] = useState<Visit[]>(() => {
-    const cached = localStorage.getItem('cms_visits');
-    return cached ? JSON.parse(cached) : [];
-  });
-
-  const [visitMedicines, setVisitMedicines] = useState<VisitMedicine[]>(() => {
-    const cached = localStorage.getItem('cms_visit_medicines');
-    return cached ? JSON.parse(cached) : [];
-  });
-
-  const [medicalCertificates, setMedicalCertificates] = useState<MedicalCertificate[]>(() => {
-    const cached = localStorage.getItem('cms_med_certs');
-    return cached ? JSON.parse(cached) : [];
-  });
-
-  const [sbpCertificates, setSbpCertificates] = useState<MedicalCertificateSBP[]>(() => {
-    const cached = localStorage.getItem('cms_sbp_certs');
-    return cached ? JSON.parse(cached) : [];
-  });
-
-  const [invoices, setInvoices] = useState<InvoiceHeader[]>(() => {
-    const cached = localStorage.getItem('cms_invoices');
-    return cached ? JSON.parse(cached) : [];
-  });
-
-  const [invoiceDetails, setInvoiceDetails] = useState<InvoiceDetail[]>(() => {
-    const cached = localStorage.getItem('cms_invoice_details');
-    return cached ? JSON.parse(cached) : [];
-  });
-
-  const [salesReturns, setSalesReturns] = useState<SRInvHeader[]>(() => {
-    const cached = localStorage.getItem('cms_sales_returns');
-    return cached ? JSON.parse(cached) : [];
-  });
-
-  const [grns, setGrns] = useState<InvVchHeader[]>(() => {
-    const cached = localStorage.getItem('cms_grns');
-    return cached ? JSON.parse(cached) : [];
-  });
-
-  const [grnDetails, setGrnDetails] = useState<InvVchDetail[]>(() => {
-    const cached = localStorage.getItem('cms_grn_details');
-    return cached ? JSON.parse(cached) : [];
-  });
-
-  const [invLedger, setInvLedger] = useState<InvLedger[]>(() => {
-    const cached = localStorage.getItem('cms_inv_ledger');
-    return cached ? JSON.parse(cached) : [];
-  });
-
-  const [tlAccounts, setTlAccounts] = useState<TLAccount[]>(() => {
-    const cached = localStorage.getItem('cms_tl_accounts');
-    return cached ? JSON.parse(cached) : INITIAL_TL_ACCOUNTS;
-  });
-
-  const [vouchers, setVouchers] = useState<VchHeader[]>(() => {
-    const cached = localStorage.getItem('cms_vouchers');
+  // Master Database States
+  const [patients, setPatients] = useState<Patient[]>(INITIAL_PATIENTS);
+  const [appointments, setAppointments] = useState<Appointment[]>(INITIAL_APPOINTMENTS);
+  const [tokens, setTokens] = useState<Token[]>(INITIAL_TOKENS);
+  const [items, setItems] = useState<Item[]>(INITIAL_ITEMS);
+  const [suppliers, setSuppliers] = useState<Supplier[]>(INITIAL_SUPPLIERS);
+  const [labTests, setLabTests] = useState<LabTest[]>(INITIAL_LAB_TESTS);
+  const [visits, setVisits] = useState<Visit[]>([]);
+  const [visitMedicines, setVisitMedicines] = useState<VisitMedicine[]>([]);
+  const [medicalCertificates, setMedicalCertificates] = useState<MedicalCertificate[]>([]);
+  const [sbpCertificates, setSbpCertificates] = useState<MedicalCertificateSBP[]>([]);
+  const [nhcPatients, setNhcPatients] = useState<NhcPatientHistory[]>([]);
+  const [smartLocatorMedicines, setSmartLocatorMedicines] = useState<SmartLocatorMedicine[]>(() => {
+    const cached = localStorage.getItem('cms_smart_locator_medicines');
     if (cached) {
       try {
-        const parsed = JSON.parse(cached) as VchHeader[];
-        const unique: VchHeader[] = [];
-        const seen = new Set<string>();
-        for (const v of parsed) {
-          if (v && v.VchNo && !seen.has(v.VchNo)) {
-            seen.add(v.VchNo);
-            unique.push(v);
-          }
-        }
-        return unique;
-      } catch (e) {
-        return [];
-      }
+        return JSON.parse(cached);
+      } catch (e) {}
     }
-    return [];
+    return [
+      { Symptoms: 'fever, headache, body ache, high temperature, pain', MedicineName: 'Paracetamol', Dosage: '1-0-1', Composition: 'Paracetamol 500mg' },
+      { Symptoms: 'throat infection, cough, dry cough, sore throat, bronchitis', MedicineName: 'Acefyl Cough Syrup', Dosage: '1-1-1', Composition: 'Acefylline Piperazine' },
+      { Symptoms: 'heartburn, acidity, GERD, gastric, stomach pain, reflux', MedicineName: 'Omeprazole', Dosage: '1-0-0', Composition: 'Omeprazole 20mg' },
+      { Symptoms: 'allergic rhinitis, sneezing, runny nose, allergy, itching', MedicineName: 'Loratadine', Dosage: '0-0-1', Composition: 'Loratadine 10mg' },
+      { Symptoms: 'bacterial infection, fever, throat infection, tonsillitis', MedicineName: 'Co-Amoxiclav', Dosage: '1-0-1', Composition: 'Amoxicillin + Clavulanic Acid' }
+    ];
   });
 
-  const [voucherDetails, setVoucherDetails] = useState<VchDetail[]>(() => {
-    const cached = localStorage.getItem('cms_voucher_details');
-    return cached ? JSON.parse(cached) : [];
-  });
-
-  const [acLedger, setAcLedger] = useState<ACLedger[]>(() => {
-    const cached = localStorage.getItem('cms_ac_ledger');
-    return cached ? JSON.parse(cached) : [];
-  });
-
-  // Save states to local storage on mutation
   useEffect(() => {
-    localStorage.setItem('cms_patients', JSON.stringify(patients));
-  }, [patients]);
+    localStorage.setItem('cms_smart_locator_medicines', JSON.stringify(smartLocatorMedicines));
+  }, [smartLocatorMedicines]);
+  const [invoices, setInvoices] = useState<InvoiceHeader[]>([]);
+  const [invoiceDetails, setInvoiceDetails] = useState<InvoiceDetail[]>([]);
+  const [salesReturns, setSalesReturns] = useState<SRInvHeader[]>([]);
+  const [grns, setGrns] = useState<InvVchHeader[]>([]);
+  const [grnDetails, setGrnDetails] = useState<InvVchDetail[]>([]);
+  const [invLedger, setInvLedger] = useState<InvLedger[]>([]);
+  const [tlAccounts, setTlAccounts] = useState<TLAccount[]>(INITIAL_TL_ACCOUNTS);
+  const [flAccounts, setFlAccounts] = useState<FLAccount[]>(INITIAL_FL_ACCOUNTS);
+  const [slAccounts, setSlAccounts] = useState<SLAccount[]>(INITIAL_SL_ACCOUNTS);
+  const [vouchers, setVouchers] = useState<VchHeader[]>([]);
+  const [voucherDetails, setVoucherDetails] = useState<VchDetail[]>([]);
+  const [acLedger, setAcLedger] = useState<ACLedger[]>([]);
 
-  useEffect(() => {
-    localStorage.setItem('cms_appointments', JSON.stringify(appointments));
-  }, [appointments]);
-
-  useEffect(() => {
-    localStorage.setItem('cms_tokens', JSON.stringify(tokens));
-  }, [tokens]);
+  // Save states to local storage on mutation is removed to prevent browser memory usage as requested.
 
   useEffect(() => {
-    localStorage.setItem('cms_items', JSON.stringify(items));
-  }, [items]);
+    // Auto-sync general ledger postings to MongoDB
+    if (mongoDbSettings.SyncEnabled && acLedger.length > 0) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+      const timer = setTimeout(() => {
+        fetch(`${bridgeUrl}/api/acledger`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(acLedger)
+        })
+          .then(res => res.json())
+          .then(data => {
+            console.log('General ledger postings synced to MongoDB:', data);
+          })
+          .catch(e => console.warn('Could not sync acLedger postings with MongoDB:', e.message));
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [acLedger, mongoDbSettings.SyncEnabled, mongoDbSettings.BridgeUrl]);
 
-  useEffect(() => {
-    localStorage.setItem('cms_visits', JSON.stringify(visits));
-  }, [visits]);
+  // Refresh All state
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [refreshMessage, setRefreshMessage] = useState<string>('');
 
-  useEffect(() => {
-    localStorage.setItem('cms_visit_medicines', JSON.stringify(visitMedicines));
-  }, [visitMedicines]);
+  // Function to refresh all app data and sync from backend/MongoDB
+  const refreshAllData = async () => {
+    setIsRefreshing(true);
+    setRefreshMessage('');
+    const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
 
-  useEffect(() => {
-    localStorage.setItem('cms_med_certs', JSON.stringify(medicalCertificates));
-  }, [medicalCertificates]);
+    try {
+      const tasks = [
+        fetch(`${bridgeUrl}/api/users`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setUsersList(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/settings/clinic`).then(r => r.ok ? r.json() : null).then(data => data && data.ClinicName && setClinicSettings(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/settings/sms`).then(r => r.ok ? r.json() : null).then(data => data && data.ApiUrl && setSmsSettings(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/patients`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setPatients(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/items`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setItems(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/lab-tests`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setLabTests(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/smart-locator`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setSmartLocatorMedicines(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/appointments`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setAppointments(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/tokens`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setTokens(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/visits`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setVisits(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/visit-medicines`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setVisitMedicines(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/billing/invoices`).then(r => r.ok ? r.json() : null).then(data => {
+          if (data && Array.isArray(data.headers)) setInvoices(data.headers);
+          if (data && Array.isArray(data.details)) setInvoiceDetails(data.details);
+        }).catch(() => {}),
+        fetch(`${bridgeUrl}/api/certificates`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setMedicalCertificates(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/sbp-certificates`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setSbpCertificates(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/billing/returns`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setSalesReturns(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/grns`).then(r => r.ok ? r.json() : null).then(data => {
+          if (data && Array.isArray(data.headers)) setGrns(data.headers);
+          if (data && Array.isArray(data.details)) setGrnDetails(data.details);
+        }).catch(() => {}),
+        fetch(`${bridgeUrl}/api/suppliers`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setSuppliers(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/accounts/fl`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setFlAccounts(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/accounts/sl`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setSlAccounts(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/accounts`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setTlAccounts(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/vouchers`).then(r => r.ok ? r.json() : null).then(data => {
+          if (data && Array.isArray(data.headers)) setVouchers(data.headers);
+          if (data && Array.isArray(data.details)) setVoucherDetails(data.details);
+        }).catch(() => {}),
+        fetch(`${bridgeUrl}/api/acledger`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setAcLedger(data)).catch(() => {})
+      ];
 
-  useEffect(() => {
-    localStorage.setItem('cms_sbp_certs', JSON.stringify(sbpCertificates));
-  }, [sbpCertificates]);
+      await Promise.allSettled(tasks);
+      setRefreshMessage('All app records & database data updated to latest!');
+    } catch (e) {
+      setRefreshMessage('App data refreshed.');
+    } finally {
+      setIsRefreshing(false);
+      setTimeout(() => setRefreshMessage(''), 4000);
+    }
+  };
 
+  // Synchronize master states with MongoDB on startup or when bridge connection changes
   useEffect(() => {
-    localStorage.setItem('cms_invoices', JSON.stringify(invoices));
-  }, [invoices]);
-
-  useEffect(() => {
-    localStorage.setItem('cms_invoice_details', JSON.stringify(invoiceDetails));
-  }, [invoiceDetails]);
-
-  useEffect(() => {
-    localStorage.setItem('cms_sales_returns', JSON.stringify(salesReturns));
-  }, [salesReturns]);
-
-  useEffect(() => {
-    localStorage.setItem('cms_grns', JSON.stringify(grns));
-  }, [grns]);
-
-  useEffect(() => {
-    localStorage.setItem('cms_grn_details', JSON.stringify(grnDetails));
-  }, [grnDetails]);
-
-  useEffect(() => {
-    localStorage.setItem('cms_inv_ledger', JSON.stringify(invLedger));
-  }, [invLedger]);
-
-  useEffect(() => {
-    localStorage.setItem('cms_tl_accounts', JSON.stringify(tlAccounts));
-  }, [tlAccounts]);
-
-  useEffect(() => {
-    localStorage.setItem('cms_vouchers', JSON.stringify(vouchers));
-  }, [vouchers]);
-
-  useEffect(() => {
-    localStorage.setItem('cms_voucher_details', JSON.stringify(voucherDetails));
-  }, [voucherDetails]);
-
-  useEffect(() => {
-    localStorage.setItem('cms_ac_ledger', JSON.stringify(acLedger));
-  }, [acLedger]);
-
-  useEffect(() => {
-    localStorage.setItem('cms_users', JSON.stringify(usersList));
-  }, [usersList]);
-
-  useEffect(() => {
-    localStorage.setItem('cms_clinic_settings', JSON.stringify(clinicSettings));
-  }, [clinicSettings]);
+    if (!mongoDbSettings.SyncEnabled) return;
+    refreshAllData();
+  }, [mongoDbSettings.BridgeUrl, mongoDbSettings.SyncEnabled]);
 
   // Active User Rights Matrix helper
-  const currentUserRights = ROLE_RIGHTS[currentUser.Role];
+  const currentUserRights = currentUser.UserRights || ROLE_RIGHTS[currentUser.Role] || ROLE_RIGHTS['Administrator'];
 
-  // Check if a tab is accessible based on permissions
+  // Check if a tab is accessible based on custom permissions and rights
   const isAccessible = (menuId: string) => {
+    // Dashboard is STRICTLY restricted to Administrator only
+    if (menuId === 'dashboard') {
+      return currentUser.Role === 'Administrator';
+    }
+
+    // 1. Check custom permissions object if configured on user
+    if (currentUser.Permissions) {
+      if (menuId === 'patients') return !!currentUser.Permissions.canViewPatientDesk;
+      if (menuId === 'emr') return !!currentUser.Permissions.canViewEMRDesk;
+      if (menuId === 'pharmacy') return !!currentUser.Permissions.canViewPharmacyPOS;
+      if (menuId === 'accounts') return !!currentUser.Permissions.canViewAccountingDesk;
+      if (menuId === 'reports') return !!currentUser.Permissions.canViewReportingDesk;
+      if (menuId === 'uploads') return !!currentUser.Permissions.canViewUploadingDesk;
+      if (menuId === 'settings') return !!currentUser.Permissions.canViewSettingsDesk;
+      if (menuId === 'queryhandler') return !!currentUser.Permissions.canViewQueryHandlerDesk;
+      if (menuId === 'nhchistory') return !!currentUser.Permissions.canViewNhcHistoryDesk;
+    }
+
     if (menuId === 'settings') return currentUser.Role === 'Administrator';
     if (menuId === 'uploads') return currentUser.Role === 'Administrator';
     if (menuId === 'reports') return currentUser.Role === 'Administrator' || currentUser.Role === 'Accountant';
 
     const right = currentUserRights.find((r) => r.MenuID === menuId);
     return right ? right.Status : false;
+  };
+
+  // Auto-switch active tab if non-admin is currently on an inaccessible tab (such as dashboard)
+  useEffect(() => {
+    if (!isAccessible(activeTab)) {
+      if (currentUser.Role === 'Pharmacist') {
+        setActiveTab('pharmacy');
+      } else if (currentUser.Role === 'Accountant') {
+        setActiveTab('accounts');
+      } else {
+        setActiveTab('patients');
+      }
+    }
+  }, [currentUser.Role, currentUser.Permissions, activeTab]);
+
+  // User-to-User Access Control Helper
+  const canUserAccessTargetUser = (targetUserOrId: User | string): boolean => {
+    if (currentUser.Role === 'Administrator') return true;
+    const targetId = typeof targetUserOrId === 'string' ? targetUserOrId : targetUserOrId.UserID;
+    const targetLogin = typeof targetUserOrId === 'string' ? targetUserOrId : targetUserOrId.LoginName;
+
+    if (currentUser.UserID === targetId) return true;
+    const allowed = currentUser.AllowedUserIDs || ['ALL'];
+    if (allowed.includes('ALL') || allowed.includes('*')) return true;
+    return allowed.includes(targetId) || (!!targetLogin && allowed.includes(targetLogin));
   };
 
   // -------------------------------------------------------------
@@ -388,16 +376,105 @@ export default function App() {
   // Add Patient Intake file
   const handleAddPatient = (newPatient: Patient) => {
     setPatients((prev) => [...prev, newPatient]);
+    if (mongoDbSettings.SyncEnabled) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+      fetch(`${bridgeUrl}/api/patients`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newPatient)
+      }).catch(err => console.error('Failed to synchronize patient to MongoDB:', err.message));
+    }
+  };
+
+  // Update Patient profile
+  const handleUpdatePatient = (updatedPatient: Patient) => {
+    setPatients((prev) => prev.map(p => p.PatientID === updatedPatient.PatientID ? updatedPatient : p));
+    if (mongoDbSettings.SyncEnabled) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+      fetch(`${bridgeUrl}/api/patients/${updatedPatient.PatientID}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedPatient)
+      }).catch(err => console.error('Failed to synchronize updated patient to MongoDB:', err.message));
+    }
   };
 
   // Book OPD Consultation Appointment
   const handleAddAppointment = (newApp: Appointment) => {
     setAppointments((prev) => [...prev, newApp]);
+    if (mongoDbSettings.SyncEnabled) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+      fetch(`${bridgeUrl}/api/appointments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newApp)
+      }).catch(err => console.error('Failed to synchronize appointment to MongoDB:', err.message));
+    }
+  };
+
+  const handleUpdateAppointment = (updatedApp: Appointment) => {
+    setAppointments((prev) => prev.map(a => a.AppointmentID === updatedApp.AppointmentID ? updatedApp : a));
+    if (mongoDbSettings.SyncEnabled) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+      fetch(`${bridgeUrl}/api/appointments/${updatedApp.AppointmentID}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedApp)
+      }).catch(err => console.error('Failed to sync updated appointment to MongoDB:', err.message));
+    }
+  };
+
+  const handleDeleteAppointment = (appId: string) => {
+    setAppointments((prev) => prev.filter(a => a.AppointmentID !== appId));
+    if (mongoDbSettings.SyncEnabled) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+      fetch(`${bridgeUrl}/api/appointments/${appId}`, {
+        method: 'DELETE'
+      }).catch(err => console.error('Failed to delete appointment from MongoDB:', err.message));
+    }
   };
 
   // Queue tokens waiting list
   const handleAddToken = (newToken: Token) => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const tokenDate = newToken.Date || todayStr;
+
+    // Conditional check: If selected date is in the future (> today), cancel token process and create future-dated appointment record instead
+    if (tokenDate > todayStr) {
+      console.warn(`[TOKEN ISSUANCE CANCELLED] Selected date ${tokenDate} is a future date. Token generation cancelled; creating future-dated appointment record instead.`);
+      const existingApp = appointments.find(
+        a => a.PatientID === newToken.PatientID && a.AppointmentDate === tokenDate
+      );
+      if (!existingApp) {
+        let nextNum = appointments.length + 1;
+        let newAppId = `APP-${String(nextNum).padStart(3, '0')}`;
+        while (appointments.some((a) => a.AppointmentID === newAppId)) {
+          nextNum++;
+          newAppId = `APP-${String(nextNum).padStart(3, '0')}`;
+        }
+        const futureApp: Appointment = {
+          AppointmentID: newAppId,
+          PatientID: newToken.PatientID,
+          AppointmentDate: tokenDate,
+          Shift: newToken.Shift,
+          FeeCharged: 1500,
+          Remarks: 'Future Appointment Booking (Token Process Cancelled)',
+          Status: 1
+        };
+        handleAddAppointment(futureApp);
+      }
+      return; // Cancel token issuance
+    }
+
     setTokens((prev) => [...prev, newToken]);
+    if (mongoDbSettings.SyncEnabled) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+      fetch(`${bridgeUrl}/api/tokens`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newToken)
+      }).catch(err => console.error('Failed to synchronize token to MongoDB:', err.message));
+    }
   };
 
   // Helper: Update third level account live balance algebraically
@@ -458,6 +535,16 @@ export default function App() {
     setAppointments((prevApps) =>
       prevApps.map((app) => (app.AppointmentID === appId ? { ...app, Status: status } : app))
     );
+
+    // Sync status change to MongoDB
+    if (mongoDbSettings.SyncEnabled) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+      fetch(`${bridgeUrl}/api/appointments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...targetApp, Status: status })
+      }).catch(err => console.error('Failed to sync updated appointment to MongoDB:', err.message));
+    }
 
     // 3. Trigger financial postings outside of the setAppointments updater callback!
     if (isTransitioningToPaid) {
@@ -529,6 +616,19 @@ export default function App() {
 
         return updated;
       });
+
+      // Synchronize appointment payment voucher & details with MongoDB
+      if (mongoDbSettings.SyncEnabled) {
+        const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+        fetch(`${bridgeUrl}/api/vouchers`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...newVchHeader,
+            detailsRows: [detailDebit, detailCredit]
+          })
+        }).catch(err => console.error('Failed to sync appointment payment voucher to MongoDB:', err.message));
+      }
     }
   };
 
@@ -536,89 +636,254 @@ export default function App() {
     setTokens((prev) =>
       prev.map((t) => (t.TokenNo === tokenNo && t.Shift === shift ? { ...t, Status: status } : t))
     );
+
+    const targetToken = tokens.find(t => t.TokenNo === tokenNo && t.Shift === shift);
+    if (targetToken && mongoDbSettings.SyncEnabled) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+      fetch(`${bridgeUrl}/api/tokens`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...targetToken, Status: status })
+      }).catch(err => console.error('Failed to sync updated token to MongoDB:', err.message));
+    }
   };
 
-  // EMR Doctor Consult Assessment
-  const handleAddVisit = (newVisit: Visit, medicines: VisitMedicine[], testIds: string[]) => {
-    setVisits((prev) => [...prev, newVisit]);
-    setVisitMedicines((prev) => [...prev, ...medicines]);
-
-    const assocToken = tokens.find(t => t.PatientID === newVisit.PatientID && t.Status === 2);
-    const shift = assocToken ? assocToken.Shift : (currentUser.AssignedShift !== 'Both' && typeof currentUser.AssignedShift === 'number' ? currentUser.AssignedShift : 1);
+  // Helper to trigger all EMR-related financial postings upon posting a consultation visit
+  const triggerEMRFinancialPostings = (visit: Visit, shift: number, testIds: string[]) => {
     const targetCashTLID = shift === 1 ? 101001 : 101002;
     const targetRevTLID = shift === 1 ? 401101 : 401201;
 
-    // Process Consultation Fee Payments & Update Appointment status
-    if (newVisit.Status === 2) {
-      const targetApp = appointments.find(a => a.PatientID === newVisit.PatientID && a.Status !== 3 && a.Status !== 4);
-      const isPaid = newVisit.ConsultationPaymentOption === 'Paid - Cash' || newVisit.ConsultationPaymentOption === 'Paid - Online/Card';
-      
-      if (targetApp) {
-        handleUpdateAppointmentStatus(targetApp.AppointmentID, isPaid ? 4 : 2);
-      } else if (isPaid && newVisit.ConsultationFee && newVisit.ConsultationFee > 0) {
-        const opdRate = newVisit.ConsultationFee;
-        const nextVchNo = `CRV-OPD-WALK-${String(vouchers.length + 1).padStart(4, '0')}`;
-        const journalDate = new Date().toISOString().split('T')[0];
+    // 1. Process Consultation Fee walk-in payment
+    const targetApp = appointments.find(a => a.PatientID === visit.PatientID && a.Status !== 3 && a.Status !== 4);
+    const isPaid = visit.ConsultationPaymentOption === 'Paid - Cash' || visit.ConsultationPaymentOption === 'Paid - Online/Card';
+    
+    if (targetApp) {
+      handleUpdateAppointmentStatus(targetApp.AppointmentID, isPaid ? 4 : 2);
+    } else if (isPaid && visit.ConsultationFee && visit.ConsultationFee > 0) {
+      const opdRate = visit.ConsultationFee;
+      const nextVchNo = `CRV-OPD-WALK-${String(vouchers.length + 1).padStart(4, '0')}`;
+      const journalDate = new Date().toISOString().split('T')[0];
 
-        const newVchHeader: VchHeader = {
-          VchNo: nextVchNo,
-          VchDate: journalDate,
-          VchType: 'CRV',
-          Status: 2, // Posted
-          Remarks: `OPD Walk-in Consultation Fee collected. Patient ID: ${newVisit.PatientID}, Shift: ${shift}`
-        };
+      const newVchHeader: VchHeader = {
+        VchNo: nextVchNo,
+        VchDate: journalDate,
+        VchType: 'CRV',
+        Status: 2, // Posted
+        Remarks: `OPD Walk-in Consultation Fee collected. Patient ID: ${visit.PatientID}, Shift: ${shift}`
+      };
 
-        const detailDebit: VchDetail = {
-          VchNo: nextVchNo,
-          TLID: targetCashTLID,
-          Debit: opdRate,
-          Credit: 0,
-          Description: `Walk-in Consultation Ticket cash collected`
-        };
+      const detailDebit: VchDetail = {
+        VchNo: nextVchNo,
+        TLID: targetCashTLID,
+        Debit: opdRate,
+        Credit: 0,
+        Description: `Walk-in Consultation Ticket cash collected`
+      };
 
-        const detailCredit: VchDetail = {
-          VchNo: nextVchNo,
-          TLID: targetRevTLID,
-          Debit: 0,
-          Credit: opdRate,
-          Description: `Walk-in OPD Ticket Revenue posted`
-        };
+      const detailCredit: VchDetail = {
+        VchNo: nextVchNo,
+        TLID: targetRevTLID,
+        Debit: 0,
+        Credit: opdRate,
+        Description: `Walk-in OPD Ticket Revenue posted`
+      };
 
-        setVouchers((prevVch) => {
-          let finalVchNo = nextVchNo;
-          let suffixNum = 1;
-          while (prevVch.some(v => v.VchNo === finalVchNo)) {
-            finalVchNo = `${nextVchNo}-${suffixNum++}`;
-          }
-          newVchHeader.VchNo = finalVchNo;
-          detailDebit.VchNo = finalVchNo;
-          detailCredit.VchNo = finalVchNo;
-          return [...prevVch, newVchHeader];
-        });
+      setVouchers((prevVch) => {
+        let finalVchNo = nextVchNo;
+        let suffixNum = 1;
+        while (prevVch.some(v => v.VchNo === finalVchNo)) {
+          finalVchNo = `${nextVchNo}-${suffixNum++}`;
+        }
+        newVchHeader.VchNo = finalVchNo;
+        detailDebit.VchNo = finalVchNo;
+        detailCredit.VchNo = finalVchNo;
+        return [...prevVch, newVchHeader];
+      });
 
-        setVoucherDetails((prevDet) => [...prevDet, detailDebit, detailCredit]);
+      setVoucherDetails((prevDet) => [...prevDet, detailDebit, detailCredit]);
 
-        setTlAccounts((prevAccs) => {
-          let updated = updateAccountBalanceAlgebraically(targetCashTLID, opdRate, 0, prevAccs);
-          updated = updateAccountBalanceAlgebraically(targetRevTLID, 0, opdRate, updated);
+      setTlAccounts((prevAccs) => {
+        let updated = updateAccountBalanceAlgebraically(targetCashTLID, opdRate, 0, prevAccs);
+        updated = updateAccountBalanceAlgebraically(targetRevTLID, 0, opdRate, updated);
 
-          const accDebitBal = prevAccs.find(a => a.TLID === targetCashTLID)?.AcBalance || 0;
-          const accCreditBal = prevAccs.find(a => a.TLID === targetRevTLID)?.AcBalance || 0;
+        const accDebitBal = prevAccs.find(a => a.TLID === targetCashTLID)?.AcBalance || 0;
+        const accCreditBal = prevAccs.find(a => a.TLID === targetRevTLID)?.AcBalance || 0;
 
-          const finalVchNo = newVchHeader.VchNo;
-          const logDebit = createLedgerPostingLog(finalVchNo, targetCashTLID, opdRate, 0, `OPD Walk-in Ticket Paid (Shift ${shift})`, accDebitBal);
-          const logCredit = createLedgerPostingLog(finalVchNo, targetRevTLID, 0, opdRate, `OPD Walk-in Consultation Revenue (Shift ${shift})`, accCreditBal);
+        const finalVchNo = newVchHeader.VchNo;
+        const logDebit = createLedgerPostingLog(finalVchNo, targetCashTLID, opdRate, 0, `OPD Walk-in Ticket Paid (Shift ${shift})`, accDebitBal);
+        const logCredit = createLedgerPostingLog(finalVchNo, targetRevTLID, 0, opdRate, `OPD Walk-in Consultation Revenue (Shift ${shift})`, accCreditBal);
 
-          setAcLedger((prevLogs) => [...prevLogs, logDebit, logCredit]);
+        setAcLedger((prevLogs) => [...prevLogs, logDebit, logCredit]);
 
-          return updated;
-        });
+        return updated;
+      });
+
+      if (mongoDbSettings.SyncEnabled) {
+        const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+        fetch(`${bridgeUrl}/api/vouchers`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...newVchHeader,
+            detailsRows: [detailDebit, detailCredit]
+          })
+        }).catch(err => console.error('Failed to sync walk-in ticket voucher to MongoDB:', err.message));
       }
     }
 
-    // If visit is posted/finalized (Status = 2) and diagnostic lab checks exist
-    if (newVisit.Status === 2 && testIds.length > 0) {
-      // Calculate total diagnostics cost
+    // 2. Process Clinical Medicine manual payment (Clinical Compounding fee)
+    const clinicalPayAmt = Number(visit.ClinicalMedicinePayment) || 0;
+    if (clinicalPayAmt > 0) {
+      const nextVchNo = `CRV-EMR-CLIN-${String(vouchers.length + 1).padStart(4, '0')}`;
+      const journalDate = new Date().toISOString().split('T')[0];
+      const clinicalTLID = shift === 1 ? 401102 : 401202; // Morning vs Evening Clinical Medicine Revenue
+
+      const newVchHeader: VchHeader = {
+        VchNo: nextVchNo,
+        VchDate: journalDate,
+        VchType: 'CRV',
+        Status: 2, // Posted
+        Remarks: `EMR Clinical Medicine manual compounding fee collected. Patient ID: ${visit.PatientID}, Shift: ${shift}`
+      };
+
+      const detailDebit: VchDetail = {
+        VchNo: nextVchNo,
+        TLID: targetCashTLID,
+        Debit: clinicalPayAmt,
+        Credit: 0,
+        Description: `Clinical compounding medicine payment cash collected (Shift ${shift})`
+      };
+
+      const detailCredit: VchDetail = {
+        VchNo: nextVchNo,
+        TLID: clinicalTLID,
+        Debit: 0,
+        Credit: clinicalPayAmt,
+        Description: `Clinical compounding medicine revenue mapped`
+      };
+
+      setVouchers((prevVch) => {
+        let finalVchNo = nextVchNo;
+        let suffixNum = 1;
+        while (prevVch.some(v => v.VchNo === finalVchNo)) {
+          finalVchNo = `${nextVchNo}-${suffixNum++}`;
+        }
+        newVchHeader.VchNo = finalVchNo;
+        detailDebit.VchNo = finalVchNo;
+        detailCredit.VchNo = finalVchNo;
+        return [...prevVch, newVchHeader];
+      });
+
+      setVoucherDetails((prevDet) => [...prevDet, detailDebit, detailCredit]);
+
+      setTlAccounts((prevAccs) => {
+        let updated = updateAccountBalanceAlgebraically(targetCashTLID, clinicalPayAmt, 0, prevAccs);
+        updated = updateAccountBalanceAlgebraically(clinicalTLID, 0, clinicalPayAmt, updated);
+
+        const accDebitBal = prevAccs.find(a => a.TLID === targetCashTLID)?.AcBalance || 0;
+        const accCreditBal = prevAccs.find(a => a.TLID === clinicalTLID)?.AcBalance || 0;
+
+        const finalVchNo = newVchHeader.VchNo;
+        const logDebit = createLedgerPostingLog(finalVchNo, targetCashTLID, clinicalPayAmt, 0, `Clinical Compounding Medicine Paid (Shift ${shift})`, accDebitBal);
+        const logCredit = createLedgerPostingLog(finalVchNo, clinicalTLID, 0, clinicalPayAmt, `Clinical Compounding Revenue Credit (Shift ${shift})`, accCreditBal);
+
+        setAcLedger((prevLogs) => [...prevLogs, logDebit, logCredit]);
+
+        return updated;
+      });
+
+      if (mongoDbSettings.SyncEnabled) {
+        const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+        fetch(`${bridgeUrl}/api/vouchers`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...newVchHeader,
+            detailsRows: [detailDebit, detailCredit]
+          })
+        }).catch(err => console.error('Failed to sync clinical compounding voucher to MongoDB:', err.message));
+      }
+    }
+
+    // 2.5 Process File Fee & Card Fee payment
+    const fileFeeAmt = Number(visit.FileFee) || 0;
+    const cardFeeAmt = Number(visit.CardFee) || 0;
+    const fileCardTotal = fileFeeAmt + cardFeeAmt;
+
+    if (fileCardTotal > 0) {
+      const nextVchNo = `CRV-EMR-CARD-${String(vouchers.length + 1).padStart(4, '0')}`;
+      const journalDate = new Date().toISOString().split('T')[0];
+      const fileCardTLID = shift === 1 ? 401105 : 401205; // Morning vs Evening File & Card Fee Revenue
+
+      const newVchHeader: VchHeader = {
+        VchNo: nextVchNo,
+        VchDate: journalDate,
+        VchType: 'CRV',
+        Status: 2, // Posted
+        Remarks: `EMR File & Patient Card fee collected. Patient ID: ${visit.PatientID}, Shift: ${shift}`
+      };
+
+      const detailDebit: VchDetail = {
+        VchNo: nextVchNo,
+        TLID: targetCashTLID,
+        Debit: fileCardTotal,
+        Credit: 0,
+        Description: `File & Card fee cash collected (Shift ${shift})`
+      };
+
+      const detailCredit: VchDetail = {
+        VchNo: nextVchNo,
+        TLID: fileCardTLID,
+        Debit: 0,
+        Credit: fileCardTotal,
+        Description: `File & Card fee revenue mapped (File PKR ${fileFeeAmt}, Card PKR ${cardFeeAmt})`
+      };
+
+      setVouchers((prevVch) => {
+        let finalVchNo = nextVchNo;
+        let suffixNum = 1;
+        while (prevVch.some(v => v.VchNo === finalVchNo)) {
+          finalVchNo = `${nextVchNo}-${suffixNum++}`;
+        }
+        newVchHeader.VchNo = finalVchNo;
+        detailDebit.VchNo = finalVchNo;
+        detailCredit.VchNo = finalVchNo;
+        return [...prevVch, newVchHeader];
+      });
+
+      setVoucherDetails((prevDet) => [...prevDet, detailDebit, detailCredit]);
+
+      setTlAccounts((prevAccs) => {
+        let updated = updateAccountBalanceAlgebraically(targetCashTLID, fileCardTotal, 0, prevAccs);
+        updated = updateAccountBalanceAlgebraically(fileCardTLID, 0, fileCardTotal, updated);
+
+        const accDebitBal = prevAccs.find(a => a.TLID === targetCashTLID)?.AcBalance || 0;
+        const accCreditBal = prevAccs.find(a => a.TLID === fileCardTLID)?.AcBalance || 0;
+
+        const finalVchNo = newVchHeader.VchNo;
+        const logDebit = createLedgerPostingLog(finalVchNo, targetCashTLID, fileCardTotal, 0, `File & Card Fee Paid (Shift ${shift})`, accDebitBal);
+        const logCredit = createLedgerPostingLog(finalVchNo, fileCardTLID, 0, fileCardTotal, `File & Card Revenue Credit (Shift ${shift})`, accCreditBal);
+
+        setAcLedger((prevLogs) => [...prevLogs, logDebit, logCredit]);
+
+        return updated;
+      });
+
+      if (mongoDbSettings.SyncEnabled) {
+        const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+        fetch(`${bridgeUrl}/api/vouchers`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...newVchHeader,
+            detailsRows: [detailDebit, detailCredit]
+          })
+        }).catch(err => console.error('Failed to sync file & card voucher to MongoDB:', err.message));
+      }
+    }
+
+    // 3. Process Lab diagnostics billing
+    if (testIds && testIds.length > 0) {
       const labCostSum = testIds.reduce((sum, tid) => {
         const test = labTests.find((t) => t.TID === tid);
         return sum + (test ? test.Cost : 0);
@@ -627,16 +892,14 @@ export default function App() {
       const nextVchNo = `CRV-LAB-${String(vouchers.length + 1).padStart(4, '0')}`;
       const journalDate = new Date().toISOString().split('T')[0];
 
-      // 1. Create financial cash receipt voucher
       const newVchHeader: VchHeader = {
         VchNo: nextVchNo,
         VchDate: journalDate,
         VchType: 'CRV',
         Status: 2, // Posted
-        Remarks: `Advised Lab test billing. Visit ID: ${newVisit.VisitID}, Shift: ${shift}`
+        Remarks: `Advised Lab test billing. Visit ID: ${visit.VisitID}, Shift: ${shift}`
       };
 
-      // 2. Debit Doctor Cash (for shift) and Credit Lab Revenue (401002)
       const detailDebit: VchDetail = {
         VchNo: nextVchNo,
         TLID: targetCashTLID,
@@ -653,40 +916,188 @@ export default function App() {
         Description: `Diagnostics test revenue mapped`
       };
 
-      setVouchers((prevVch) => [...prevVch, newVchHeader]);
+      setVouchers((prevVch) => {
+        let finalVchNo = nextVchNo;
+        let suffixNum = 1;
+        while (prevVch.some(v => v.VchNo === finalVchNo)) {
+          finalVchNo = `${nextVchNo}-${suffixNum++}`;
+        }
+        newVchHeader.VchNo = finalVchNo;
+        detailDebit.VchNo = finalVchNo;
+        detailCredit.VchNo = finalVchNo;
+        return [...prevVch, newVchHeader];
+      });
+
       setVoucherDetails((prevDet) => [...prevDet, detailDebit, detailCredit]);
 
-      // 3. Update Chart of Accounts balances live
       setTlAccounts((prevAccs) => {
         let updated = updateAccountBalanceAlgebraically(targetCashTLID, labCostSum, 0, prevAccs);
         updated = updateAccountBalanceAlgebraically(401002, 0, labCostSum, updated);
         
-        // 4. Record transactions in ACLedger
         const accDebitBal = prevAccs.find(a => a.TLID === targetCashTLID)?.AcBalance || 0;
         const accCreditBal = prevAccs.find(a => a.TLID === 401002)?.AcBalance || 0;
 
-        const logDebit = createLedgerPostingLog(nextVchNo, targetCashTLID, labCostSum, 0, `Advised Lab tests collection (Shift ${shift})`, accDebitBal);
-        const logCredit = createLedgerPostingLog(nextVchNo, 401002, 0, labCostSum, `Diagnostics test revenue balance`, accCreditBal);
+        const finalVchNo = newVchHeader.VchNo;
+        const logDebit = createLedgerPostingLog(finalVchNo, targetCashTLID, labCostSum, 0, `Advised Lab tests collection (Shift ${shift})`, accDebitBal);
+        const logCredit = createLedgerPostingLog(finalVchNo, 401002, 0, labCostSum, `Diagnostics test revenue balance`, accCreditBal);
 
         setAcLedger((prevLogs) => [...prevLogs, logDebit, logCredit]);
 
         return updated;
       });
+
+      if (mongoDbSettings.SyncEnabled) {
+        const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+        fetch(`${bridgeUrl}/api/vouchers`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...newVchHeader,
+            detailsRows: [detailDebit, detailCredit]
+          })
+        }).catch(err => console.error('Failed to sync lab tests voucher to MongoDB:', err.message));
+      }
+    }
+  };
+
+  // EMR Doctor Consult Assessment
+  const handleAddVisit = (newVisit: Visit, medicines: VisitMedicine[], testIds: string[]) => {
+    setVisits((prev) => [...prev, newVisit]);
+    setVisitMedicines((prev) => [...prev, ...medicines]);
+
+    const visitDateStr = newVisit.VisitDate ? newVisit.VisitDate.split('T')[0] : new Date().toISOString().split('T')[0];
+
+    // Mark token as Visited (Status = 2) for this patient today
+    setTokens((prev) =>
+      prev.map(t =>
+        (t.PatientID === newVisit.PatientID && (t.Date === visitDateStr || !t.Date))
+          ? { ...t, Status: 2 }
+          : t
+      )
+    );
+
+    // Mark appointment as Completed (Status = 4)
+    setAppointments((prev) =>
+      prev.map(a =>
+        (a.PatientID === newVisit.PatientID && (a.AppointmentDate === visitDateStr || !a.AppointmentDate))
+          ? { ...a, Status: 4 }
+          : a
+      )
+    );
+
+    const assocToken = tokens.find(t => t.PatientID === newVisit.PatientID && (t.Date === visitDateStr || t.Status === 2));
+    const shift = assocToken ? assocToken.Shift : (currentUser.AssignedShift !== 'Both' && typeof currentUser.AssignedShift === 'number' ? currentUser.AssignedShift : 1);
+
+    // Trigger financial postings on finalized post
+    if (newVisit.Status === 2) {
+      triggerEMRFinancialPostings(newVisit, shift, testIds);
+    }
+
+    if (mongoDbSettings.SyncEnabled) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+      fetch(`${bridgeUrl}/api/visits`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newVisit)
+      }).catch(err => console.error('Failed to synchronize EMR consultation visit to MongoDB:', err.message));
+
+      if (medicines && medicines.length > 0) {
+        fetch(`${bridgeUrl}/api/visit-medicines`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(medicines)
+        }).catch(err => console.error('Failed to synchronize EMR visit medicines to MongoDB:', err.message));
+      }
+    }
+  };
+
+  // EMR Doctor Consult Assessment Update
+  const handleUpdateVisit = (updatedVisit: Visit, medicines: VisitMedicine[], testIds: string[]) => {
+    const existingVisit = visits.find((v) => v.VisitID === updatedVisit.VisitID);
+    const wasAlreadyPosted = existingVisit?.Status === 2;
+
+    setVisits((prev) => prev.map((v) => v.VisitID === updatedVisit.VisitID ? updatedVisit : v));
+    setVisitMedicines((prev) => {
+      const filtered = prev.filter((m) => m.VisitID !== updatedVisit.VisitID);
+      return [...filtered, ...medicines];
+    });
+
+    const visitDateStr = updatedVisit.VisitDate ? updatedVisit.VisitDate.split('T')[0] : new Date().toISOString().split('T')[0];
+
+    // Mark token as Visited (Status = 2) for this patient today
+    setTokens((prev) =>
+      prev.map(t =>
+        (t.PatientID === updatedVisit.PatientID && (t.Date === visitDateStr || !t.Date))
+          ? { ...t, Status: 2 }
+          : t
+      )
+    );
+
+    // Mark appointment as Completed (Status = 4)
+    setAppointments((prev) =>
+      prev.map(a =>
+        (a.PatientID === updatedVisit.PatientID && (a.AppointmentDate === visitDateStr || !a.AppointmentDate))
+          ? { ...a, Status: 4 }
+          : a
+      )
+    );
+
+    // Trigger financial postings if transitioning to Posted (Status = 2)
+    if (updatedVisit.Status === 2 && !wasAlreadyPosted) {
+      const assocToken = tokens.find(t => t.PatientID === updatedVisit.PatientID && t.Status === 2);
+      const shift = assocToken ? assocToken.Shift : (currentUser.AssignedShift !== 'Both' && typeof currentUser.AssignedShift === 'number' ? currentUser.AssignedShift : 1);
+      triggerEMRFinancialPostings(updatedVisit, shift, testIds);
+    }
+
+    if (mongoDbSettings.SyncEnabled) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+      fetch(`${bridgeUrl}/api/visits/${updatedVisit.VisitID}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedVisit)
+      }).catch(err => console.error('Failed to synchronize updated EMR visit to MongoDB:', err.message));
+
+      if (medicines && medicines.length > 0) {
+        fetch(`${bridgeUrl}/api/visit-medicines`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(medicines)
+        }).catch(err => console.error('Failed to synchronize updated EMR visit medicines to MongoDB:', err.message));
+      }
     }
   };
 
   const handleAddCertificate = (newCert: MedicalCertificate) => {
     setMedicalCertificates((prev) => [...prev, newCert]);
+    if (mongoDbSettings.SyncEnabled) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+      fetch(`${bridgeUrl}/api/certificates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newCert)
+      }).catch(err => console.error('Failed to synchronize standard medical certificate to MongoDB:', err.message));
+    }
   };
 
   const handleAddSbpCertificate = (newSbpCert: MedicalCertificateSBP) => {
     setSbpCertificates((prev) => [...prev, newSbpCert]);
+    if (mongoDbSettings.SyncEnabled) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+      fetch(`${bridgeUrl}/api/sbp-certificates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newSbpCert)
+      }).catch(err => console.error('Failed to synchronize SBP medical claim certificate to MongoDB:', err.message));
+    }
   };
 
   // Pharmacy Point of Sale Checkout
   const handleAddInvoice = (newHeader: InvoiceHeader, details: InvoiceDetail[]) => {
     setInvoices((prev) => [...prev, newHeader]);
     setInvoiceDetails((prev) => [...prev, ...details]);
+
+    let vchHdr: VchHeader | null = null;
+    let detailsRows: VchDetail[] = [];
 
     // If checkout is posted (Status = 2)
     if (newHeader.Status === 2) {
@@ -747,7 +1158,7 @@ export default function App() {
       const patentTLID = shift === 1 ? 401103 : 401203;
       const storeTLID = shift === 1 ? 401104 : 401204;
 
-      const vchHdr: VchHeader = {
+      vchHdr = {
         VchNo: nextVchNo,
         VchDate: journalDate,
         VchType: 'CRV',
@@ -755,7 +1166,7 @@ export default function App() {
         Remarks: `Pharmacy Checkout invoice. Ref: ${newHeader.InvoiceNo}, Shift: ${shift}`
       };
 
-      const detailsRows: VchDetail[] = [];
+      detailsRows = [];
       detailsRows.push({
         VchNo: nextVchNo,
         TLID: targetCashTLID,
@@ -875,6 +1286,46 @@ export default function App() {
         return updated;
       });
     }
+
+    if (mongoDbSettings.SyncEnabled) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+      fetch(`${bridgeUrl}/api/billing/checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          InvoiceNo: newHeader.InvoiceNo,
+          PatientID: newHeader.PatientID,
+          InvoiceDate: newHeader.InvoiceDate,
+          GAmount: newHeader.GAmount,
+          Discount: newHeader.Discount,
+          NetAmount: newHeader.NetAmount,
+          shift: newHeader.shift,
+          basketItems: details
+        })
+      })
+        .then(res => res.json())
+        .then(resData => {
+          console.log('POS Checkout synchronized to MongoDB successfully!', resData);
+          
+          // Sync pharmacy sales voucher and details rows to MongoDB
+          if (vchHdr && detailsRows.length > 0) {
+            fetch(`${bridgeUrl}/api/vouchers`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                ...vchHdr,
+                detailsRows
+              })
+            })
+              .then(vRes => vRes.json())
+              .then(vData => console.log('Pharmacy sales voucher synced successfully:', vData))
+              .catch(vErr => console.warn('Failed to sync pharmacy sales voucher:', vErr.message));
+          }
+        })
+        .catch(err => {
+          console.error('Failed to synchronize POS checkout to MongoDB:', err.message);
+        });
+    }
   };
 
   // Pharmacy Sales Returns Reversal
@@ -953,6 +1404,36 @@ export default function App() {
 
       return updated;
     });
+
+    if (mongoDbSettings.SyncEnabled) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+      fetch(`${bridgeUrl}/api/billing/returns`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...srHeader,
+          returnedItems: srDetails
+        })
+      })
+        .then(res => res.json())
+        .then(resData => {
+          console.log('Pharmacy sales return synced successfully:', resData);
+          
+          // Sync sales return voucher and details to MongoDB
+          fetch(`${bridgeUrl}/api/vouchers`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...vchHdr,
+              detailsRows: [dRowDebit, dRowCredit]
+            })
+          })
+            .then(vRes => vRes.json())
+            .then(vData => console.log('Pharmacy sales return voucher synced successfully:', vData))
+            .catch(vErr => console.warn('Failed to sync sales return voucher:', vErr.message));
+        })
+        .catch(err => console.error('Failed to synchronize pharmacy sales return to MongoDB:', err.message));
+    }
   };
 
   // Supplier GRN Inward
@@ -1000,7 +1481,7 @@ export default function App() {
       VchDate: journalDate,
       VchType: 'JV',
       Status: 2, // Posted
-      Remarks: `Supplier Goods Inward GRN. Supplier Ref: ${vchHeader.SID}`
+      Remarks: `Supplier Goods Inward GRN ${vchHeader.VchNo}. Supplier Ref: ${vchHeader.SID}`
     };
 
     const dRowDebit: VchDetail = {
@@ -1037,6 +1518,252 @@ export default function App() {
 
       return updated;
     });
+
+    if (mongoDbSettings.SyncEnabled) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+      fetch(`${bridgeUrl}/api/grns`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...vchHeader,
+          grnItems: vchDetails
+        })
+      })
+        .then(res => res.json())
+        .then(resData => {
+          console.log('Supplier GRN synced successfully:', resData);
+          
+          // Sync GRN capitalization voucher and details rows to MongoDB
+          fetch(`${bridgeUrl}/api/vouchers`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...vchHdr,
+              detailsRows: [dRowDebit, dRowCredit]
+            })
+          })
+            .then(vRes => vRes.json())
+            .then(vData => console.log('GRN capitalization voucher synced successfully:', vData))
+            .catch(vErr => console.warn('Failed to sync GRN capitalization voucher:', vErr.message));
+        })
+        .catch(err => console.error('Failed to synchronize Supplier GRN purchase to MongoDB:', err.message));
+    }
+  };
+
+  // Update Supplier GRN
+  const handleUpdateGRN = (vchHeader: InvVchHeader, vchDetails: InvVchDetail[]) => {
+    // Step A: Reverse/void the old GRN's stock levels and accounting balances
+    const oldDetails = grnDetails.filter(d => d.VchNo === vchHeader.VchNo);
+    
+    // Reverse stocks for old items
+    setItems((prevItems) => {
+      return prevItems.map((itm) => {
+        const matched = oldDetails.find(d => d.ItemID === itm.ItemID);
+        if (matched) {
+          return { ...itm, CStock: Math.max(0, itm.CStock - matched.QtyIn) };
+        }
+        return itm;
+      });
+    });
+
+    // Reverse voucher balances for the old journal voucher
+    const matchedVoucher = vouchers.find(v => v.Remarks.includes(vchHeader.VchNo) || v.VchNo === `JV-${vchHeader.VchNo}`);
+    let oldJVNo = '';
+    if (matchedVoucher) {
+      oldJVNo = matchedVoucher.VchNo;
+      const oldVchDetails = voucherDetails.filter(d => d.VchNo === oldJVNo);
+      
+      setVouchers(prev => prev.filter(v => v.VchNo !== oldJVNo));
+      setVoucherDetails(prev => prev.filter(d => d.VchNo !== oldJVNo));
+      setAcLedger(prev => prev.filter(l => l.VchNo !== oldJVNo));
+
+      setTlAccounts(prevAccs => {
+        let updated = [...prevAccs];
+        oldVchDetails.forEach(line => {
+          updated = updateAccountBalanceAlgebraically(line.TLID, -line.Debit, -line.Credit, updated);
+        });
+        return updated;
+      });
+    }
+
+    // Step B: Apply the new GRN's stock levels and accounting balances
+    let grnTotalCostSum = 0;
+    setItems((prevItems) => {
+      return prevItems.map((itm) => {
+        const matchedDetails = vchDetails.find((d) => d.ItemID === itm.ItemID);
+        if (matchedDetails) {
+          const updatedStock = itm.CStock + matchedDetails.QtyIn;
+          grnTotalCostSum += (matchedDetails.QtyIn * matchedDetails.PurchaseRate);
+
+          const nextLedgerId = `LEDG-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+          const newLedgerRow: InvLedger = {
+            LedgerID: nextLedgerId,
+            ItemID: itm.ItemID,
+            DocType: 'GRN',
+            DocNo: vchHeader.VchNo,
+            TxDate: vchHeader.VchDate,
+            QtyIn: matchedDetails.QtyIn,
+            QtyOut: 0,
+            Balance: updatedStock
+          };
+          setInvLedger((prevLedg) => [...prevLedg, newLedgerRow]);
+
+          return { ...itm, CStock: updatedStock, PurchasePrice: matchedDetails.PurchaseRate };
+        }
+        return itm;
+      });
+    });
+
+    // Update header and details state (overwriting existing one for VchNo)
+    setGrns(prev => {
+      const filtered = prev.filter(g => g.VchNo !== vchHeader.VchNo);
+      return [...filtered, vchHeader];
+    });
+    setGrnDetails(prev => {
+      const filtered = prev.filter(d => d.VchNo !== vchHeader.VchNo);
+      return [...filtered, ...vchDetails];
+    });
+
+    // Post new Journal Voucher
+    const nextVchNo = oldJVNo || `JV-GRN-${String(vouchers.length + 1).padStart(4, '0')}`;
+    const journalDate = vchHeader.VchDate || new Date().toISOString().split('T')[0];
+    const payableAccountID = vchHeader.SID === 'SUP-002' ? 201002 : 201001;
+
+    const vchHdr: VchHeader = {
+      VchNo: nextVchNo,
+      VchDate: journalDate,
+      VchType: 'JV',
+      Status: 2,
+      Remarks: `Supplier Goods Inward GRN ${vchHeader.VchNo}. Supplier Ref: ${vchHeader.SID}`
+    };
+
+    const dRowDebit: VchDetail = {
+      VchNo: nextVchNo,
+      TLID: 103001,
+      Debit: grnTotalCostSum,
+      Credit: 0,
+      Description: `GRN inventory asset capitalization`
+    };
+
+    const dRowCredit: VchDetail = {
+      VchNo: nextVchNo,
+      TLID: payableAccountID,
+      Debit: 0,
+      Credit: grnTotalCostSum,
+      Description: `GRN Accounts Payable to supplier`
+    };
+
+    setVouchers((prevVch) => [...prevVch, vchHdr]);
+    setVoucherDetails((prevDet) => [...prevDet, dRowDebit, dRowCredit]);
+
+    // Update COA
+    setTlAccounts((prevAccs) => {
+      let updated = updateAccountBalanceAlgebraically(103001, grnTotalCostSum, 0, prevAccs);
+      updated = updateAccountBalanceAlgebraically(payableAccountID, 0, grnTotalCostSum, updated);
+
+      const stockBal = prevAccs.find(a => a.TLID === 103001)?.AcBalance || 0;
+      const APBal = prevAccs.find(a => a.TLID === payableAccountID)?.AcBalance || 0;
+
+      const logDebit = createLedgerPostingLog(nextVchNo, 103001, grnTotalCostSum, 0, `GRN asset capitalization debit`, stockBal);
+      const logCredit = createLedgerPostingLog(nextVchNo, payableAccountID, 0, grnTotalCostSum, `Accounts Payable supplier credit`, APBal);
+
+      setAcLedger((prevLogs) => [...prevLogs, logDebit, logCredit]);
+
+      return updated;
+    });
+
+    if (mongoDbSettings.SyncEnabled) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+      fetch(`${bridgeUrl}/api/grns/${vchHeader.VchNo}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...vchHeader,
+          grnItems: vchDetails
+        })
+      })
+        .then(res => res.json())
+        .then(resData => {
+          console.log('Supplier GRN updated successfully in MongoDB:', resData);
+
+          if (oldJVNo) {
+            fetch(`${bridgeUrl}/api/vouchers/${oldJVNo}`, { method: 'DELETE' })
+              .then(() => {
+                fetch(`${bridgeUrl}/api/vouchers`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    ...vchHdr,
+                    detailsRows: [dRowDebit, dRowCredit]
+                  })
+                })
+                  .then(vRes => vRes.json())
+                  .then(vData => console.log('New GRN capitalization voucher synced:', vData))
+                  .catch(vErr => console.warn('Failed to sync new GRN capitalization voucher:', vErr.message));
+              })
+              .catch(e => console.error('Failed to void old capitalization voucher:', e.message));
+          }
+        })
+        .catch(err => console.error('Failed to update Supplier GRN in MongoDB:', err.message));
+    }
+  };
+
+  // Void Supplier GRN
+  const handleVoidGRN = (vchNo: string) => {
+    const oldDetails = grnDetails.filter(d => d.VchNo === vchNo);
+
+    // Subtract quantities from item stock
+    setItems((prevItems) => {
+      return prevItems.map((itm) => {
+        const matched = oldDetails.find(d => d.ItemID === itm.ItemID);
+        if (matched) {
+          return { ...itm, CStock: Math.max(0, itm.CStock - matched.QtyIn) };
+        }
+        return itm;
+      });
+    });
+
+    // Remove from grns and grnDetails state
+    setGrns(prev => prev.filter(g => g.VchNo !== vchNo));
+    setGrnDetails(prev => prev.filter(d => d.VchNo !== vchNo));
+
+    // Find the related journal voucher
+    const matchedVoucher = vouchers.find(v => v.Remarks.includes(vchNo) || v.VchNo === `JV-${vchNo}`);
+    if (matchedVoucher) {
+      const vchNoToDelete = matchedVoucher.VchNo;
+      const detailsToReverseAcc = voucherDetails.filter(d => d.VchNo === vchNoToDelete);
+
+      setVouchers(prev => prev.filter(v => v.VchNo !== vchNoToDelete));
+      setVoucherDetails(prev => prev.filter(d => d.VchNo !== vchNoToDelete));
+      setAcLedger(prev => prev.filter(l => l.VchNo !== vchNoToDelete));
+
+      setTlAccounts(prevAccs => {
+        let updated = [...prevAccs];
+        detailsToReverseAcc.forEach(line => {
+          updated = updateAccountBalanceAlgebraically(line.TLID, -line.Debit, -line.Credit, updated);
+        });
+        return updated;
+      });
+
+      if (mongoDbSettings.SyncEnabled) {
+        const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+        fetch(`${bridgeUrl}/api/grns/${vchNo}`, { method: 'DELETE' })
+          .then(res => res.json())
+          .then(resData => {
+            console.log('Supplier GRN deleted from MongoDB:', resData);
+            fetch(`${bridgeUrl}/api/vouchers/${vchNoToDelete}`, { method: 'DELETE' })
+              .then(vRes => vRes.json())
+              .then(vData => console.log('GRN capitalization voucher deleted:', vData))
+              .catch(vErr => console.warn('Failed to delete GRN capitalization voucher:', vErr.message));
+          })
+          .catch(err => console.error('Failed to delete Supplier GRN from MongoDB:', err.message));
+      }
+    } else {
+      if (mongoDbSettings.SyncEnabled) {
+        const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+        fetch(`${bridgeUrl}/api/grns/${vchNo}`, { method: 'DELETE' }).catch(err => console.error(err));
+      }
+    }
   };
 
   // Direct Double Entry Voucher Management
@@ -1060,14 +1787,73 @@ export default function App() {
 
       return updated;
     });
+
+    if (mongoDbSettings.SyncEnabled) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+      fetch(`${bridgeUrl}/api/vouchers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...newVch,
+          detailsRows: details
+        })
+      }).catch(err => console.error('Failed to synchronize financial voucher to MongoDB:', err.message));
+    }
   };
 
   const handleUpdateItemStock = (itemId: string, newStock: number) => {
     setItems((prev) => prev.map((i) => (i.ItemID === itemId ? { ...i, CStock: newStock } : i)));
+    if (mongoDbSettings.SyncEnabled) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+      const matched = items.find(i => i.ItemID === itemId);
+      if (matched) {
+        fetch(`${bridgeUrl}/api/items/${itemId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...matched, CStock: newStock })
+        }).catch(err => console.error('Failed to sync updated drug stock level to MongoDB:', err.message));
+      }
+    }
   };
 
   const handleUpdateAccountBalance = (tlid: number, balanceAmt: number) => {
     setTlAccounts((prev) => prev.map((a) => (a.TLID === tlid ? { ...a, AcBalance: balanceAmt } : a)));
+    if (mongoDbSettings.SyncEnabled) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+      const matched = tlAccounts.find(a => a.TLID === tlid);
+      if (matched) {
+        fetch(`${bridgeUrl}/api/accounts/${tlid}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...matched, AcBalance: balanceAmt })
+        }).catch(err => console.error('Failed to sync updated account balance to MongoDB:', err.message));
+      }
+    }
+  };
+
+  const handleAddAccount = (newAcc: TLAccount) => {
+    setTlAccounts((prev) => {
+      if (prev.some(a => a.TLID === newAcc.TLID)) return prev;
+      return [...prev, newAcc];
+    });
+    if (mongoDbSettings.SyncEnabled) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+      fetch(`${bridgeUrl}/api/accounts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newAcc)
+      }).catch(err => console.error('Failed to sync added account to MongoDB:', err.message));
+    }
+  };
+
+  const handleDeleteAccount = (tlid: number) => {
+    setTlAccounts((prev) => prev.filter(a => a.TLID !== tlid));
+    if (mongoDbSettings.SyncEnabled) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+      fetch(`${bridgeUrl}/api/accounts/${tlid}`, {
+        method: 'DELETE'
+      }).catch(err => console.error('Failed to sync deleted account to MongoDB:', err.message));
+    }
   };
 
   const handleLoginSuccess = (user: User) => {
@@ -1123,6 +1909,7 @@ export default function App() {
         usersList={usersList}
         onLoginSuccess={handleLoginSuccess}
         clinicName={clinicSettings.ClinicName}
+        clinicLogoImage={clinicSettings.ClinicLogoImage}
       />
     );
   }
@@ -1135,14 +1922,23 @@ export default function App() {
         {/* Bento Header */}
         <header className="h-16 bg-blue-900 text-white flex items-center justify-between px-6 shadow-md shrink-0">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center text-blue-900 font-bold text-xl shadow-sm">
-              {clinicSettings.ClinicLogoText || 'P'}
-            </div>
-            <h1 className="text-sm md:text-base lg:text-lg font-semibold tracking-tight">
-              {clinicSettings.ClinicName} <span className="text-blue-300 font-light text-xs ml-1 bg-blue-800 px-2 py-0.5 rounded">CMS v4.2</span>
+            <img src={clinicSettings.ClinicLogoImage || "/nhc_logo.svg"} alt="Clinic Logo" className="w-10 h-10 object-contain rounded-full bg-white p-0.5 shadow-md border border-white/20" />
+            <h1 className="text-sm md:text-base lg:text-lg font-black tracking-tight uppercase">
+              {clinicSettings.ClinicName || 'Punjab Homeopathic Clinic'}
             </h1>
           </div>
-          <div className="flex items-center space-x-4 lg:space-x-6 text-sm">
+          <div className="flex items-center space-x-3 lg:space-x-5 text-sm">
+            <button
+              onClick={refreshAllData}
+              disabled={isRefreshing}
+              className="flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-extrabold text-xs px-3 py-1.5 rounded-lg border border-emerald-400/40 shadow-sm transition cursor-pointer disabled:opacity-60 shrink-0"
+              title="Refresh all patient records, tokens, appointments, pharmacy stock, and financial ledgers"
+              id="top-refresh-all-btn"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+              <span className="uppercase tracking-wider text-[11px]">{isRefreshing ? 'Refreshing...' : 'Refresh All'}</span>
+            </button>
+
             <div className="hidden md:flex flex-col items-end">
               <span className="font-medium uppercase tracking-wider text-[9px] text-blue-200">Active Shift Filter</span>
               <span className="font-bold text-xs text-emerald-300">
@@ -1162,6 +1958,17 @@ export default function App() {
             </div>
           </div>
         </header>
+
+        {/* Global Refresh Toast Banner */}
+        {refreshMessage && (
+          <div className="bg-emerald-600 text-white px-6 py-1.5 text-xs font-bold flex items-center justify-between shadow-inner animate-fadeIn z-50 shrink-0">
+            <div className="flex items-center space-x-2">
+              <CheckCircle className="w-4 h-4 text-emerald-200" />
+              <span>{refreshMessage}</span>
+            </div>
+            <span className="text-[10px] text-emerald-200 uppercase font-mono tracking-wider">Live Sync Verified</span>
+          </div>
+        )}
 
         {/* Upper Navigation Tabs Row */}
         <div className="bg-white border-b border-slate-200 px-6 py-2 flex flex-col lg:flex-row lg:items-center justify-between shadow-sm shrink-0 gap-3">
@@ -1192,51 +1999,70 @@ export default function App() {
             })}
           </div>
 
-          {/* Swapper Dropdown inside Tab Bar */}
+          {/* Swapper Dropdown inside Tab Bar (Shown ONLY to Administrator) */}
           <div className="flex items-center space-x-3 shrink-0 ml-0 lg:ml-4 border-t lg:border-t-0 lg:border-l border-slate-200 pt-2 lg:pt-0 pl-0 lg:pl-4">
-            <div className="flex items-center space-x-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-              <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
-              <span className="hidden lg:inline">Role Swap:</span>
-            </div>
-            
-            <select
-              value={currentUser.UserID}
-              onChange={(e) => {
-                const selected = usersList.find((u) => u.UserID === e.target.value);
-                if (selected) {
-                  setCurrentUser(selected);
-                  
-                  // Validate authorizations for new switched user
-                  const isAdmin = selected.Role === 'Administrator';
-                  const isAccountant = selected.Role === 'Accountant';
-                  const canAccessReports = isAdmin || isAccountant;
-                  
-                  if (activeTab === 'settings' && !isAdmin) {
-                    setActiveTab('dashboard');
-                  } else if (activeTab === 'uploads' && !isAdmin) {
-                    setActiveTab('dashboard');
-                  } else if (activeTab === 'reports' && !canAccessReports) {
-                    setActiveTab('dashboard');
-                  } else if (selected.Role === 'Doctor' && (activeTab === 'patients' || activeTab === 'accounts')) {
-                    setActiveTab('emr');
-                  } else if (selected.Role === 'Pharmacist' && (activeTab === 'emr' || activeTab === 'accounts')) {
-                    setActiveTab('pharmacy');
-                  } else if (selected.Role === 'Accountant' && activeTab === 'patients') {
-                    setActiveTab('accounts');
-                  } else if (selected.Role === 'Receptionist' && (activeTab === 'emr' || activeTab === 'accounts')) {
-                    setActiveTab('patients');
-                  }
-                }
-              }}
-              className="bg-slate-50 border border-slate-200 text-slate-700 font-bold text-xxs rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500 focus:outline-none cursor-pointer"
-              id="upper-role-selector"
+            {currentUser.Role === 'Administrator' && (
+              <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                  <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+                  <span className="hidden lg:inline">Role Swap:</span>
+                </div>
+                
+                <select
+                  value={currentUser.UserID}
+                  onChange={(e) => {
+                    const selected = usersList.find((u) => u.UserID === e.target.value);
+                    if (selected) {
+                      setCurrentUser(selected);
+                      
+                      // Validate authorizations for new switched user
+                      const isAdmin = selected.Role === 'Administrator';
+                      const isAccountant = selected.Role === 'Accountant';
+                      const canAccessReports = isAdmin || isAccountant;
+                      
+                      const fallbackDesk = selected.Role === 'Pharmacist' ? 'pharmacy' : selected.Role === 'Accountant' ? 'accounts' : 'patients';
+                      if (activeTab === 'dashboard' && !isAdmin) {
+                        setActiveTab(fallbackDesk);
+                      } else if (activeTab === 'settings' && !isAdmin) {
+                        setActiveTab(fallbackDesk);
+                      } else if (activeTab === 'uploads' && !isAdmin) {
+                        setActiveTab(fallbackDesk);
+                      } else if (activeTab === 'reports' && !canAccessReports) {
+                        setActiveTab(fallbackDesk);
+                      } else if (selected.Role === 'Doctor' && activeTab === 'accounts') {
+                        setActiveTab('patients');
+                      } else if (selected.Role === 'Pharmacist' && activeTab === 'accounts') {
+                        setActiveTab('pharmacy');
+                      } else if (selected.Role === 'Accountant' && activeTab === 'patients') {
+                        setActiveTab('accounts');
+                      } else if (selected.Role === 'Receptionist' && activeTab === 'accounts') {
+                        setActiveTab('patients');
+                      }
+                    }
+                  }}
+                  className="bg-slate-50 border border-slate-200 text-slate-700 font-bold text-xxs rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500 focus:outline-none cursor-pointer"
+                  id="upper-role-selector"
+                >
+                  {usersList
+                    .filter((usr) => canUserAccessTargetUser(usr))
+                    .map((usr) => (
+                      <option key={usr.UserID} value={usr.UserID}>
+                        {usr.FullName} ({usr.Role})
+                      </option>
+                    ))}
+                </select>
+              </div>
+            )}
+
+            <button
+              onClick={refreshAllData}
+              disabled={isRefreshing}
+              className="bg-slate-50 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200 hover:border-emerald-300 text-slate-700 text-xxs font-extrabold px-3 py-1.5 rounded-lg flex items-center space-x-1.5 transition cursor-pointer disabled:opacity-50"
+              title="Click to fetch latest updates and refresh records across all modules"
             >
-              {usersList.map((usr) => (
-                <option key={usr.UserID} value={usr.UserID}>
-                  {usr.FullName} ({usr.Role})
-                </option>
-              ))}
-            </select>
+              <RefreshCw className={`w-3 h-3 text-emerald-600 ${isRefreshing ? 'animate-spin' : ''}`} />
+              <span className="uppercase tracking-wider text-[10px]">{isRefreshing ? 'Syncing...' : 'Refresh'}</span>
+            </button>
 
             <button
               onClick={handleLogout}
@@ -1262,12 +2088,21 @@ export default function App() {
             />
           )}
 
+          {activeTab === 'nhc_history' && (
+            <NhcPatientHistoryDesk
+              mongoDbSettings={mongoDbSettings}
+              setNhcPatients={setNhcPatients}
+            />
+          )}
+
           {activeTab === 'patients' && currentUserRights.find(r => r.MenuID === 'patients')?.Status && (
             <PatientDesk
               patients={patients}
               onAddPatient={handleAddPatient}
               appointments={filteredAppointments}
               onAddAppointment={handleAddAppointment}
+              onUpdateAppointment={handleUpdateAppointment}
+              onDeleteAppointment={handleDeleteAppointment}
               onUpdateAppointmentStatus={handleUpdateAppointmentStatus}
               tokens={filteredTokens}
               onAddToken={handleAddToken}
@@ -1275,24 +2110,15 @@ export default function App() {
               cities={INITIAL_CITIES}
               userRights={currentUserRights}
               smsSettings={smsSettings}
-            />
-          )}
-
-          {activeTab === 'emr' && currentUserRights.find(r => r.MenuID === 'emr')?.Status && (
-            <EMRDesk
-              patients={patients}
-              appointments={filteredAppointments}
-              items={items}
-              labTests={labTests}
-              visits={visits}
-              onAddVisit={handleAddVisit}
-              medicalCertificates={medicalCertificates}
-              onAddCertificate={handleAddCertificate}
-              sbpCertificates={sbpCertificates}
-              onAddSbpCertificate={handleAddSbpCertificate}
-              userRights={currentUserRights}
+              nhcPatients={nhcPatients}
               clinicSettings={clinicSettings}
-              cities={INITIAL_CITIES}
+              visits={visits}
+              visitMedicines={visitMedicines}
+              onAddVisit={handleAddVisit}
+              onUpdatePatient={handleUpdatePatient}
+              items={items}
+              currentUser={currentUser}
+              labTests={labTests}
             />
           )}
 
@@ -1301,7 +2127,9 @@ export default function App() {
               patients={patients}
               items={items}
               onUpdateItemStock={handleUpdateItemStock}
-              suppliers={INITIAL_SUPPLIERS}
+              setItems={setItems}
+              suppliers={suppliers}
+              setSuppliers={setSuppliers}
               invoices={filteredInvoices}
               invoiceDetails={invoiceDetails}
               onAddInvoice={handleAddInvoice}
@@ -1309,6 +2137,8 @@ export default function App() {
               grns={grns}
               grnDetails={grnDetails}
               onAddGRN={handleAddGRN}
+              onUpdateGRN={handleUpdateGRN}
+              onVoidGRN={handleVoidGRN}
               userRights={currentUserRights}
               visits={visits}
               visitMedicines={visitMedicines}
@@ -1320,8 +2150,8 @@ export default function App() {
 
           {activeTab === 'accounts' && currentUserRights.find(r => r.MenuID === 'accounts')?.Status && (
             <AccountingDesk
-              flAccounts={INITIAL_FL_ACCOUNTS}
-              slAccounts={INITIAL_SL_ACCOUNTS}
+              flAccounts={flAccounts}
+              slAccounts={slAccounts}
               tlAccounts={tlAccounts}
               onUpdateAccountBalance={handleUpdateAccountBalance}
               vouchers={vouchers}
@@ -1329,6 +2159,13 @@ export default function App() {
               onAddVoucher={handleAddVoucher}
               acLedger={acLedger}
               userRights={currentUserRights}
+              onAddAccount={handleAddAccount}
+              onDeleteAccount={handleDeleteAccount}
+              items={items}
+              grns={grns}
+              grnDetails={grnDetails}
+              invoices={invoices}
+              invoiceDetails={invoiceDetails}
             />
           )}
 
@@ -1338,6 +2175,11 @@ export default function App() {
               setItems={setItems}
               labTests={labTests}
               setLabTests={setLabTests}
+              mongoDbSettings={mongoDbSettings}
+              nhcPatients={nhcPatients}
+              setNhcPatients={setNhcPatients}
+              smartLocatorMedicines={smartLocatorMedicines}
+              setSmartLocatorMedicines={setSmartLocatorMedicines}
             />
           )}
 
@@ -1350,6 +2192,9 @@ export default function App() {
               tlAccounts={tlAccounts}
               patients={patients}
               appointments={appointments}
+              visits={visits}
+              visitMedicines={visitMedicines}
+              items={items}
             />
           )}
 
@@ -1362,9 +2207,13 @@ export default function App() {
               currentUser={currentUser}
               smsSettings={smsSettings}
               setSmsSettings={setSmsSettings}
-              sqlServerSettings={sqlServerSettings}
-              setSqlServerSettings={setSqlServerSettings}
+              mongoDbSettings={mongoDbSettings}
+              setMongoDbSettings={setMongoDbSettings}
             />
+          )}
+
+          {activeTab === 'query_handler' && currentUser.Role === 'Administrator' && (
+            <QueryHandlerDesk bridgeUrl={mongoDbSettings.BridgeUrl || 'http://localhost:5000'} />
           )}
         </div>
 
@@ -1376,7 +2225,7 @@ export default function App() {
             <span>Disc: 0501-10</span>
           </div>
           <div className="flex items-center space-x-4">
-            <span className="text-[10px] text-slate-500 hidden sm:inline">System Ready: Stable Connection to MSSQL SERVER Instance PCMS-PROD</span>
+            <span className="text-[10px] text-slate-500 hidden sm:inline">System Ready: Stable Connection to MongoDB Instance PharmacyPOSDB</span>
             <div className="hidden sm:block h-3 w-[1px] bg-slate-300"></div>
             <span className="text-[10px] font-bold text-blue-900">Licensed to: {clinicSettings.ClinicName}</span>
           </div>

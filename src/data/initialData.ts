@@ -119,10 +119,12 @@ export const INITIAL_TL_ACCOUNTS: TLAccount[] = [
   { FLID: 4, SLID: 401, TLID: 401102, TLName: 'Morning Shift: Clinical Medicine Revenue', AcBalance: 0 },
   { FLID: 4, SLID: 401, TLID: 401103, TLName: 'Morning Shift: Patent Medicine Revenue', AcBalance: 0 },
   { FLID: 4, SLID: 401, TLID: 401104, TLName: 'Morning Shift: Store Medicine Revenue', AcBalance: 0 },
+  { FLID: 4, SLID: 401, TLID: 401105, TLName: 'Morning Shift: File & Card Fee Revenue', AcBalance: 0 },
   { FLID: 4, SLID: 401, TLID: 401201, TLName: 'Evening Shift: Appointment Revenue', AcBalance: 0 },
   { FLID: 4, SLID: 401, TLID: 401202, TLName: 'Evening Shift: Clinical Medicine Revenue', AcBalance: 0 },
   { FLID: 4, SLID: 401, TLID: 401203, TLName: 'Evening Shift: Patent Medicine Revenue', AcBalance: 0 },
   { FLID: 4, SLID: 401, TLID: 401204, TLName: 'Evening Shift: Store Medicine Revenue', AcBalance: 0 },
+  { FLID: 4, SLID: 401, TLID: 401205, TLName: 'Evening Shift: File & Card Fee Revenue', AcBalance: 0 },
 
   // Pharmacy Sales (SLID 402)
   { FLID: 4, SLID: 402, TLID: 402001, TLName: 'Pharmacy Store Cash Sales', AcBalance: -185000 },
@@ -166,31 +168,56 @@ export const ROLE_RIGHTS: Record<User['Role'], UserRight[]> = {
     { MenuID: 'patients', MenuName: 'Patient Intake & Queue', Status: true, AddRec: true, PostRec: true, CancelPosted: true },
     { MenuID: 'emr', MenuName: 'EMR & Clinical Desk', Status: true, AddRec: true, PostRec: true, CancelPosted: true },
     { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Inventory', Status: true, AddRec: true, PostRec: true, CancelPosted: true },
-    { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: true, AddRec: true, PostRec: true, CancelPosted: true }
+    { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: true, AddRec: true, PostRec: true, CancelPosted: true },
+    { MenuID: 'reports', MenuName: 'Financial & Executive Reports', Status: true, AddRec: true, PostRec: true, CancelPosted: true },
+    { MenuID: 'uploads', MenuName: 'CSV Imports & Uploads', Status: true, AddRec: true, PostRec: true, CancelPosted: true },
+    { MenuID: 'settings', MenuName: 'Clinic Setup & Settings', Status: true, AddRec: true, PostRec: true, CancelPosted: true },
+    { MenuID: 'queries', MenuName: 'Query Handler & Audit', Status: true, AddRec: true, PostRec: true, CancelPosted: true },
+    { MenuID: 'nhc_history', MenuName: 'NHC Patient History', Status: true, AddRec: true, PostRec: true, CancelPosted: true }
   ],
   Doctor: [
     { MenuID: 'patients', MenuName: 'Patient Intake & Queue', Status: true, AddRec: false, PostRec: false, CancelPosted: false },
     { MenuID: 'emr', MenuName: 'EMR & Clinical Desk', Status: true, AddRec: true, PostRec: true, CancelPosted: false },
     { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Inventory', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: false, AddRec: false, PostRec: false, CancelPosted: false }
+    { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
+    { MenuID: 'reports', MenuName: 'Financial & Executive Reports', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
+    { MenuID: 'uploads', MenuName: 'CSV Imports & Uploads', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
+    { MenuID: 'settings', MenuName: 'Clinic Setup & Settings', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
+    { MenuID: 'queries', MenuName: 'Query Handler & Audit', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
+    { MenuID: 'nhc_history', MenuName: 'NHC Patient History', Status: true, AddRec: true, PostRec: true, CancelPosted: false }
   ],
   Receptionist: [
     { MenuID: 'patients', MenuName: 'Patient Intake & Queue', Status: true, AddRec: true, PostRec: true, CancelPosted: false },
     { MenuID: 'emr', MenuName: 'EMR & Clinical Desk', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
     { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Inventory', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: false, AddRec: false, PostRec: false, CancelPosted: false }
+    { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
+    { MenuID: 'reports', MenuName: 'Financial & Executive Reports', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
+    { MenuID: 'uploads', MenuName: 'CSV Imports & Uploads', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
+    { MenuID: 'settings', MenuName: 'Clinic Setup & Settings', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
+    { MenuID: 'queries', MenuName: 'Query Handler & Audit', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
+    { MenuID: 'nhc_history', MenuName: 'NHC Patient History', Status: true, AddRec: false, PostRec: false, CancelPosted: false }
   ],
   Pharmacist: [
     { MenuID: 'patients', MenuName: 'Patient Intake & Queue', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
     { MenuID: 'emr', MenuName: 'EMR & Clinical Desk', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
     { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Inventory', Status: true, AddRec: true, PostRec: true, CancelPosted: false },
-    { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: false, AddRec: false, PostRec: false, CancelPosted: false }
+    { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
+    { MenuID: 'reports', MenuName: 'Financial & Executive Reports', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
+    { MenuID: 'uploads', MenuName: 'CSV Imports & Uploads', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
+    { MenuID: 'settings', MenuName: 'Clinic Setup & Settings', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
+    { MenuID: 'queries', MenuName: 'Query Handler & Audit', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
+    { MenuID: 'nhc_history', MenuName: 'NHC Patient History', Status: false, AddRec: false, PostRec: false, CancelPosted: false }
   ],
   Accountant: [
     { MenuID: 'patients', MenuName: 'Patient Intake & Queue', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
     { MenuID: 'emr', MenuName: 'EMR & Clinical Desk', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
     { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Inventory', Status: true, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: true, AddRec: true, PostRec: true, CancelPosted: true }
+    { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: true, AddRec: true, PostRec: true, CancelPosted: true },
+    { MenuID: 'reports', MenuName: 'Financial & Executive Reports', Status: true, AddRec: true, PostRec: true, CancelPosted: false },
+    { MenuID: 'uploads', MenuName: 'CSV Imports & Uploads', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
+    { MenuID: 'settings', MenuName: 'Clinic Setup & Settings', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
+    { MenuID: 'queries', MenuName: 'Query Handler & Audit', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
+    { MenuID: 'nhc_history', MenuName: 'NHC Patient History', Status: false, AddRec: false, PostRec: false, CancelPosted: false }
   ]
 };
 
@@ -245,37 +272,7 @@ export const INITIAL_PATIENTS: Patient[] = [
   }
 ];
 
-export const INITIAL_APPOINTMENTS: Appointment[] = [
-  {
-    AppointmentID: 'APP-001',
-    PatientID: 'PAT-001',
-    AppointmentDate: '2026-07-03',
-    Shift: 1, // Morning
-    Status: 4, // Payment Posted
-    Remarks: 'Regular follow-up for hypertension',
-    FeeCharged: 1500
-  },
-  {
-    AppointmentID: 'APP-002',
-    PatientID: 'PAT-002',
-    AppointmentDate: '2026-07-03',
-    Shift: 1, // Morning
-    Status: 2, // Visited
-    Remarks: 'Post-viral checkup and general weakness',
-    FeeCharged: 1500
-  },
-  {
-    AppointmentID: 'APP-003',
-    PatientID: 'PAT-003',
-    AppointmentDate: '2026-07-03',
-    Shift: 2, // Evening
-    Status: 1, // New
-    Remarks: 'SBP Employee medical clearance assessment',
-    FeeCharged: 1500
-  }
-];
+export const INITIAL_APPOINTMENTS: Appointment[] = [];
 
-export const INITIAL_TOKENS: Token[] = [
-  { TokenNo: 1, PatientID: 'PAT-001', Shift: 1, Status: 2, Date: '2026-07-03' },
-  { TokenNo: 2, PatientID: 'PAT-002', Shift: 1, Status: 2, Date: '2026-07-03' }
-];
+export const INITIAL_TOKENS: Token[] = [];
+

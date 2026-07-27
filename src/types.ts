@@ -52,6 +52,7 @@ export interface Item {
   CStock: number; // Current stock
   MinStock: number; // Minimum threshold
   Unit: string; // e.g., Tab, Syrup, Amp, Cap
+  MedicineType?: 'C' | 'P';
 }
 
 export interface Supplier {
@@ -80,6 +81,10 @@ export interface Visit {
   Status: 1 | 2; // 1 = New, 2 = Posted (Read Only)
   ConsultationFee?: number;
   ConsultationPaymentOption?: string; // 'Cash Paid', 'Unpaid', 'Panel Claim'
+  CardsPayment?: string;
+  FileFee?: string;
+  CardFee?: string;
+  ClinicalMedicinePayment?: string;
   PatentPaymentOption?: string; // 'Clinic', 'Outside'
   ClinicalPaymentOption?: string; // 'Clinic', 'Outside'
 }
@@ -91,6 +96,9 @@ export interface VisitMedicine {
   Dosage: string; // e.g., 1-0-1, 1 Daily
   MedicineType: 'C' | 'P'; // C = Clinical/Compounded, P = Patent/Pre-packaged
   Price?: number; // Optional doctor-specified price for Clinical/Compounded
+  ExpireDate?: string; // Only Clinical medicine expire date picker
+  Notes50?: string; // Textbox for 50 characters
+  Qty?: number; // Prescribed quantity of tabs for Clinical/Compounded
 }
 
 export interface VisitLabTest {
@@ -256,6 +264,38 @@ export interface User {
   PasswordHash: string;
   Role: 'Administrator' | 'Doctor' | 'Receptionist' | 'Pharmacist' | 'Accountant';
   AssignedShift?: 1 | 2 | 'Both'; // 1 = Morning, 2 = Evening, 'Both' = Unrestricted
+  Status?: 'Active' | 'Inactive';
+  Permissions?: {
+    canViewDashboard?: boolean;
+    canViewPatientDesk?: boolean;
+    canViewEMRDesk?: boolean;
+    canViewPharmacyPOS?: boolean;
+    canViewAccountingDesk?: boolean;
+    canViewReportingDesk?: boolean;
+    canViewUploadingDesk?: boolean;
+    canViewSettingsDesk?: boolean;
+    canViewQueryHandlerDesk?: boolean;
+    canViewNhcHistoryDesk?: boolean;
+
+    // Granular Patient Intake & Queue Sub-desk Permissions
+    canAccessPatientRegistration?: boolean;
+    canAccessAppointmentsDesk?: boolean;
+    canAccessTokenIssue?: boolean;
+    canAccessWaitingQueue?: boolean;
+    canAccessPatientVisitDesk?: boolean;
+    canAccessLargeScreenDisplay?: boolean;
+
+    // Specific Action Permissions
+    canAddPatient?: boolean;
+    canEditPatient?: boolean;
+    canIssueToken?: boolean;
+    canBookAppointment?: boolean;
+    canCancelAppointment?: boolean;
+    canCallServeToken?: boolean;
+  };
+  UserRights?: UserRight[];
+  AllowedUserIDs?: string[]; // Allowed User-to-User Access Control Matrix (Array of UserIDs/LoginNames or ['ALL'] / ['*'])
+  CreatedAt?: string;
 }
 
 export interface ClinicSettings {
@@ -266,6 +306,17 @@ export interface ClinicSettings {
   ClinicAddress: string;
   PhoneMobile: string;
   OPDFee: number;
+  ClinicLogoImage?: string;
+  LetterHeadImage?: string;
+  ClinicalLabelImage?: string;
+  ThermalPrinterName?: string;
+  ThermalPaperWidth?: string;
+  ThermalPaperHeight?: string;
+  ThermalDirectPrint?: boolean;
+  ThermalWidthOffset?: string;
+  ThermalFontSize?: string;
+  ThermalBadgeStyle?: 'white' | 'black' | 'outline';
+  ThermalShowPrinterHeader?: boolean;
 }
 
 export interface UserRight {
@@ -287,15 +338,50 @@ export interface SmsSettings {
   RepeatTemplate: string;
 }
 
-export interface SqlServerSettings {
-  ServerAddress: string;
-  Port: number;
-  DatabaseName: string;
-  Username: string;
-  PasswordHash: string;
-  IntegratedSecurity: boolean;
-  SyncEnabled: boolean;
+export interface MongoDbSettings {
   ConnectionString: string;
+  DatabaseName: string;
+  SyncEnabled: boolean;
   BridgeUrl?: string;
 }
+
+export interface NhcPatientHistory {
+  _id?: string;
+  VisitID?: string;
+  PatientID: string;
+  PatientName: string;
+  AgeYears?: number;
+  Sex?: 'Male' | 'Female' | 'Other' | string;
+  PhoneMobile?: string;
+  Address?: string;
+  RegistrationDate?: string;
+  Father_husband?: string;
+  MedicalCondition?: string;
+  Symptoms?: string;
+  Diagnosis?: string;
+  SymptomsDiagnosis?: string;
+  VisitDate?: string;
+  date?: string;
+  symptoms?: string;
+  clinicalMedication?: string;
+  patientMedication?: string;
+  VisitRemarks?: string;
+  PrescribedMedicines?: string;
+  LabTests?: string;
+  LabTestAdvice?: string;
+  MedicalReportResult?: string;
+  Allergies?: string;
+  BloodGroup?: string;
+  MedicineDetail?: string;
+  Dosage?: string;
+  MedicineType?: 'C' | 'P' | string;
+}
+
+export interface SmartLocatorMedicine {
+  Symptoms: string;
+  MedicineName: string;
+  Dosage: string;
+  Composition: string;
+}
+
 
