@@ -877,10 +877,15 @@ app.delete('/api/patients/:id', async (req, res) => {
 // 💊 MEDICINES & DRUG INVENTORY MODULE
 // ------------------------------------------------------------------------------------------
 
-// Fetch all medicines
+// Fetch all medicines (with optional category filter)
 app.get('/api/items', async (req, res) => {
   try {
-    const items = await db.collection('items').find({}).sort({ ItemName: 1 }).toArray();
+    const { category } = req.query;
+    let query = {};
+    if (category && category !== 'ALL') {
+      query = { Unit: new RegExp(String(category), 'i') };
+    }
+    const items = await db.collection('items').find(query).sort({ ItemName: 1 }).toArray();
     res.json(items);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -894,6 +899,42 @@ app.get('/api/items/:id', async (req, res) => {
     const item = await db.collection('items').findOne({ ItemID: id });
     if (!item) return res.status(404).json({ error: 'Medicine not found' });
     res.json(item);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Bulk Insert / Upsert Medicines to MongoDB
+app.post('/api/items/bulk', async (req, res) => {
+  try {
+    const itemsList = req.body;
+    if (!Array.isArray(itemsList)) {
+      return res.status(400).json({ error: 'Expected an array of medicine items.' });
+    }
+    const wipe = req.query.wipe === 'true';
+    if (wipe) {
+      await db.collection('items').deleteMany({});
+    }
+    const operations = itemsList.map(item => {
+      const doc = { ...item };
+      if (doc._id) delete doc._id;
+      if (!doc.ItemID) doc.ItemID = `ITM-${Math.floor(10000 + Math.random() * 90000)}`;
+      return {
+        updateOne: {
+          filter: { ItemID: doc.ItemID },
+          update: { $set: doc },
+          upsert: true
+        }
+      };
+    });
+    if (operations.length > 0) {
+      await db.collection('items').bulkWrite(operations);
+    }
+    res.json({
+      success: true,
+      count: itemsList.length,
+      message: `Successfully synchronized ${itemsList.length} medicines in MongoDB database.`
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

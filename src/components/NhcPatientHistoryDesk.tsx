@@ -43,16 +43,22 @@ import * as XLSX from 'xlsx';
 function formatShortDate(dateStr: string | undefined | null): string {
   if (!dateStr || dateStr === 'N/A' || dateStr === '—') return dateStr || 'N/A';
   try {
-    const cleanStr = dateStr.trim();
-    if (cleanStr.length <= 10) return cleanStr;
-    const d = new Date(cleanStr);
-    if (isNaN(d.getTime())) return cleanStr;
+    const cleanStr = String(dateStr).trim().split('T')[0].split(' ')[0];
+    const parts = cleanStr.split('-');
+    if (parts.length === 3 && parts[0].length === 4) {
+      return `${parts[2]}-${parts[1]}-${parts[0]}`;
+    }
+    if (parts.length === 3 && parts[2].length === 4) {
+      return cleanStr;
+    }
+    const d = new Date(String(dateStr).trim());
+    if (isNaN(d.getTime())) return String(dateStr);
     const yyyy = d.getFullYear();
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const dd = String(d.getDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
+    return `${dd}-${mm}-${yyyy}`;
   } catch {
-    return dateStr;
+    return String(dateStr);
   }
 }
 
@@ -68,6 +74,54 @@ export default function NhcPatientHistoryDesk({ mongoDbSettings, setNhcPatients 
   const [successMsg, setSuccessMsg] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRecord, setSelectedRecord] = useState<NhcPatientHistory | null>(null);
+  const [selectedVisitDate, setSelectedVisitDate] = useState<string>('ALL');
+  const lastAutoNhcPatientRef = useRef<string>('');
+
+  // Helper function to match patient records belonging to the same patient
+  const isSameNhcPatient = (recA: NhcPatientHistory | null, recB: NhcPatientHistory | null): boolean => {
+    if (!recA || !recB) return false;
+    if (recA === recB) return true;
+
+    // 1. Normalized PatientID match
+    const idA = String(recA.PatientID || '').trim().toLowerCase();
+    const idB = String(recB.PatientID || '').trim().toLowerCase();
+    if (idA && idB) {
+      if (idA === idB) return true;
+      const cleanA = idA.replace(/[^0-9a-zA-Z]/g, '');
+      const cleanB = idB.replace(/[^0-9a-zA-Z]/g, '');
+      if (cleanA && cleanB && cleanA === cleanB) return true;
+    }
+
+    // 2. Mobile phone match (if 7+ digits)
+    const phoneA = String(recA.PhoneMobile || '').replace(/[^0-9]/g, '');
+    const phoneB = String(recB.PhoneMobile || '').replace(/[^0-9]/g, '');
+    if (phoneA && phoneB && phoneA.length >= 7 && phoneA === phoneB) return true;
+
+    // 3. Normalized PatientName match
+    const nameA = String(recA.PatientName || '').trim().toLowerCase();
+    const nameB = String(recB.PatientName || '').trim().toLowerCase();
+    if (nameA && nameB && nameA === nameB && nameA !== 'nhc archive patient' && nameA !== 'nhc record' && nameA !== 'patient record') return true;
+
+    return false;
+  };
+
+  useEffect(() => {
+    if (selectedRecord) {
+      const pKey = `${selectedRecord.PatientID}_${selectedRecord.PatientName}`;
+      if (lastAutoNhcPatientRef.current !== pKey) {
+        lastAutoNhcPatientRef.current = pKey;
+        const recs = historyList.filter(r => isSameNhcPatient(r, selectedRecord));
+        const dates = (Array.from(new Set(recs.map(r => r.VisitDate || r.RegistrationDate || 'N/A'))).filter(Boolean) as string[]);
+        dates.sort((a, b) => b.localeCompare(a));
+        if (dates.length > 0) {
+          setSelectedVisitDate(dates[0]);
+        }
+      }
+    } else {
+      lastAutoNhcPatientRef.current = '';
+      setSelectedVisitDate('ALL');
+    }
+  }, [selectedRecord, historyList]);
   
   // File upload state variables
   const [isUploading, setIsUploading] = useState(false);
@@ -439,17 +493,6 @@ export default function NhcPatientHistoryDesk({ mongoDbSettings, setNhcPatients 
               <Plus className="w-4 h-4" />
               <span>Add Patient Record</span>
             </button>
-            
-            {historyList.length > 0 && (
-              <button
-                onClick={handleClearHistory}
-                id="clear-nhc-history-btn"
-                className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs rounded-xl border border-rose-200/60 flex items-center gap-1.5 transition cursor-pointer"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span>Wipe Database</span>
-              </button>
-            )}
           </div>
         </div>
 
@@ -641,18 +684,20 @@ export default function NhcPatientHistoryDesk({ mongoDbSettings, setNhcPatients 
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-4">
                 {(() => {
-                  const seenIds = new Set<string>();
+                  const seenRecords: NhcPatientHistory[] = [];
                   const uniqueFiltered = filteredList.filter(rec => {
-                    if (seenIds.has(rec.PatientID)) return false;
-                    seenIds.add(rec.PatientID);
+                    if (seenRecords.some(s => isSameNhcPatient(s, rec))) return false;
+                    seenRecords.push(rec);
                     return true;
                   });
-                  return uniqueFiltered.map((rec) => {
-                    const isSelected = selectedRecord?.PatientID === rec.PatientID;
+                  return uniqueFiltered.map((rec, cardIdx) => {
+                    const isSelected = isSameNhcPatient(selectedRecord, rec);
+                    const patientVisitsCount = historyList.filter(r => isSameNhcPatient(r, rec)).length;
+
                     return (
                       <div
-                        key={rec.PatientID}
-                        onClick={() => { setSelectedRecord(rec); setIsEditing(false); }}
+                        key={`nhc-card-${rec.PatientID}-${cardIdx}`}
+                        onClick={() => { setSelectedRecord(rec); setSelectedVisitDate('ALL'); setIsEditing(false); }}
                       className={`p-4 rounded-2xl border transition-all duration-150 cursor-pointer text-left flex flex-col justify-between ${
                         isSelected 
                           ? 'border-indigo-500 bg-indigo-50/25 ring-1 ring-indigo-500/80 shadow-xs' 
@@ -665,11 +710,18 @@ export default function NhcPatientHistoryDesk({ mongoDbSettings, setNhcPatients 
                           <span className="text-[9px] font-mono font-black text-slate-400 tracking-wider">
                             ID: {rec.PatientID}
                           </span>
-                          {rec.MedicalCondition && (
-                            <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 font-bold text-[8px] rounded-full uppercase tracking-wider truncate max-w-[120px]">
-                              {rec.MedicalCondition}
-                            </span>
-                          )}
+                          <div className="flex items-center gap-1">
+                            {patientVisitsCount > 1 && (
+                              <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 font-extrabold text-[8px] rounded-full uppercase tracking-wider border border-emerald-200">
+                                {patientVisitsCount} Visits
+                              </span>
+                            )}
+                            {rec.MedicalCondition && (
+                              <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 font-bold text-[8px] rounded-full uppercase tracking-wider truncate max-w-[110px]">
+                                {rec.MedicalCondition}
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <h4 className="text-xs font-extrabold text-slate-800">{rec.PatientName}</h4>
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-500">
@@ -961,278 +1013,310 @@ export default function NhcPatientHistoryDesk({ mongoDbSettings, setNhcPatients 
           </form>
         ) : selectedRecord ? (
           /* State B: DETAILED PROFILE VIEW CARD */
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-6 text-left animate-fadeIn">
-            
-            {/* Detailed Header */}
-            <div className="border-b border-slate-100 pb-4 flex items-start justify-between">
-              <div className="flex items-start gap-3 min-w-0">
-                <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-700 font-black flex items-center justify-center text-sm shrink-0">
-                  {selectedRecord.PatientName.charAt(0).toUpperCase()}
-                </div>
-                <div className="space-y-0.5 min-w-0">
-                  <span className="text-[9px] font-mono font-black text-indigo-500 block">PATIENT PROFILE</span>
-                  <h3 className="text-sm font-black text-slate-800 truncate">{selectedRecord.PatientName}</h3>
-                  <span className="text-[10px] font-mono text-slate-400 block truncate">ID: {selectedRecord.PatientID}</span>
-                </div>
-              </div>
-              <button
-                onClick={() => handleOpenEditForm(selectedRecord)}
-                className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-indigo-600 rounded-lg border border-slate-150 transition"
-                title="Edit Patient Record"
-              >
-                <Edit className="w-3.5 h-3.5" />
-              </button>
-            </div>
+          (() => {
+            const allSelectedPatientRecords = historyList.filter(r => isSameNhcPatient(r, selectedRecord));
+            const uniqueVisitDates = (Array.from(new Set(allSelectedPatientRecords.map(r => r.VisitDate || r.RegistrationDate || 'N/A'))).filter(Boolean) as string[]);
+            uniqueVisitDates.sort((a, b) => b.localeCompare(a));
 
-            {/* Select Visit Date Dropdown */}
-            <div className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-3 space-y-1.5">
-              <span className="text-[9px] font-black text-indigo-700 uppercase tracking-wider block">
-                Select Visit Date
-              </span>
-              <select
-                value={selectedRecord.VisitDate || selectedRecord.RegistrationDate || 'N/A'}
-                onChange={(e) => {
-                  const dateVal = e.target.value;
-                  const match = historyList.find(r => 
-                    r.PatientID === selectedRecord.PatientID && 
-                    (r.VisitDate === dateVal || r.RegistrationDate === dateVal || (!r.VisitDate && !r.RegistrationDate && dateVal === 'N/A'))
-                  );
-                  if (match) {
-                    setSelectedRecord(match);
-                  }
-                }}
-                className="w-full bg-white border border-indigo-200 text-indigo-950 rounded-lg p-2 font-black font-mono text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer shadow-xs"
-              >
-                {(() => {
-                  const recs = historyList.filter(r => r.PatientID === selectedRecord.PatientID);
-                  const uniqueDates = Array.from(new Set(recs.map(r => r.VisitDate || r.RegistrationDate || 'N/A'))).filter(Boolean) as string[];
-                  uniqueDates.sort((a, b) => b.localeCompare(a));
-                  return uniqueDates.map(d => (
-                    <option key={d} value={d}>
-                      {formatShortDate(d)}
-                    </option>
-                  ));
-                })()}
-              </select>
-            </div>
+            const activeDateRecords = selectedVisitDate === 'ALL'
+              ? allSelectedPatientRecords
+              : allSelectedPatientRecords.filter(r => (r.VisitDate || r.RegistrationDate || 'N/A') === selectedVisitDate);
 
-            {/* Personal Data Block */}
-            <div className="space-y-3">
-              <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block border-b border-slate-100 pb-1">
-                Personal Demographics
-              </span>
-              <div className="grid grid-cols-1 gap-2.5 text-xxs text-slate-600">
-                <div className="flex items-center gap-2">
-                  <User className="w-4 h-4 text-slate-400 shrink-0" />
-                  <span>Guardian/Spouse: <strong>{selectedRecord.Father_husband || '—'}</strong></span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Phone className="w-4 h-4 text-slate-400 shrink-0" />
-                  <span>Phone Number: <strong>{selectedRecord.PhoneMobile || '—'}</strong></span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-slate-400 shrink-0" />
-                  <span className="truncate">Home Address: <strong>{selectedRecord.Address || '—'}</strong></span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
-                  <span>Registration: <strong>{formatShortDate(selectedRecord.RegistrationDate) || '—'}</strong></span>
-                </div>
-              </div>
-            </div>
+            const displayRecs = activeDateRecords.length > 0 ? activeDateRecords : allSelectedPatientRecords;
 
-            {/* Clinical Record Block */}
-            <div className="space-y-3.5">
-              <span className="text-[9px] font-black text-indigo-500 uppercase tracking-wider block border-b border-slate-100 pb-1">
-                Clinical Details & History
-              </span>
-              <div className="space-y-3 text-xxs">
-                <div className="space-y-1">
-                  <span className="text-slate-400 block font-bold">Medical Condition / Chronic:</span>
-                  <div className="bg-slate-50 border border-slate-150 rounded-lg p-2 text-slate-800 font-medium font-mono text-[10px]">
-                    {selectedRecord.MedicalCondition || 'None'}
-                  </div>
-                </div>
+            const conds = Array.from(new Set(displayRecs.map(r => r.MedicalCondition).filter(Boolean)));
+            const condsStr = conds.length > 0 ? conds.join(', ') : (selectedRecord.MedicalCondition || 'None');
 
-                <div className="space-y-1">
-                  <span className="text-slate-400 block font-bold">Symptoms / Complaints:</span>
-                  <div className="bg-slate-50 border border-slate-150 rounded-lg p-2 text-slate-800 font-medium">
-                    {selectedRecord.Symptoms || 'No symptoms specified.'}
-                  </div>
-                </div>
+            const symps = Array.from(new Set(displayRecs.map(r => r.Symptoms).filter(Boolean)));
+            const sympsStr = symps.length > 0 ? symps.join('\n') : (selectedRecord.Symptoms || 'No symptoms specified.');
 
-                <div className="space-y-1">
-                  <span className="text-slate-400 block font-bold">Clinical Diagnosis:</span>
-                  <div className="bg-slate-50 border border-slate-150 rounded-lg p-2 text-slate-800 font-medium">
-                    {selectedRecord.Diagnosis || 'No active diagnosis recorded.'}
-                  </div>
-                </div>
+            const diags = Array.from(new Set(displayRecs.map(r => r.Diagnosis).filter(Boolean)));
+            const diagsStr = diags.length > 0 ? diags.join('\n') : (selectedRecord.Diagnosis || 'No active diagnosis recorded.');
 
-                {(selectedRecord.SymptomsDiagnosis || (selectedRecord as any).Symptoms_Diagnosis || (selectedRecord as any).symptoms_diagnosis || (selectedRecord as any).symptomsdiagnosis) && (
-                  <div className="space-y-1">
-                    <span className="text-slate-400 block font-bold">Symptoms & Clinical Diagnosis (Database field):</span>
-                    <div className="bg-emerald-50/50 border border-emerald-150 rounded-lg p-2 text-slate-800 font-semibold italic">
-                      {selectedRecord.SymptomsDiagnosis || (selectedRecord as any).Symptoms_Diagnosis || (selectedRecord as any).symptoms_diagnosis || (selectedRecord as any).symptomsdiagnosis}
+            const sympDiags = Array.from(new Set(
+              displayRecs.map(r => r.SymptomsDiagnosis || (r as any).Symptoms_Diagnosis || (r as any).symptoms_diagnosis || (r as any).symptomsdiagnosis).filter(Boolean)
+            ));
+
+            const labTestsArr = Array.from(new Set(displayRecs.map(r => r.LabTests || r.LabTestAdvice).filter(Boolean)));
+            const labTestsStr = labTestsArr.length > 0 ? labTestsArr.join(' | ') : (selectedRecord.LabTests || selectedRecord.LabTestAdvice || 'No advised lab tests.');
+
+            const allergiesArr = Array.from(new Set(displayRecs.map(r => r.Allergies).filter(Boolean)));
+            const allergiesStr = allergiesArr.length > 0 ? allergiesArr.join(', ') : (selectedRecord.Allergies || 'None');
+
+            return (
+              <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-6 text-left animate-fadeIn">
+                
+                {/* Detailed Header */}
+                <div className="border-b border-slate-100 pb-4 flex items-start justify-between">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-700 font-black flex items-center justify-center text-sm shrink-0">
+                      {selectedRecord.PatientName.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="space-y-0.5 min-w-0">
+                      <span className="text-[9px] font-mono font-black text-indigo-500 block">PATIENT PROFILE</span>
+                      <h3 className="text-sm font-black text-slate-800 truncate">{selectedRecord.PatientName}</h3>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-mono text-slate-400 block truncate">ID: {selectedRecord.PatientID}</span>
+                        <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                          {allSelectedPatientRecords.length} Record Line(s) across {uniqueVisitDates.length} Visit(s)
+                        </span>
+                      </div>
                     </div>
                   </div>
-                )}
+                  <button
+                    onClick={() => handleOpenEditForm(selectedRecord)}
+                    className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-indigo-600 rounded-lg border border-slate-150 transition"
+                    title="Edit Patient Record"
+                  >
+                    <Edit className="w-3.5 h-3.5" />
+                  </button>
+                </div>
 
-                <div className="space-y-2">
-                  <span className="text-slate-400 block font-bold">Prescribed Medicines (Rx):</span>
-                  {(() => {
-                    const records = historyList.filter(r => r.PatientID === selectedRecord.PatientID);
-                    const groups: { [date: string]: NhcPatientHistory[] } = {};
-                    records.forEach(r => {
-                      const date = r.VisitDate || r.RegistrationDate || 'N/A';
-                      if (!groups[date]) groups[date] = [];
-                      groups[date].push(r);
-                    });
+                {/* Select Visit Date Dropdown */}
+                <div className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-3 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] font-black text-indigo-700 uppercase tracking-wider block">
+                      Select Visit Date History
+                    </span>
+                    <span className="text-[9px] font-mono font-bold text-indigo-600">
+                      Showing: {selectedVisitDate === 'ALL' ? 'All Visit History' : formatShortDate(selectedVisitDate)}
+                    </span>
+                  </div>
+                  <select
+                    value={selectedVisitDate}
+                    onChange={(e) => {
+                      setSelectedVisitDate(e.target.value);
+                    }}
+                    className="w-full bg-white border border-indigo-200 text-indigo-950 rounded-lg p-2 font-black font-mono text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer shadow-xs"
+                  >
+                    <option value="ALL">
+                      All Visit Dates ({uniqueVisitDates.length} Visit Date{uniqueVisitDates.length === 1 ? '' : 's'})
+                    </option>
+                    {uniqueVisitDates.map(d => (
+                      <option key={d} value={d}>
+                        {formatShortDate(d)} ({allSelectedPatientRecords.filter(r => (r.VisitDate || r.RegistrationDate || 'N/A') === d).length} line items)
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-                    const sortedDates = Object.keys(groups).sort((a, b) => b.localeCompare(a));
+                {/* Personal Data Block */}
+                <div className="space-y-3">
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block border-b border-slate-100 pb-1">
+                    Personal Demographics
+                  </span>
+                  <div className="grid grid-cols-1 gap-2.5 text-xxs text-slate-600">
+                    <div className="flex items-center gap-2">
+                      <User className="w-4 h-4 text-slate-400 shrink-0" />
+                      <span>Guardian/Spouse: <strong>{selectedRecord.Father_husband || '—'}</strong></span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Phone className="w-4 h-4 text-slate-400 shrink-0" />
+                      <span>Phone Number: <strong>{selectedRecord.PhoneMobile || '—'}</strong></span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <MapPin className="w-4 h-4 text-slate-400 shrink-0" />
+                      <span className="truncate">Home Address: <strong>{selectedRecord.Address || '—'}</strong></span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                      <span>Registration: <strong>{formatShortDate(selectedRecord.RegistrationDate) || '—'}</strong></span>
+                    </div>
+                  </div>
+                </div>
 
-                    if (sortedDates.length === 0) {
-                      return (
-                        <div className="bg-emerald-50/40 border border-emerald-100 rounded-lg p-2.5 text-emerald-900 font-bold font-mono text-[10px]">
-                          No prescription history on file.
+                {/* Clinical Record Block */}
+                <div className="space-y-3.5">
+                  <span className="text-[9px] font-black text-indigo-500 uppercase tracking-wider block border-b border-slate-100 pb-1">
+                    Clinical Details & History
+                  </span>
+                  <div className="space-y-3 text-xxs">
+                    <div className="space-y-1">
+                      <span className="text-slate-400 block font-bold">Medical Condition / Chronic:</span>
+                      <div className="bg-slate-50 border border-slate-150 rounded-lg p-2 text-slate-800 font-medium font-mono text-[10px]">
+                        {condsStr}
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <span className="text-slate-400 block font-bold">Symptoms / Complaints:</span>
+                      <div className="bg-slate-50 border border-slate-150 rounded-lg p-2 text-slate-800 font-medium whitespace-pre-wrap">
+                        {sympsStr}
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <span className="text-slate-400 block font-bold">Clinical Diagnosis:</span>
+                      <div className="bg-slate-50 border border-slate-150 rounded-lg p-2 text-slate-800 font-medium whitespace-pre-wrap">
+                        {diagsStr}
+                      </div>
+                    </div>
+
+                    {sympDiags.length > 0 && (
+                      <div className="space-y-1">
+                        <span className="text-slate-400 block font-bold">Symptoms & Clinical Diagnosis (Database field):</span>
+                        <div className="bg-emerald-50/50 border border-emerald-150 rounded-lg p-2 text-slate-800 font-semibold italic whitespace-pre-wrap">
+                          {sympDiags.join('\n\n')}
                         </div>
-                      );
-                    }
+                      </div>
+                    )}
 
-                    return (
-                      <div className="space-y-2">
-                        {sortedDates.map(date => {
-                          const dateRecs = groups[date];
-                          const clinical = dateRecs.filter(r => r.MedicineType === 'C' && r.MedicineDetail);
-                          const patent = dateRecs.filter(r => r.MedicineType === 'P' && r.MedicineDetail);
-                          
+                    <div className="space-y-2">
+                      <span className="text-slate-400 block font-bold">Prescribed Medicines (Rx History):</span>
+                      {(() => {
+                        const groups: { [date: string]: NhcPatientHistory[] } = {};
+                        displayRecs.forEach(r => {
+                          const date = r.VisitDate || r.RegistrationDate || 'N/A';
+                          if (!groups[date]) groups[date] = [];
+                          groups[date].push(r);
+                        });
+
+                        const sortedDates = Object.keys(groups).sort((a, b) => b.localeCompare(a));
+
+                        if (sortedDates.length === 0) {
                           return (
-                            <div key={date} className="bg-white border border-slate-150 rounded-lg p-2.5 space-y-2">
-                              <div className="flex items-center justify-between border-b border-slate-100 pb-1">
-                                <span className="font-extrabold text-slate-700 font-mono text-[9px]">{formatShortDate(date)}</span>
-                                <span className="text-[7px] font-black uppercase px-1 bg-slate-150 text-slate-500 rounded border border-slate-200">
-                                  {dateRecs.length} item(s)
-                                </span>
-                              </div>
-                              
-                              {clinical.length > 0 && (
-                                <div className="space-y-1">
-                                  <span className="text-[8px] font-black text-amber-800 uppercase bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 inline-block">
-                                    Clinical Compounded ('C')
-                                  </span>
-                                  <div className="space-y-1 mt-1">
-                                    {clinical.map((m, i) => (
-                                      <div key={i} className="grid grid-cols-2 gap-1.5 bg-amber-50/50 border border-amber-200/80 rounded-md p-1.5 text-[9px]">
-                                        <div className="bg-white border border-amber-100 rounded p-1">
-                                          <span className="text-[7px] text-slate-400 font-extrabold uppercase block">Clinical Medicine</span>
-                                          <span className="font-bold text-slate-900">{m.MedicineDetail}</span>
-                                        </div>
-                                        <div className="bg-white border border-amber-100 rounded p-1">
-                                          <span className="text-[7px] text-slate-400 font-extrabold uppercase block">Dosage / Usage</span>
-                                          <span className="font-mono font-bold text-amber-800">{m.Dosage || '1 Daily'}</span>
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-
-                              {patent.length > 0 && (
-                                <div className="space-y-1">
-                                  <span className="text-[8px] font-black text-emerald-800 uppercase bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 inline-block">
-                                    Patent Pre-packaged ('P')
-                                  </span>
-                                  <div className="space-y-1 mt-1">
-                                    {patent.map((m, i) => (
-                                      <div key={i} className="grid grid-cols-2 gap-1.5 bg-emerald-50/50 border border-emerald-200/80 rounded-md p-1.5 text-[9px]">
-                                        <div className="bg-white border border-emerald-100 rounded p-1">
-                                          <span className="text-[7px] text-slate-400 font-extrabold uppercase block">Patent Medicine</span>
-                                          <span className="font-bold text-slate-900">{m.MedicineDetail}</span>
-                                        </div>
-                                        <div className="bg-white border border-emerald-100 rounded p-1">
-                                          <span className="text-[7px] text-slate-400 font-extrabold uppercase block">Dosage / Usage</span>
-                                          <span className="font-mono font-bold text-emerald-800">{m.Dosage || '1 Daily'}</span>
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* Fallback for raw PrescribedMedicines string */}
-                              {clinical.length === 0 && patent.length === 0 && dateRecs.some(r => r.PrescribedMedicines) && (
-                                <div className="space-y-1">
-                                  {dateRecs.filter(r => r.PrescribedMedicines).map((r, i) => {
-                                    const raw = r.PrescribedMedicines || '';
-                                    const parts = raw.includes(' - ') ? raw.split(' - ') : [raw, 'As directed'];
-                                    return (
-                                      <div key={i} className="grid grid-cols-2 gap-1.5 bg-slate-50 border border-slate-200 rounded-md p-1.5 text-[9px]">
-                                        <div className="bg-white border border-slate-200 rounded p-1">
-                                          <span className="text-[7px] text-slate-400 font-extrabold uppercase block">Prescribed Medicine</span>
-                                          <span className="font-bold text-slate-900">{parts[0]}</span>
-                                        </div>
-                                        <div className="bg-white border border-slate-200 rounded p-1">
-                                          <span className="text-[7px] text-slate-400 font-extrabold uppercase block">Dosage / Usage</span>
-                                          <span className="font-mono font-bold text-slate-800">{parts.slice(1).join(' - ') || 'As directed'}</span>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-
-                              {clinical.length === 0 && patent.length === 0 && !dateRecs.some(r => r.PrescribedMedicines) && (
-                                <span className="text-slate-400 italic text-[9px]">No specific medicine lines mapped.</span>
-                              )}
+                            <div className="bg-emerald-50/40 border border-emerald-100 rounded-lg p-2.5 text-emerald-900 font-bold font-mono text-[10px]">
+                              No prescription history on file for this selection.
                             </div>
                           );
-                        })}
-                      </div>
-                    );
-                  })()}
-                </div>
+                        }
 
-                <div className="space-y-1">
-                  <span className="text-slate-400 block font-bold">Advised Lab Investigations & Medical Report Results:</span>
-                  <div className="bg-blue-50/40 border border-blue-100 rounded-lg p-2.5 text-blue-900 font-bold text-[10px] space-y-2">
-                    <div>
-                      <span className="text-slate-500 font-bold uppercase text-[8px] tracking-wider block mb-0.5">Advised Lab Tests:</span>
-                      <p className="font-mono text-slate-800">{selectedRecord.LabTests || selectedRecord.LabTestAdvice || 'No advised lab tests.'}</p>
-                    </div>
-                    {(() => {
-                      const records = historyList.filter(r => r.PatientID === selectedRecord.PatientID);
-                      const reportResults = Array.from(new Set(
-                        [selectedRecord.MedicalReportResult, ...records.map(r => r.MedicalReportResult)]
-                          .map(m => m ? m.trim() : '')
-                          .filter(m => m && m !== 'N/A')
-                      ));
-                      if (reportResults.length > 0) {
                         return (
-                          <div className="pt-2 border-t border-blue-200/60">
-                            <span className="text-indigo-900 font-extrabold uppercase text-[8px] tracking-wider block mb-0.5">
-                              Medical Report Result (nhc_Patient_history):
-                            </span>
-                            <div className="bg-white border border-indigo-100 rounded-md p-2 text-indigo-950 font-semibold text-[10px] whitespace-pre-wrap">
-                              {reportResults.join('\n\n')}
-                            </div>
+                          <div className="space-y-2">
+                            {sortedDates.map(date => {
+                              const dateRecs = groups[date];
+                              const clinical = dateRecs.filter(r => r.MedicineType === 'C' && r.MedicineDetail);
+                              const patent = dateRecs.filter(r => r.MedicineType === 'P' && r.MedicineDetail);
+                              
+                              return (
+                                <div key={date} className="bg-white border border-slate-150 rounded-lg p-2.5 space-y-2">
+                                  <div className="flex items-center justify-between border-b border-slate-100 pb-1">
+                                    <span className="font-extrabold text-slate-700 font-mono text-[9px]">{formatShortDate(date)}</span>
+                                    <span className="text-[7px] font-black uppercase px-1 bg-slate-150 text-slate-500 rounded border border-slate-200">
+                                      {dateRecs.length} item(s)
+                                    </span>
+                                  </div>
+                                  
+                                  {clinical.length > 0 && (
+                                    <div className="space-y-1">
+                                      <span className="text-[8px] font-black text-amber-800 uppercase bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 inline-block">
+                                        Clinical Compounded ('C')
+                                      </span>
+                                      <div className="space-y-1 mt-1">
+                                        {clinical.map((m, i) => (
+                                          <div key={i} className="grid grid-cols-2 gap-1.5 bg-amber-50/50 border border-amber-200/80 rounded-md p-1.5 text-[9px]">
+                                            <div className="bg-white border border-amber-100 rounded p-1">
+                                              <span className="text-[7px] text-slate-400 font-extrabold uppercase block">Clinical Medicine</span>
+                                              <span className="font-bold text-slate-900">{m.MedicineDetail}</span>
+                                            </div>
+                                            <div className="bg-white border border-amber-100 rounded p-1">
+                                              <span className="text-[7px] text-slate-400 font-extrabold uppercase block">Dosage / Usage</span>
+                                              <span className="font-mono font-bold text-amber-800">{m.Dosage || '1 Daily'}</span>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {patent.length > 0 && (
+                                    <div className="space-y-1">
+                                      <span className="text-[8px] font-black text-emerald-800 uppercase bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 inline-block">
+                                        Patent Pre-packaged ('P')
+                                      </span>
+                                      <div className="space-y-1 mt-1">
+                                        {patent.map((m, i) => (
+                                          <div key={i} className="grid grid-cols-2 gap-1.5 bg-emerald-50/50 border border-emerald-200/80 rounded-md p-1.5 text-[9px]">
+                                            <div className="bg-white border border-emerald-100 rounded p-1">
+                                              <span className="text-[7px] text-slate-400 font-extrabold uppercase block">Patent Medicine</span>
+                                              <span className="font-bold text-slate-900">{m.MedicineDetail}</span>
+                                            </div>
+                                            <div className="bg-white border border-emerald-100 rounded p-1">
+                                              <span className="text-[7px] text-slate-400 font-extrabold uppercase block">Dosage / Usage</span>
+                                              <span className="font-mono font-bold text-emerald-800">{m.Dosage || '1 Daily'}</span>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Fallback for raw PrescribedMedicines string */}
+                                  {clinical.length === 0 && patent.length === 0 && dateRecs.some(r => r.PrescribedMedicines) && (
+                                    <div className="space-y-1">
+                                      {dateRecs.filter(r => r.PrescribedMedicines).map((r, i) => {
+                                        const raw = r.PrescribedMedicines || '';
+                                        const parts = raw.includes(' - ') ? raw.split(' - ') : [raw, 'As directed'];
+                                        return (
+                                          <div key={i} className="grid grid-cols-2 gap-1.5 bg-slate-50 border border-slate-200 rounded-md p-1.5 text-[9px]">
+                                            <div className="bg-white border border-slate-200 rounded p-1">
+                                              <span className="text-[7px] text-slate-400 font-extrabold uppercase block">Prescribed Medicine</span>
+                                              <span className="font-bold text-slate-900">{parts[0]}</span>
+                                            </div>
+                                            <div className="bg-white border border-slate-200 rounded p-1">
+                                              <span className="text-[7px] text-slate-400 font-extrabold uppercase block">Dosage / Usage</span>
+                                              <span className="font-mono font-bold text-slate-800">{parts.slice(1).join(' - ') || 'As directed'}</span>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+
+                                  {clinical.length === 0 && patent.length === 0 && !dateRecs.some(r => r.PrescribedMedicines) && (
+                                    <span className="text-slate-400 italic text-[9px]">No specific medicine lines mapped.</span>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         );
-                      }
-                      return null;
-                    })()}
-                  </div>
-                </div>
+                      })()}
+                    </div>
 
-                <div className="space-y-1">
-                  <span className="text-slate-400 block font-bold">Allergies / Warnings:</span>
-                  <div className="bg-rose-50 border border-rose-100 text-rose-800 rounded-lg p-2 font-bold font-mono text-[10px]">
-                    {selectedRecord.Allergies || 'None'}
+                    <div className="space-y-1">
+                      <span className="text-slate-400 block font-bold">Advised Lab Investigations & Medical Report Results:</span>
+                      <div className="bg-blue-50/40 border border-blue-100 rounded-lg p-2.5 text-blue-900 font-bold text-[10px] space-y-2">
+                        <div>
+                          <span className="text-slate-500 font-bold uppercase text-[8px] tracking-wider block mb-0.5">Advised Lab Tests:</span>
+                          <p className="font-mono text-slate-800">{labTestsStr}</p>
+                        </div>
+                        {(() => {
+                          const reportResults = Array.from(new Set(
+                            allSelectedPatientRecords.map(r => r.MedicalReportResult)
+                              .map(m => m ? m.trim() : '')
+                              .filter(m => m && m !== 'N/A')
+                          ));
+                          if (reportResults.length > 0) {
+                            return (
+                              <div className="pt-2 border-t border-blue-200/60">
+                                <span className="text-indigo-900 font-extrabold uppercase text-[8px] tracking-wider block mb-0.5">
+                                  Medical Report Result (nhc_Patient_history):
+                                </span>
+                                <div className="bg-white border border-indigo-100 rounded-md p-2 text-indigo-950 font-semibold text-[10px] whitespace-pre-wrap">
+                                  {reportResults.join('\n\n')}
+                                </div>
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <span className="text-slate-400 block font-bold">Allergies / Warnings:</span>
+                      <div className="bg-rose-50 border border-rose-100 text-rose-800 rounded-lg p-2 font-bold font-mono text-[10px]">
+                        {allergiesStr}
+                      </div>
+                    </div>
+
                   </div>
                 </div>
 
               </div>
-            </div>
-
-          </div>
+            );
+          })()
         ) : (
           /* State C: CLINIC EMPTY DETAILED STATE PLACEHOLDER */
           <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400 space-y-3">

@@ -53,6 +53,7 @@ export interface Item {
   MinStock: number; // Minimum threshold
   Unit: string; // e.g., Tab, Syrup, Amp, Cap
   MedicineType?: 'C' | 'P';
+  ReorderQty?: number; // Buy or reorder QTY
 }
 
 export interface Supplier {
@@ -283,6 +284,7 @@ export interface User {
     canAccessTokenIssue?: boolean;
     canAccessWaitingQueue?: boolean;
     canAccessPatientVisitDesk?: boolean;
+    canAccessGridView?: boolean;
     canAccessLargeScreenDisplay?: boolean;
 
     // Specific Action Permissions
@@ -292,6 +294,16 @@ export interface User {
     canBookAppointment?: boolean;
     canCancelAppointment?: boolean;
     canCallServeToken?: boolean;
+
+    // Granular Admin Controlled Printing & Export Permissions
+    canPrintPrescription?: boolean;
+    canPrintLabAdvice?: boolean;
+    canPrintVisitSlip?: boolean;
+    canPrintTokenSlip?: boolean;
+    canPrintPOSInvoice?: boolean;
+    canPrintVouchers?: boolean;
+    canPrintFinancialReports?: boolean;
+    canExportCSVExcel?: boolean;
   };
   UserRights?: UserRight[];
   AllowedUserIDs?: string[]; // Allowed User-to-User Access Control Matrix (Array of UserIDs/LoginNames or ['ALL'] / ['*'])
@@ -317,15 +329,19 @@ export interface ClinicSettings {
   ThermalFontSize?: string;
   ThermalBadgeStyle?: 'white' | 'black' | 'outline';
   ThermalShowPrinterHeader?: boolean;
+  ThermalMargin?: string;
+  ThermalScale?: string;
 }
 
 export interface UserRight {
   MenuID: string;
   MenuName: string;
-  Status: boolean;     // View/Access Menu item
-  AddRec: boolean;     // Enable Save/Create
-  PostRec: boolean;    // Enable voucher post/finalize
+  Status: boolean;       // View/Access Menu item
+  AddRec: boolean;       // Enable Save/Create
+  PostRec: boolean;      // Enable voucher post/finalize
   CancelPosted: boolean; // Enable authorization to reverse/strike out
+  PrintRec?: boolean;    // Enable document / slip printing
+  ExportRec?: boolean;   // Enable CSV / Excel data export
 }
 
 export interface SmsSettings {

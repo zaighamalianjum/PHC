@@ -201,7 +201,7 @@ export default function Dashboard({
 
           <div className="p-5 flex flex-col justify-between hover:bg-slate-50/30 transition duration-150">
             <div>
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Bank Al-Falah SBP A/C</span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Main Bank Current A/C</span>
               <p className="text-xxs text-slate-400 font-mono mt-0.5">Account ID: 101004</p>
             </div>
             <div className="mt-4">

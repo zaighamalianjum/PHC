@@ -3,16 +3,18 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   ShoppingCart,
   Plus,
+  PlusCircle,
   Trash2,
   Lock,
   Search,
   CheckCircle,
   FileText,
   AlertCircle,
+  AlertTriangle,
   Undo2,
   Truck,
   Check,
@@ -22,7 +24,10 @@ import {
   Edit,
   Tag,
   Stethoscope,
-  Pill
+  Pill,
+  X,
+  Filter,
+  Layers
 } from 'lucide-react';
 import {
   Patient,
@@ -35,6 +40,7 @@ import {
   InvVchHeader,
   InvVchDetail,
   UserRight,
+  User,
   Visit,
   VisitMedicine,
   Appointment,
@@ -63,7 +69,32 @@ interface PharmacyPOSProps {
   appointments?: Appointment[];
   tokens?: Token[];
   clinicSettings?: any;
+  currentUser?: User;
+  onUnauthorized?: (msg?: string) => void;
 }
+
+const MEDICINE_CATEGORIES = [
+  'BM Drops',
+  'Q D DROPS',
+  'Potency 30',
+  'Potency 200',
+  'Syrup',
+  'Drops',
+  'Tab',
+  'Cap',
+  'Injection',
+  'Ointment',
+  'Cream',
+  'Solution',
+  'Powder',
+  'Suspension',
+  'Gel',
+  'Sachet',
+  'Amp',
+  'Bottle',
+  'Gram',
+  'ML'
+];
 
 export default function PharmacyPOS({
   patients,
@@ -86,8 +117,16 @@ export default function PharmacyPOS({
   visitMedicines,
   appointments = [],
   tokens = [],
-  clinicSettings
+  clinicSettings,
+  currentUser,
+  onUnauthorized
 }: PharmacyPOSProps) {
+  const triggerAuthAlert = (featureName?: string) => {
+    const msg = featureName ? `You are not authorized to access ${featureName}.` : 'You are not authorized to access.';
+    if (onUnauthorized) {
+      onUnauthorized(msg);
+    }
+  };
   // Navigation tabs
   const [activeSubTab, setActiveSubTab] = useState<'checkout' | 'store_sales' | 'return' | 'grn' | 'inventory_manager' | 'invoice_logs' | 'clinical_labels'>('checkout');
 
@@ -102,6 +141,7 @@ export default function PharmacyPOS({
   const [itemFormPurchasePrice, setItemFormPurchasePrice] = useState<number | ''>('');
   const [itemFormCStock, setItemFormCStock] = useState<number | ''>('');
   const [itemFormMinStock, setItemFormMinStock] = useState<number | ''>('');
+  const [itemFormReorderQty, setItemFormReorderQty] = useState<number | ''>('');
   const [itemFormUnit, setItemFormUnit] = useState('Tab');
   const [itemFormMedicineType, setItemFormMedicineType] = useState<'C' | 'P'>('P');
   const [invSuccessMsg, setInvSuccessMsg] = useState('');
@@ -245,9 +285,11 @@ export default function PharmacyPOS({
     setItemFormPurchasePrice('');
     setItemFormCStock('');
     setItemFormMinStock('');
+    setItemFormReorderQty('');
     setItemFormUnit('Tab');
     setItemFormMedicineType('P');
     setInvErrorMsg('');
+    setIsAddMedicineModalOpen(false);
   };
 
   // Select Item for editing
@@ -259,9 +301,11 @@ export default function PharmacyPOS({
     setItemFormPurchasePrice(itm.PurchasePrice);
     setItemFormCStock(itm.CStock);
     setItemFormMinStock(itm.MinStock);
+    setItemFormReorderQty(itm.ReorderQty !== undefined ? itm.ReorderQty : '');
     setItemFormUnit(itm.Unit || 'Tab');
     setItemFormMedicineType(itm.MedicineType || 'P');
     setInvErrorMsg('');
+    setIsAddMedicineModalOpen(true);
   };
 
   // Add/Update Item handler
@@ -285,6 +329,7 @@ export default function PharmacyPOS({
     const pPrice = itemFormPurchasePrice === '' ? 0 : Number(itemFormPurchasePrice);
     const stock = itemFormCStock === '' ? 0 : Number(itemFormCStock);
     const minS = itemFormMinStock === '' ? 0 : Number(itemFormMinStock);
+    const reorderQ = itemFormReorderQty === '' ? undefined : Number(itemFormReorderQty);
 
     if (editingItem) {
       // Update existing item
@@ -298,6 +343,7 @@ export default function PharmacyPOS({
             PurchasePrice: pPrice,
             CStock: stock,
             MinStock: minS,
+            ReorderQty: reorderQ,
             Unit: itemFormUnit,
             MedicineType: itemFormMedicineType
           };
@@ -322,6 +368,7 @@ export default function PharmacyPOS({
         PurchasePrice: pPrice,
         CStock: stock,
         MinStock: minS,
+        ReorderQty: reorderQ,
         Unit: itemFormUnit,
         MedicineType: itemFormMedicineType
       };
@@ -359,9 +406,116 @@ export default function PharmacyPOS({
     invoiceDate: string;
   } | null>(null);
 
-  // Low Stock Report States
+  // Add Medicine Popup Modal & Grid Filters States
+  const [isAddMedicineModalOpen, setIsAddMedicineModalOpen] = useState(false);
+  const [invCategoryFilter, setInvCategoryFilter] = useState<string>('ALL');
+  const [invLowStockFilter, setInvLowStockFilter] = useState<boolean>(false);
+
+  // Custom Category Add & Edit States
+  const [categories, setCategories] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('pharmacy_custom_categories');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {
+      console.error("Error loading categories", e);
+    }
+    return MEDICINE_CATEGORIES;
+  });
+
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [newCatInput, setNewCatInput] = useState('');
+  const [editingCatIndex, setEditingCatIndex] = useState<number | null>(null);
+  const [editingCatName, setEditingCatName] = useState('');
+  const [catSuccessMsg, setCatSuccessMsg] = useState('');
+  const [catErrorMsg, setCatErrorMsg] = useState('');
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('pharmacy_custom_categories', JSON.stringify(categories));
+    } catch (e) {
+      console.error("Error saving categories", e);
+    }
+  }, [categories]);
+
+  const handleAddCategory = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const trimmed = newCatInput.trim();
+    if (!trimmed) {
+      setCatErrorMsg('Please enter a valid category name.');
+      return;
+    }
+    if (categories.some(c => c.toLowerCase() === trimmed.toLowerCase())) {
+      setCatErrorMsg(`Category "${trimmed}" already exists.`);
+      return;
+    }
+    setCategories(prev => [...prev, trimmed]);
+    setNewCatInput('');
+    setCatErrorMsg('');
+    setCatSuccessMsg(`Category "${trimmed}" added successfully.`);
+    setTimeout(() => setCatSuccessMsg(''), 3000);
+  };
+
+  const handleSaveEditCategory = (index: number) => {
+    const trimmed = editingCatName.trim();
+    if (!trimmed) {
+      setCatErrorMsg('Category name cannot be empty.');
+      return;
+    }
+    const oldName = categories[index];
+    if (categories.some((c, idx) => idx !== index && c.toLowerCase() === trimmed.toLowerCase())) {
+      setCatErrorMsg(`Category "${trimmed}" already exists.`);
+      return;
+    }
+
+    setCategories(prev => {
+      const updated = [...prev];
+      updated[index] = trimmed;
+      return updated;
+    });
+
+    if (setItems && oldName !== trimmed) {
+      setItems(prevItems => prevItems.map(item => {
+        if (item.Unit && item.Unit.toLowerCase().trim() === oldName.toLowerCase().trim()) {
+          return { ...item, Unit: trimmed };
+        }
+        return item;
+      }));
+    }
+
+    setEditingCatIndex(null);
+    setEditingCatName('');
+    setCatErrorMsg('');
+    setCatSuccessMsg(`Category renamed from "${oldName}" to "${trimmed}".`);
+    setTimeout(() => setCatSuccessMsg(''), 3000);
+  };
+
+  const handleDeleteCategory = (index: number) => {
+    const catToDelete = categories[index];
+    if (confirm(`Are you sure you want to delete category "${catToDelete}"?`)) {
+      setCategories(prev => prev.filter((_, idx) => idx !== index));
+      setCatSuccessMsg(`Category "${catToDelete}" deleted.`);
+      setTimeout(() => setCatSuccessMsg(''), 3000);
+    }
+  };
+
+  const handleResetCategories = () => {
+    if (confirm("Reset categories to default system categories?")) {
+      setCategories(MEDICINE_CATEGORIES);
+      setCatSuccessMsg("Categories reset to system defaults.");
+      setTimeout(() => setCatSuccessMsg(''), 3000);
+    }
+  };
+
+  // Low Stock / Minimum Threshold Purchase Order Report States
   const [isLowStockReportModalOpen, setIsLowStockReportModalOpen] = useState(false);
+  const [isPOPrintPreviewOpen, setIsPOPrintPreviewOpen] = useState(false);
   const [selectedReportCategory, setSelectedReportCategory] = useState<'ALL' | 'C' | 'P'>('ALL');
+  const [poCategoryFilter, setPoCategoryFilter] = useState<string>('ALL');
+  const [poSupplierId, setPoSupplierId] = useState<string>('');
+  const [poOnlyLowStock, setPoOnlyLowStock] = useState<boolean>(true);
 
   // Clinical Medicine Label Print States
   const [labelPatientId, setLabelPatientId] = useState('');
@@ -399,7 +553,7 @@ export default function PharmacyPOS({
   // Store Medicine State
   const [storePatientId, setStorePatientId] = useState('');
   const [storeShift, setStoreShift] = useState<1 | 2>(1);
-  const [storeDiscountInput, setStoreDiscountInput] = useState<number>(0);
+  const [storeDiscountInput, setStoreDiscountInput] = useState<number | string>('');
   const [storeBasket, setStoreBasket] = useState<{ ItemID: string; Qty: number; Price: number; MedicineType?: 'C' | 'P' | 'S' }[]>([]);
   const [storeRowItemId, setStoreRowItemId] = useState('');
   const [storeRowQty, setStoreRowQty] = useState<number>(1);
@@ -465,9 +619,6 @@ export default function PharmacyPOS({
     
     // 1. Direct match in visitMedicines state
     const directMeds = visitMedicines.filter((vm) => vm.VisitID === v.VisitID);
-    if (directMeds.length > 0) {
-      return directMeds;
-    }
 
     // 2. Fallback: Parse VisitRemarks if available
     const parsedMeds: VisitMedicine[] = [];
@@ -477,7 +628,7 @@ export default function PharmacyPOS({
       // Parse Clinical
       if (rem.includes('Clinical:')) {
         const cMatch = rem.match(/Clinical:\s*([^|]+)/);
-        if (cMatch && cMatch[1].trim() && cMatch[1].trim() !== 'None' && cMatch[1].trim() !== 'undefined') {
+        if (cMatch && cMatch[1].trim() && !['None', 'undefined', 'None prescribed', 'N/A', '0'].includes(cMatch[1].trim())) {
           let cText = cMatch[1].trim();
           let expDate = '';
           const expMatch = cText.match(/\(EXP:\s*([^)]+)\)/);
@@ -485,14 +636,17 @@ export default function PharmacyPOS({
             expDate = expMatch[1].trim();
             cText = cText.replace(/\(EXP:\s*([^)]+)\)/, '').trim();
           }
-          parsedMeds.push({
-            VisitID: v.VisitID,
-            ItemID: 'CLIN-COMPOUND',
-            MedicineType: 'C',
-            MedicineDetail: 'Clinical Compounding Medicine',
-            Dosage: cText,
-            Qty: 1,
-            ExpireDate: expDate
+          const lines = cText.split(/\n/).map(l => l.trim()).filter(Boolean);
+          lines.forEach((line, idx) => {
+            parsedMeds.push({
+              VisitID: v.VisitID,
+              ItemID: `CLIN-${idx + 1}`,
+              MedicineType: 'C',
+              MedicineDetail: line,
+              Dosage: line,
+              Qty: 1,
+              ExpireDate: expDate
+            });
           });
         }
       }
@@ -500,9 +654,9 @@ export default function PharmacyPOS({
       // Parse Patent
       if (rem.includes('Patent:')) {
         const pMatch = rem.match(/Patent:\s*([^|]+)/);
-        if (pMatch && pMatch[1].trim() && pMatch[1].trim() !== 'None' && pMatch[1].trim() !== 'undefined') {
+        if (pMatch && pMatch[1].trim() && !['None', 'undefined', 'None prescribed', 'N/A', '0'].includes(pMatch[1].trim())) {
           const pText = pMatch[1].trim();
-          const lines = pText.split('\n').map(l => l.trim()).filter(Boolean);
+          const lines = pText.split(/\n/).map(l => l.trim()).filter(Boolean);
           lines.forEach((line, idx) => {
             parsedMeds.push({
               VisitID: v.VisitID,
@@ -515,12 +669,59 @@ export default function PharmacyPOS({
           });
         }
       }
+
+      // Fallback for plain text remark without explicit "Clinical:" / "Patent:" markers
+      if (!rem.includes('Clinical:') && !rem.includes('Patent:') && rem.trim() && !rem.includes('OPD clinical desk consultation') && !rem.includes('Archived NHC Clinical History')) {
+        parsedMeds.push({
+          VisitID: v.VisitID,
+          ItemID: `MED-1`,
+          MedicineType: 'C',
+          MedicineDetail: rem.trim(),
+          Dosage: rem.trim(),
+          Qty: 1
+        });
+      }
+    }
+
+    if (directMeds.length > 0) {
+      return directMeds;
     }
 
     return parsedMeds;
   };
 
-  const handleCleanLabelPrint = (presetSize: '4x8' | '8x5' | '4x3' = '4x8') => {
+  // Comprehensive patient collection ensuring archive and visit patients are included
+  const allKnownPatients = useMemo(() => {
+    const map = new Map<string, Patient>();
+    (patients || []).forEach(p => {
+      if (p && p.PatientID) map.set(p.PatientID, p);
+    });
+    (visits || []).forEach(v => {
+      if (v.PatientID && !map.has(v.PatientID)) {
+        map.set(v.PatientID, {
+          PatientID: v.PatientID,
+          PatientName: `Patient (${v.PatientID})`,
+          Father_husband: '',
+          AgeYears: 0,
+          Sex: 'Male',
+          MaritalStatus: 'Single',
+          Occupation: '',
+          Address: '',
+          CityID: 1,
+          Country: 'Pakistan',
+          PhoneMobile: '',
+          RegistrationDate: v.VisitDate || new Date().toISOString().split('T')[0]
+        });
+      }
+    });
+    return Array.from(map.values());
+  }, [patients, visits]);
+
+  const handleCleanLabelPrint = (presetSize: '4x8' | '8x5' | '4x3' | '2x4' | '2x0.2' = '2x0.2') => {
+    if (currentUser?.Role !== 'Administrator' && (currentUser?.Permissions?.canPrintPOSInvoice === false || userRights.find(r => r.MenuID === 'pharmacy')?.PrintRec === false)) {
+      alert("Printing Clinical Label Stickers is restricted by administrator permissions.");
+      return;
+    }
     const elem = document.getElementById('sticker-print-container');
     if (!elem) {
       window.print();
@@ -533,61 +734,60 @@ export default function PharmacyPOS({
       return;
     }
 
-    let pageSizeCss = 'size: 4in 8in; margin: 0;';
-    let stickerWidth = '4in';
-    let stickerHeight = '8in';
-
-    if (presetSize === '8x5') {
-      pageSizeCss = 'size: 8in 5in; margin: 0;';
-      stickerWidth = '8in';
-      stickerHeight = '5in';
-    } else if (presetSize === '4x3') {
-      pageSizeCss = 'size: 4in 3in; margin: 0;';
-      stickerWidth = '4in';
-      stickerHeight = '3in';
-    }
-
     printWin.document.write(`
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Clinical Label Sticker Print (${presetSize === '4x8' ? '4" x 8" Roll' : presetSize}) - Homoeopathic Clinic</title>
+          <title>Clinical Medicine Label Print (2" x 0.2" - 2x2 Grid on A4)</title>
           <script src="https://cdn.tailwindcss.com"></script>
           <style>
             @page {
-              ${pageSizeCss}
+              size: A4;
+              margin: 10mm;
             }
             body {
               margin: 0;
               padding: 0;
               background: white;
-              color: #0f172a;
+              color: #000;
               font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
               -webkit-print-color-adjust: exact !important;
               print-color-adjust: exact !important;
             }
-            .label-sticker-page {
-              box-shadow: none !important;
-              border: none !important;
+            .label-grid-page {
+              display: grid;
+              grid-template-columns: 2in 2in;
+              column-gap: 2in;
+              row-gap: 0.25in;
+              page-break-inside: avoid;
               page-break-after: always;
-              width: ${stickerWidth} !important;
-              height: ${stickerHeight} !important;
-              max-width: ${stickerWidth} !important;
-              min-height: ${stickerHeight} !important;
-              margin: 0 auto;
+              margin-bottom: 10mm;
+            }
+            .label-grid-page:last-child {
+              page-break-after: avoid;
+            }
+            .label-sticker-page {
+              width: 2in;
+              min-height: 0.2in;
+              max-width: 2in;
               box-sizing: border-box;
+              border: 1px dashed #475569;
+              border-radius: 3px;
+              padding: 2px 4px;
+              font-size: 9px;
+              line-height: 1.1;
             }
           </style>
         </head>
         <body>
-          <div style="padding: 12px; width: ${stickerWidth}; margin: 0 auto;">
+          <div>
             ${elem.innerHTML}
           </div>
           <script>
             setTimeout(() => {
               window.focus();
               window.print();
-            }, 450);
+            }, 350);
           </script>
         </body>
       </html>
@@ -882,11 +1082,12 @@ export default function PharmacyPOS({
   // Store Patent Medicine Sales (Store Sales) Helpers & Actions
   const calculateStoreTotals = () => {
     const gAmount = storeBasket.reduce((sum, item) => sum + item.Qty * item.Price, 0);
-    const netAmount = Math.max(0, gAmount - storeDiscountInput);
-    return { storeGAmount: gAmount, storeNetAmount: netAmount };
+    const discVal = storeDiscountInput === '' ? 0 : (Number(storeDiscountInput) || 0);
+    const netAmount = Math.max(0, gAmount - discVal);
+    return { storeGAmount: gAmount, storeNetAmount: netAmount, storeDiscVal: discVal };
   };
 
-  const { storeGAmount, storeNetAmount } = calculateStoreTotals();
+  const { storeGAmount, storeNetAmount, storeDiscVal } = calculateStoreTotals();
 
   const handleAddToStoreBasket = () => {
     if (!storeRowItemId) return;
@@ -971,7 +1172,7 @@ export default function PharmacyPOS({
       PatientID: storePatientId || '', // Empty means Walk-in Customer
       InvoiceDate: new Date().toISOString().split('T')[0],
       GAmount: storeGAmount,
-      Discount: storeDiscountInput,
+      Discount: storeDiscVal,
       NetAmount: storeNetAmount,
       shift: storeShift,
       Status: postRecord ? 2 : 1 // 1=Draft, 2=Posted
@@ -995,7 +1196,7 @@ export default function PharmacyPOS({
     setPrintBillData({
       patient: patients.find(p => p.PatientID === storePatientId) || null,
       basket: [...storeBasket],
-      discount: storeDiscountInput,
+      discount: storeDiscVal,
       netAmount: storeNetAmount,
       shift: storeShift,
       invoiceNo: nextInvoiceNo,
@@ -1005,7 +1206,7 @@ export default function PharmacyPOS({
 
     // Reset forms
     setStoreBasket([]);
-    setStoreDiscountInput(0);
+    setStoreDiscountInput('');
     setStorePatientId('');
 
     setTimeout(() => setStoreSuccessMsg(''), 6000);
@@ -1270,7 +1471,7 @@ export default function PharmacyPOS({
             }`}
           >
             <History className="w-3.5 h-3.5 text-blue-500" />
-            <span>Patient Dispatched Medicine & Invoice Logs</span>
+            <span>Invoice logs</span>
           </button>
           <button
             onClick={() => setActiveSubTab('clinical_labels')}
@@ -1348,17 +1549,30 @@ export default function PharmacyPOS({
                 onChange={(e) => setSelectedPatientId(e.target.value)}
                 className="w-full text-xs font-bold border border-emerald-300 rounded-lg p-2.5 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               >
-                <option value="">-- Choose Patient / Token --</option>
-                {patients.map((p) => {
-                  const tokenNo = getPatientTokenNo(p.PatientID);
-                  const pVisits = visits.filter(v => v.PatientID === p.PatientID);
-                  const hasPrescription = pVisits.some(v => getVisitMedicinesList(v).length > 0);
-                  return (
-                    <option key={p.PatientID} value={p.PatientID}>
-                      {p.PatientName} (ID: {p.PatientID}) {tokenNo ? `[Token #${tokenNo}]` : ''} {hasPrescription ? '• [Rx Prescribed]' : ''}
-                    </option>
-                  );
-                })}
+                <option value="">-- Choose Patient / Issued Token --</option>
+                {(() => {
+                  const list = patients.filter((p) => {
+                    const hasTok = (tokens || []).some((t) => t.PatientID === p.PatientID);
+                    const hasVisTok = (visits || []).some((v) => v.PatientID === p.PatientID && v.TokenNo);
+                    const hasVisit = (visits || []).some((v) => v.PatientID === p.PatientID);
+                    return hasTok || hasVisTok || hasVisit || p.PatientID === selectedPatientId;
+                  });
+
+                  if (list.length === 0) {
+                    return <option disabled value="">No patients with visits or tokens found</option>;
+                  }
+
+                  return list.map((p, idx) => {
+                    const tokenNo = getPatientTokenNo(p.PatientID);
+                    const pVisits = visits.filter(v => v.PatientID === p.PatientID);
+                    const hasPrescription = pVisits.some(v => getVisitMedicinesList(v).length > 0);
+                    return (
+                      <option key={`pos-sel-${p.PatientID}-${idx}`} value={p.PatientID}>
+                        {p.PatientName} (ID: {p.PatientID}) {tokenNo ? `[Token #${tokenNo}]` : ''} {hasPrescription ? '• [Rx Prescribed]' : ''}
+                      </option>
+                    );
+                  });
+                })()}
               </select>
 
               {/* Prescribed Medicines Box */}
@@ -1711,7 +1925,7 @@ export default function PharmacyPOS({
         </div>
       )}
 
-      {/* Patient Dispatched Medicine & Invoice Logs Tab */}
+      {/* Invoice logs Tab */}
       {activeSubTab === 'invoice_logs' && (
         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4 animate-fadeIn" id="today-receipts-history">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-4 gap-4">
@@ -1720,7 +1934,7 @@ export default function PharmacyPOS({
                 <History className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-sm font-bold text-slate-950">Patient Dispatched Medicine & Invoice Logs</h3>
+                <h3 className="text-sm font-bold text-slate-950">Invoice logs</h3>
                 <p className="text-[11px] text-slate-500 font-medium">History of today's issued medicine bills with standard reprint function</p>
               </div>
             </div>
@@ -1885,34 +2099,54 @@ export default function PharmacyPOS({
               </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xxs font-bold text-slate-500 uppercase">Customer / Patient Type</label>
-                <select
-                  value={storePatientId}
-                  onChange={(e) => setStorePatientId(e.target.value)}
-                  className="mt-1 w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
-                >
-                  <option value="">-- Walk-in Customer (General POS) --</option>
-                  {patients.map((p) => (
-                    <option key={p.PatientID} value={p.PatientID}>
-                      {p.PatientName} ({p.PatientID})
-                    </option>
-                  ))}
-                </select>
-              </div>
+            <div>
+              <label className="block text-xxs font-bold text-slate-500 uppercase">Customer / Patient Type</label>
+              <select
+                value={storePatientId}
+                onChange={(e) => {
+                  const pId = e.target.value;
+                  setStorePatientId(pId);
+                  if (pId) {
+                    const tok = (tokens || []).slice().reverse().find(t => t.PatientID === pId);
+                    if (tok && (tok.Shift === 1 || tok.Shift === 2)) {
+                      setStoreShift(tok.Shift as 1 | 2);
+                    } else {
+                      const app = (appointments || []).slice().reverse().find(a => a.PatientID === pId);
+                      if (app && (app.Shift === 1 || app.Shift === 2)) {
+                        setStoreShift(app.Shift as 1 | 2);
+                      } else {
+                        setStoreShift(1);
+                      }
+                    }
+                  } else {
+                    setStoreShift(1);
+                  }
+                }}
+                className="mt-1 w-full text-xs border border-slate-200 bg-white rounded-lg p-2.5 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-medium"
+              >
+                <option value="">-- Walk-in Customer (General POS) --</option>
+                {(() => {
+                  const list = patients.filter((p) => {
+                    const hasTok = (tokens || []).some((t) => t.PatientID === p.PatientID);
+                    const hasVisTok = (visits || []).some((v) => v.PatientID === p.PatientID && v.TokenNo);
+                    const hasVisit = (visits || []).some((v) => v.PatientID === p.PatientID);
+                    return hasTok || hasVisTok || hasVisit || p.PatientID === storePatientId;
+                  });
 
-              <div>
-                <label className="block text-xxs font-bold text-slate-500 uppercase">Operational Shift</label>
-                <select
-                  value={storeShift}
-                  onChange={(e) => setStoreShift(parseInt(e.target.value) as any)}
-                  className="mt-1 w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
-                >
-                  <option value={1}>Morning Shift (1)</option>
-                  <option value={2}>Evening Shift (2)</option>
-                </select>
-              </div>
+                  if (list.length === 0) {
+                    return <option disabled value="">No patients with visits or tokens found</option>;
+                  }
+
+                  return list.map((p, idx) => {
+                    const tokenNo = getPatientTokenNo(p.PatientID);
+                    return (
+                      <option key={`pos-walk-${p.PatientID}-${idx}`} value={p.PatientID}>
+                        {p.PatientName} (ID: {p.PatientID}) {tokenNo ? `[Token #${tokenNo}]` : ''}
+                      </option>
+                    );
+                  });
+                })()}
+              </select>
             </div>
 
             {/* In-Grid Item selector */}
@@ -2099,10 +2333,19 @@ export default function PharmacyPOS({
                   <input
                     type="number"
                     min="0"
+                    placeholder="0"
                     max={storeGAmount}
                     value={storeDiscountInput}
-                    onChange={(e) => setStoreDiscountInput(Math.min(storeGAmount, parseInt(e.target.value) || 0))}
-                    className="w-full text-xs font-mono font-bold border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === '') {
+                        setStoreDiscountInput('');
+                      } else {
+                        const num = parseInt(val) || 0;
+                        setStoreDiscountInput(Math.min(storeGAmount, Math.max(0, num)));
+                      }
+                    }}
+                    className="w-full text-xs font-mono font-bold border border-slate-200 bg-white rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                   />
                 </div>
 
@@ -2119,10 +2362,10 @@ export default function PharmacyPOS({
                   <span>Debit StoreCIH_ Cash Account:</span>
                   <span className="text-slate-800 font-bold font-mono">Rs. {storeNetAmount.toLocaleString()}</span>
                 </div>
-                {storeDiscountInput > 0 && (
+                {storeDiscVal > 0 && (
                   <div className="flex justify-between">
                     <span>Debit StoreDisc_ Discount:</span>
-                    <span className="text-slate-800 font-bold font-mono">Rs. {storeDiscountInput.toLocaleString()}</span>
+                    <span className="text-slate-800 font-bold font-mono">Rs. {storeDiscVal.toLocaleString()}</span>
                   </div>
                 )}
                 <div className="flex justify-between">
@@ -2152,7 +2395,7 @@ export default function PharmacyPOS({
                     setPrintBillData({
                       patient: patients.find(p => p.PatientID === storePatientId) || null,
                       basket: [...storeBasket],
-                      discount: storeDiscountInput,
+                      discount: storeDiscVal,
                       netAmount: storeNetAmount,
                       shift: storeShift,
                       invoiceNo: 'DRAFT',
@@ -2624,15 +2867,113 @@ export default function PharmacyPOS({
 
       {/* Stock Grid & Manager Tab */}
       {activeSubTab === 'inventory_manager' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fadeIn" id="pos-inventory-manager-tab">
+        <div className="space-y-6 animate-fadeIn" id="pos-inventory-manager-tab">
           
-          {/* Form Side - Left Column */}
-          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
-            <h3 className="text-sm font-bold text-slate-950 flex items-center border-b border-slate-100 pb-3">
-              <Database className="w-4 h-4 text-indigo-600 mr-2" />
-              {editingItem ? `Edit Medicine: ${editingItem.ItemID}` : 'Add New Medicine to Inventory'}
-            </h3>
+          {/* Main Full-Width Card */}
+          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col space-y-4">
+            
+            {/* Top Bar with Header, Category Dropdown, Search, Add Button & PO Print */}
+            <div className="flex flex-col xl:flex-row xl:items-center justify-between border-b border-slate-150 pb-4 gap-4">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 flex items-center">
+                  <Database className="w-4 h-4 text-emerald-600 mr-2" />
+                  Real-time Medicine Inventory Grid-View
+                </h3>
+                <p className="text-[10px] text-slate-400 font-semibold mt-0.5">
+                  Filter by Category, search active stocks, manage parameters, and print Minimum Threshold Purchase Orders.
+                </p>
+              </div>
 
+              {/* Action & Filter Controls */}
+              <div className="flex flex-wrap items-center gap-2.5">
+                {/* Category Dropdown Filter */}
+                <div className="flex items-center space-x-1.5 bg-slate-50 border border-slate-250 rounded-lg px-2.5 py-1.5 text-xs">
+                  <Filter className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <span className="text-[10px] font-extrabold text-slate-400 uppercase">Category:</span>
+                  <select
+                    value={invCategoryFilter}
+                    onChange={(e) => setInvCategoryFilter(e.target.value)}
+                    className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
+                  >
+                    <option value="ALL">All Categories</option>
+                    <option value="C">Clinical Compounding (/C)</option>
+                    <option value="P">Patent Medicine (/P)</option>
+                    {categories.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Search Input */}
+                <div className="relative min-w-[180px] sm:min-w-[220px]">
+                  <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search ID, name or unit..."
+                    value={invSearchQuery}
+                    onChange={(e) => setInvSearchQuery(e.target.value)}
+                    className="w-full text-xs border rounded-lg pl-8 pr-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium text-slate-800 border-slate-250 bg-white"
+                  />
+                </div>
+
+                {/* Low Stock Filter Button */}
+                <button
+                  type="button"
+                  onClick={() => setInvLowStockFilter(!invLowStockFilter)}
+                  className={`px-3 py-1.5 rounded-lg flex items-center transition cursor-pointer font-bold text-xs shadow-xs shrink-0 ${
+                    invLowStockFilter
+                      ? 'bg-rose-600 text-white border border-rose-700 ring-2 ring-rose-300'
+                      : 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200'
+                  }`}
+                  title="Filter for items with current stock below minimum reorder level"
+                >
+                  <AlertTriangle className="w-3.5 h-3.5 mr-1.5 shrink-0" />
+                  <span>{invLowStockFilter ? 'Showing Low Stock Only' : 'Filter Low Stock'}</span>
+                  <span className={`ml-1.5 px-1.5 py-0.2 text-[10px] font-black rounded-full ${
+                    invLowStockFilter ? 'bg-white text-rose-700' : 'bg-rose-600 text-white'
+                  }`}>
+                    {items.filter(itm => itm.CStock <= (itm.MinStock || 10)).length}
+                  </span>
+                </button>
+
+                {/* Add New Medicine Popup Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetItemForm();
+                    setIsAddMedicineModalOpen(true);
+                  }}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg flex items-center transition cursor-pointer font-bold text-xs shadow-sm shrink-0"
+                >
+                  <PlusCircle className="w-4 h-4 mr-1.5" />
+                  <span>Add New Medicine</span>
+                </button>
+
+                {/* Category Add & Edit Button */}
+                <button
+                  type="button"
+                  onClick={() => setIsCategoryModalOpen(true)}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg flex items-center transition cursor-pointer font-bold text-xs shadow-sm shrink-0"
+                  title="Add & Edit Medicine Categories"
+                >
+                  <Tag className="w-4 h-4 mr-1.5" />
+                  <span>Category Add & Edit</span>
+                </button>
+
+                {/* Low Stock Threshold PO Report Button */}
+                <button
+                  type="button"
+                  onClick={() => setIsLowStockReportModalOpen(true)}
+                  className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 hover:text-rose-800 border border-rose-200 hover:border-rose-300 rounded-lg flex items-center transition cursor-pointer font-bold text-xs shrink-0"
+                  title="Print Purchase Order & Minimum Stock Threshold Report"
+                >
+                  <Printer className="w-3.5 h-3.5 mr-1.5 text-rose-500" />
+                  <span>Print PO / Threshold Report</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Success / Error Messages */}
             {invSuccessMsg && (
               <div className="p-3 bg-emerald-50 text-emerald-700 text-xs rounded-lg font-semibold border border-emerald-100">
                 {invSuccessMsg}
@@ -2646,291 +2987,358 @@ export default function PharmacyPOS({
               </div>
             )}
 
-            <form onSubmit={handleSaveItem} className="space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">Item ID *</label>
-                  <input
-                    type="text"
-                    required
-                    disabled={!!editingItem}
-                    placeholder="e.g. ITM-020"
-                    value={itemFormId}
-                    onChange={(e) => setItemFormId(e.target.value.toUpperCase())}
-                    className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-blue-500 font-mono disabled:bg-slate-50 disabled:text-slate-500 border-slate-200"
-                  />
-                  {!editingItem && (
+            {/* Homeopathic Category Quick-Filter & Purchase Order Required Quantity Strip */}
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center space-x-2">
+                  <Tag className="w-4 h-4 text-indigo-600 shrink-0" />
+                  <span className="text-xs font-black text-slate-800 uppercase tracking-wide">
+                    Medicine Categories & PO Required Quantity Manager
+                  </span>
+                </div>
+                <span className="text-[10px] font-bold text-slate-500">
+                  Click category badge to filter & view category-wise Purchase Order Required Quantity
+                </span>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                {[
+                  { id: 'ALL', label: 'All Categories' },
+                  { id: 'BM Drops', label: 'BM Drops' },
+                  { id: 'Q D DROPS', label: 'Q D DROPS (Mother Tincture)' },
+                  { id: 'Potency 30', label: 'Potency 30' },
+                  { id: 'Potency 200', label: 'Potency 200' },
+                  { id: 'Syrup', label: 'Syrup' },
+                  { id: 'Drops', label: 'Drops' },
+                ].map((cat) => {
+                  const isSelected = invCategoryFilter === cat.id;
+                  const catItems = items.filter(itm => {
+                    if (cat.id === 'ALL') return true;
+                    const u = (itm.Unit || '').toLowerCase().trim();
+                    const c = cat.id.toLowerCase().trim();
+                    return u === c || u.includes(c) || c.includes(u);
+                  });
+                  const totalReqQty = catItems.reduce((acc, itm) => {
+                    const rq = (itm.ReorderQty !== undefined && itm.ReorderQty > 0)
+                      ? itm.ReorderQty
+                      : Math.max((itm.MinStock || 10) * 2 - itm.CStock, 10);
+                    return acc + rq;
+                  }, 0);
+
+                  return (
                     <button
+                      key={cat.id}
                       type="button"
-                      onClick={() => {
-                        const nextId = `ITM-${String(items.length + 1).padStart(3, '0')}`;
-                        setItemFormId(nextId);
-                      }}
-                      className="text-[9px] text-indigo-600 font-extrabold mt-1 hover:underline text-left block"
+                      onClick={() => setInvCategoryFilter(cat.id)}
+                      className={`px-2.5 py-1 rounded-lg border text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
+                        isSelected
+                          ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
+                          : 'bg-white text-slate-700 border-slate-250 hover:bg-slate-100'
+                      }`}
                     >
-                      + Generate ID
+                      <span>{cat.label}</span>
+                      <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
+                        isSelected ? 'bg-indigo-800 text-white' : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        {catItems.length}
+                      </span>
+                      {totalReqQty > 0 && cat.id !== 'ALL' && (
+                        <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-mono ${
+                          isSelected ? 'bg-amber-400 text-slate-950 font-black' : 'bg-amber-100 text-amber-900 font-extrabold'
+                        }`} title="Category Purchase Order Required Quantity">
+                          PO Req: {totalReqQty}
+                        </span>
+                      )}
                     </button>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">Medicine Type</label>
-                  <select
-                    value={itemFormMedicineType}
-                    onChange={(e) => setItemFormMedicineType(e.target.value as 'C' | 'P')}
-                    className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-blue-500 border-slate-200 font-semibold"
-                  >
-                    <option value="P">Patent Medicine (/P)</option>
-                    <option value="C">Clinical Compounding (/C)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">Medicine / Item Name *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Panadol 500mg Tab"
-                  value={itemFormName}
-                  onChange={(e) => setItemFormName(e.target.value)}
-                  className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-blue-500 border-slate-200 font-semibold text-slate-850"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">Unit of Measure</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Tab, Cap, Syrup, Gram"
-                    value={itemFormUnit}
-                    onChange={(e) => setItemFormUnit(e.target.value)}
-                    className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-blue-500 border-slate-200 font-semibold"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">Minimum Threshold</label>
-                  <input
-                    type="number"
-                    min="0"
-                    placeholder="10"
-                    value={itemFormMinStock}
-                    onChange={(e) => setItemFormMinStock(e.target.value === '' ? '' : Number(e.target.value))}
-                    className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-blue-500 border-slate-200 font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">Purchase Price (Rs.)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    placeholder="Cost price"
-                    value={itemFormPurchasePrice}
-                    onChange={(e) => setItemFormPurchasePrice(e.target.value === '' ? '' : Number(e.target.value))}
-                    className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-blue-500 border-slate-200 font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">Retail Price (Rs.)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    placeholder="Sale price"
-                    value={itemFormRetailPrice}
-                    onChange={(e) => setItemFormRetailPrice(e.target.value === '' ? '' : Number(e.target.value))}
-                    className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-blue-500 border-slate-200 font-mono"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">Current Stock Level</label>
-                <input
-                  type="number"
-                  min="0"
-                  placeholder="e.g. 500"
-                  value={itemFormCStock}
-                  onChange={(e) => setItemFormCStock(e.target.value === '' ? '' : Number(e.target.value))}
-                  className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-blue-500 border-slate-200 font-mono"
-                />
-              </div>
-
-              <div className="pt-3 flex space-x-2">
-                <button
-                  type="submit"
-                  disabled={!canAdd}
-                  className={`flex-1 py-2 rounded-lg text-white font-bold transition shadow-sm ${
-                    canAdd
-                      ? 'bg-indigo-600 hover:bg-indigo-700'
-                      : 'bg-slate-400 cursor-not-allowed'
-                  }`}
-                >
-                  {editingItem ? 'Update Medicine' : 'Add to Inventory'}
-                </button>
-                {editingItem && (
-                  <button
-                    type="button"
-                    onClick={resetItemForm}
-                    className="px-3 py-2 border border-slate-250 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-semibold transition text-center"
-                  >
-                    Cancel
-                  </button>
-                )}
-              </div>
-            </form>
-          </div>
-
-          {/* Grid Side - Right Columns */}
-          <div className="lg:col-span-2 bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col min-h-[500px]">
-            <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-100 pb-3 mb-4 gap-3">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-3.5">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900 flex items-center">
-                    <Database className="w-4 h-4 text-emerald-600 mr-2" />
-                    Real-time Medicine Inventory Grid-View
-                  </h3>
-                  <p className="text-[10px] text-slate-400 font-semibold mt-0.5">
-                    Add, update parameters, remove, and filter Clinical vs Patent stocks.
-                  </p>
-                </div>
-                
-                <button
-                  type="button"
-                  onClick={() => setIsLowStockReportModalOpen(true)}
-                  className="mt-2 sm:mt-0 px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 hover:text-rose-800 border border-rose-200 hover:border-rose-300 rounded-lg flex items-center justify-center transition cursor-pointer font-bold text-xxs shrink-0"
-                  title="Print Stock Shortage Report with Category Selection"
-                >
-                  <Printer className="w-3.5 h-3.5 mr-1 text-rose-500" />
-                  <span>Low Stock Report</span>
-                </button>
-              </div>
-              
-              <div className="relative w-full md:w-64">
-                <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Search item ID, name or unit..."
-                  value={invSearchQuery}
-                  onChange={(e) => setInvSearchQuery(e.target.value)}
-                  className="w-full text-xs border rounded-lg pl-8 pr-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium text-slate-800 border-slate-250 bg-white"
-                />
+                  );
+                })}
               </div>
             </div>
 
             {/* Quick Stats Panel */}
-            <div className="grid grid-cols-4 gap-2 mb-4 text-center">
-              <div className="bg-slate-50 border border-slate-150 p-2 rounded-xl">
-                <span className="text-[8px] font-extrabold text-slate-400 uppercase tracking-wider block">Total Items</span>
-                <span className="text-xs font-black text-slate-900 font-mono block mt-0.5">{items.length}</span>
-              </div>
-              <div className="bg-rose-50/50 border border-rose-100 p-2 rounded-xl">
-                <span className="text-[8px] font-extrabold text-rose-500 uppercase tracking-wider block">Low Stock</span>
-                <span className="text-xs font-black text-rose-700 font-mono block mt-0.5">
-                  {items.filter(itm => itm.CStock <= (itm.MinStock || 10)).length}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+              <div className="bg-slate-50 border border-slate-150 p-2.5 rounded-xl">
+                <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block">Filtered Items</span>
+                <span className="text-sm font-black text-slate-900 font-mono block mt-0.5">
+                  {items.filter((itm) => {
+                    if (invLowStockFilter && itm.CStock > (itm.MinStock || 10)) return false;
+                    if (invCategoryFilter !== 'ALL') {
+                      if (invCategoryFilter === 'C') {
+                        if (itm.MedicineType !== 'C') return false;
+                      } else if (invCategoryFilter === 'P') {
+                        if (itm.MedicineType === 'C') return false;
+                      } else {
+                        const u = (itm.Unit || '').toLowerCase().trim();
+                        const c = invCategoryFilter.toLowerCase().trim();
+                        if (u !== c && !u.includes(c)) return false;
+                      }
+                    }
+                    if (invSearchQuery.trim()) {
+                      const q = invSearchQuery.toLowerCase().trim();
+                      return (
+                        itm.ItemID.toLowerCase().includes(q) ||
+                        itm.ItemName.toLowerCase().includes(q) ||
+                        (itm.Unit || '').toLowerCase().includes(q)
+                      );
+                    }
+                    return true;
+                  }).length} / {items.length}
                 </span>
               </div>
-              <div className="bg-indigo-50/50 border border-indigo-100 p-2 rounded-xl">
-                <span className="text-[8px] font-extrabold text-indigo-500 uppercase tracking-wider block">Clinical (/C)</span>
-                <span className="text-xs font-black text-indigo-700 font-mono block mt-0.5">
-                  {items.filter(itm => itm.MedicineType === 'C').length}
+
+              <button
+                type="button"
+                onClick={() => setInvLowStockFilter(!invLowStockFilter)}
+                className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                  invLowStockFilter
+                    ? 'bg-rose-600 text-white border-rose-700 ring-2 ring-rose-400 shadow-sm'
+                    : 'bg-rose-50/50 hover:bg-rose-100/70 border-rose-150'
+                }`}
+                title="Click to toggle filtering for Low Stock items"
+              >
+                <div className="flex items-center justify-between">
+                  <span className={`text-[9px] font-extrabold uppercase tracking-wider block ${
+                    invLowStockFilter ? 'text-rose-100' : 'text-rose-600'
+                  }`}>
+                    Low Stock Alert
+                  </span>
+                  {invLowStockFilter && (
+                    <span className="bg-white text-rose-700 text-[8px] font-black uppercase px-1.5 py-0.2 rounded-full">
+                      Active Filter
+                    </span>
+                  )}
+                </div>
+                <span className={`text-sm font-black font-mono block mt-0.5 ${
+                  invLowStockFilter ? 'text-white' : 'text-rose-700'
+                }`}>
+                  {items.filter(itm => itm.CStock <= (itm.MinStock || 10)).length} Items
+                </span>
+              </button>
+
+              <div className="bg-indigo-50/50 border border-indigo-100 p-2.5 rounded-xl">
+                <span className="text-[9px] font-extrabold text-indigo-500 uppercase tracking-wider block">Clinical (/C)</span>
+                <span className="text-sm font-black text-indigo-700 font-mono block mt-0.5">
+                  {items.filter(itm => itm.MedicineType === 'C').length} Items
                 </span>
               </div>
-              <div className="bg-emerald-50/50 border border-emerald-100 p-2 rounded-xl">
-                <span className="text-[8px] font-extrabold text-emerald-500 uppercase tracking-wider block">Patent (/P)</span>
-                <span className="text-xs font-black text-emerald-700 font-mono block mt-0.5">
-                  {items.filter(itm => itm.MedicineType !== 'C').length}
+
+              <div className="bg-emerald-50/50 border border-emerald-100 p-2.5 rounded-xl">
+                <span className="text-[9px] font-extrabold text-emerald-500 uppercase tracking-wider block">Patent (/P)</span>
+                <span className="text-sm font-black text-emerald-700 font-mono block mt-0.5">
+                  {items.filter(itm => itm.MedicineType !== 'C').length} Items
                 </span>
               </div>
             </div>
 
-            {/* Scrollable Grid View */}
-            <div className="flex-1 overflow-x-auto max-h-[420px] border border-slate-150 rounded-xl">
-              <table className="w-full text-left border-collapse text-xxs font-sans">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-150 text-[9px] text-slate-400 font-black uppercase tracking-wider">
-                    <th className="px-3 py-2">Item ID</th>
-                    <th className="px-3 py-2">Item Name</th>
-                    <th className="px-3 py-2">Unit</th>
-                    <th className="px-3 py-2">Type</th>
-                    <th className="px-3 py-2 text-right">Cost (Rs.)</th>
-                    <th className="px-3 py-2 text-right">Retail (Rs.)</th>
-                    <th className="px-3 py-2 text-right">Stock</th>
-                    <th className="px-3 py-2 text-center">Actions</th>
+            {/* Active Low Stock Filter Banner */}
+            {invLowStockFilter && (
+              <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 flex items-center justify-between text-xs animate-fadeIn">
+                <div className="flex items-center space-x-2 text-rose-800 font-bold">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>Showing items where Current Stock (CStock) is below or at Reorder Level (MinStock)</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setInvLowStockFilter(false)}
+                  className="px-2.5 py-1 bg-white hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-lg text-xs font-bold transition cursor-pointer"
+                >
+                  Clear Low Stock Filter
+                </button>
+              </div>
+            )}
+
+            {/* Real-time Medicine Inventory Table */}
+            <div className="overflow-x-auto border border-slate-200 rounded-xl max-h-[500px] overflow-y-auto">
+              <table className="w-full text-left border-collapse text-xs font-sans">
+                <thead className="sticky top-0 bg-slate-100 border-b border-slate-200 text-[10px] text-slate-500 font-black uppercase tracking-wider z-10">
+                  <tr>
+                    <th className="px-3 py-2.5 text-center w-12">S.No</th>
+                    <th className="px-3 py-2.5">Item ID</th>
+                    <th className="px-3 py-2.5">Medicine Name</th>
+                    <th className="px-3 py-2.5">Category / Unit</th>
+                    <th className="px-3 py-2.5">Type</th>
+                    <th className="px-3 py-2.5 text-right">Current Stock</th>
+                    <th className="px-3 py-2.5 text-right">Min Threshold</th>
+                    <th className="px-3 py-2.5 text-right text-indigo-700 font-bold">Reorder Qty</th>
+                    <th className="px-3 py-2.5 text-right">Unit Cost (Rs.)</th>
+                    <th className="px-3 py-2.5 text-right">Retail Price (Rs.)</th>
+                    <th className="px-3 py-2.5 text-center">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 bg-white">
+                <tbody className="divide-y divide-slate-150 bg-white text-slate-800">
                   {items.filter((itm) => {
-                    if (!invSearchQuery.trim()) return true;
-                    const query = invSearchQuery.toLowerCase();
-                    return (
-                      itm.ItemID.toLowerCase().includes(query) ||
-                      itm.ItemName.toLowerCase().includes(query) ||
-                      (itm.Unit || '').toLowerCase().includes(query)
-                    );
-                  }).map((itm, idx) => {
-                    const isLowStock = itm.CStock <= (itm.MinStock || 10);
-                    const isClinical = itm.MedicineType === 'C';
-                    return (
-                      <tr key={`${itm.ItemID}-${idx}`} className={`hover:bg-slate-50 transition ${editingItem?.ItemID === itm.ItemID ? 'bg-indigo-50/40' : ''}`}>
-                        <td className="px-3 py-2.5 font-mono text-slate-600 font-bold">{itm.ItemID}</td>
-                        <td className="px-3 py-2.5 font-bold text-slate-900">{itm.ItemName}</td>
-                        <td className="px-3 py-2.5 text-slate-500 font-semibold">{itm.Unit}</td>
-                        <td className="px-3 py-2.5">
-                          <span className={`px-1.5 py-0.5 rounded font-black text-[8px] uppercase tracking-wider ${
-                            isClinical 
-                              ? 'bg-indigo-50 border border-indigo-100 text-indigo-700' 
-                              : 'bg-emerald-50 border border-emerald-100 text-emerald-700'
-                          }`}>
-                            {isClinical ? 'Clinical' : 'Patent'}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2.5 text-right font-mono font-medium text-slate-500">Rs. {itm.PurchasePrice.toFixed(2)}</td>
-                        <td className="px-3 py-2.5 text-right font-mono font-bold text-slate-900">Rs. {itm.Price.toFixed(2)}</td>
-                        <td className="px-3 py-2.5 text-right">
-                          <span className={`font-mono font-black px-1.5 py-0.5 rounded ${
-                            isLowStock 
-                              ? 'bg-rose-100 text-rose-700 border border-rose-200' 
-                              : 'bg-slate-100 text-slate-900 border border-slate-150'
-                          }`}>
-                            {itm.CStock}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2.5 text-center">
-                          <div className="flex justify-center items-center space-x-1">
-                            <button
-                              onClick={() => handleSelectEditItem(itm)}
-                              className="p-1 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition cursor-pointer"
-                              title="Edit Medicine Parameter"
-                            >
-                              <Edit className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => handleRemoveItem(itm.ItemID, itm.ItemName)}
-                              disabled={!canAdd}
-                              className={`p-1 rounded transition cursor-pointer ${
-                                canAdd ? 'text-slate-500 hover:text-rose-600 hover:bg-rose-50' : 'text-slate-300 cursor-not-allowed'
-                              }`}
-                              title="Remove from Inventory"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                    if (invLowStockFilter && itm.CStock > (itm.MinStock || 10)) return false;
+                    if (invCategoryFilter !== 'ALL') {
+                      if (invCategoryFilter === 'C') {
+                        if (itm.MedicineType !== 'C') return false;
+                      } else if (invCategoryFilter === 'P') {
+                        if (itm.MedicineType === 'C') return false;
+                      } else {
+                        const u = (itm.Unit || '').toLowerCase().trim();
+                        const c = invCategoryFilter.toLowerCase().trim();
+                        if (u !== c && !u.includes(c)) return false;
+                      }
+                    }
+                    if (invSearchQuery.trim()) {
+                      const q = invSearchQuery.toLowerCase().trim();
+                      return (
+                        itm.ItemID.toLowerCase().includes(q) ||
+                        itm.ItemName.toLowerCase().includes(q) ||
+                        (itm.Unit || '').toLowerCase().includes(q)
+                      );
+                    }
+                    return true;
+                  }).length === 0 ? (
+                    <tr>
+                      <td colSpan={11} className="px-6 py-12 text-center text-slate-400 font-semibold">
+                        {invLowStockFilter 
+                          ? 'All inventory items are currently above their reorder levels! No low stock items found.'
+                          : 'No medicines match the selected category filter or search query.'}
+                      </td>
+                    </tr>
+                  ) : (
+                    items.filter((itm) => {
+                      if (invLowStockFilter && itm.CStock > (itm.MinStock || 10)) return false;
+                      if (invCategoryFilter !== 'ALL') {
+                        if (invCategoryFilter === 'C') {
+                          if (itm.MedicineType !== 'C') return false;
+                        } else if (invCategoryFilter === 'P') {
+                          if (itm.MedicineType === 'C') return false;
+                        } else {
+                          const u = (itm.Unit || '').toLowerCase().trim();
+                          const c = invCategoryFilter.toLowerCase().trim();
+                          if (u !== c && !u.includes(c)) return false;
+                        }
+                      }
+                      if (invSearchQuery.trim()) {
+                        const q = invSearchQuery.toLowerCase().trim();
+                        return (
+                          itm.ItemID.toLowerCase().includes(q) ||
+                          itm.ItemName.toLowerCase().includes(q) ||
+                          (itm.Unit || '').toLowerCase().includes(q)
+                        );
+                      }
+                      return true;
+                    }).map((itm, idx) => {
+                      const isLowStock = itm.CStock <= (itm.MinStock || 10);
+                      const isClinical = itm.MedicineType === 'C';
+                      const reorderQty = (itm.ReorderQty !== undefined && itm.ReorderQty > 0)
+                        ? itm.ReorderQty
+                        : Math.max((itm.MinStock || 10) * 2 - itm.CStock, 10);
+                      return (
+                        <tr 
+                          key={`${itm.ItemID}-${idx}`} 
+                          className={`hover:bg-slate-50 transition ${
+                            editingItem?.ItemID === itm.ItemID 
+                              ? 'bg-indigo-50/40' 
+                              : isLowStock 
+                                ? 'bg-rose-50/40 hover:bg-rose-50/70 border-l-4 border-l-rose-500' 
+                                : ''
+                          }`}
+                        >
+                          <td className="px-3 py-2.5 text-center font-mono text-slate-400 font-semibold">{idx + 1}</td>
+                          <td className="px-3 py-2.5 font-mono text-slate-700 font-bold">{itm.ItemID}</td>
+                          <td className="px-3 py-2.5 font-bold text-slate-900">
+                            <div className="flex items-center space-x-2">
+                              <span>{itm.ItemName}</span>
+                              {isLowStock && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-rose-600 text-white shadow-2xs shrink-0 animate-pulse">
+                                  <AlertTriangle className="w-2.5 h-2.5 mr-1" />
+                                  Low Stock
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <span className="px-2 py-0.5 bg-slate-100 border border-slate-200 text-slate-700 font-bold text-[10px] rounded-md font-mono">
+                              {itm.Unit || 'Tab'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <span className={`px-2 py-0.5 rounded font-black text-[9px] uppercase tracking-wider ${
+                              isClinical 
+                                ? 'bg-indigo-50 border border-indigo-100 text-indigo-700' 
+                                : 'bg-emerald-50 border border-emerald-100 text-emerald-700'
+                            }`}>
+                              {isClinical ? 'Clinical' : 'Patent'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-mono">
+                            <div className="inline-flex flex-col items-end">
+                              <span className={`px-2 py-0.5 rounded-md font-black text-xs ${
+                                isLowStock 
+                                  ? 'bg-rose-600 text-white border border-rose-700 shadow-2xs flex items-center space-x-1' 
+                                  : 'bg-slate-100 text-slate-900 border border-slate-200'
+                              }`}>
+                                {isLowStock && <AlertTriangle className="w-3 h-3 mr-1 text-white shrink-0" />}
+                                <span>{itm.CStock} {itm.Unit || 'Tab'}s</span>
+                              </span>
+                              {isLowStock && (
+                                <span className="text-[9px] font-extrabold text-rose-600 mt-0.5">
+                                  Below Reorder Level ({itm.MinStock || 10})
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-mono text-slate-600 font-semibold">
+                            {itm.MinStock || 10} {itm.Unit || 'Tab'}s
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono text-indigo-700 font-bold bg-indigo-50/20">
+                            <div className="flex items-center justify-end space-x-1">
+                              <input
+                                type="number"
+                                min="0"
+                                value={reorderQty}
+                                onChange={(e) => {
+                                  const val = e.target.value === '' ? 0 : Number(e.target.value);
+                                  if (setItems) {
+                                    setItems(prev => prev.map(item => {
+                                      if (item.ItemID === itm.ItemID) {
+                                        return { ...item, ReorderQty: val };
+                                      }
+                                      return item;
+                                    }));
+                                  }
+                                }}
+                                className="w-16 p-1 text-right text-xs border border-indigo-200 rounded font-bold font-mono text-indigo-950 bg-white focus:ring-1 focus:ring-indigo-500"
+                                title="Edit Purchase Order Required Quantity"
+                              />
+                              <span className="text-[10px] text-slate-500 font-medium">
+                                {itm.Unit || 'Tab'}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-mono font-medium text-slate-600">Rs. {itm.PurchasePrice.toFixed(2)}</td>
+                          <td className="px-3 py-2.5 text-right font-mono font-bold text-slate-900">Rs. {itm.Price.toFixed(2)}</td>
+                          <td className="px-3 py-2.5 text-center">
+                            <div className="flex justify-center items-center space-x-1">
+                              <button
+                                onClick={() => handleSelectEditItem(itm)}
+                                className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition cursor-pointer"
+                                title="Edit Medicine Parameter"
+                              >
+                                <Edit className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleRemoveItem(itm.ItemID, itm.ItemName)}
+                                disabled={!canAdd}
+                                className={`p-1.5 rounded-lg transition cursor-pointer ${
+                                  canAdd ? 'text-slate-500 hover:text-rose-600 hover:bg-rose-50' : 'text-slate-300 cursor-not-allowed'
+                                }`}
+                                title="Remove from Inventory"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
+
           </div>
 
         </div>
@@ -2965,7 +3373,7 @@ export default function PharmacyPOS({
                 Patients with Clinical compounding prescriptions
               </span>
               {(() => {
-                const clinicalPatients = patients.filter(p => {
+                const clinicalPatients = allKnownPatients.filter(p => {
                   const pVisits = visits.filter(v => v.PatientID === p.PatientID);
                   const searchLower = labelSearchQuery.toLowerCase();
                   const matchesSearch = String(p.PatientName || '').toLowerCase().includes(searchLower) || String(p.PatientID || '').toLowerCase().includes(searchLower);
@@ -2974,9 +3382,7 @@ export default function PharmacyPOS({
                     return matchesSearch;
                   }
                   
-                  return pVisits.some(v => 
-                    getVisitMedicinesList(v).some(vm => vm.MedicineType === 'C')
-                  );
+                  return pVisits.length > 0;
                 });
 
                 if (clinicalPatients.length === 0) {
@@ -2987,14 +3393,14 @@ export default function PharmacyPOS({
                   );
                 }
 
-                return clinicalPatients.map(p => {
-                  const hasClinical = visits.filter(v => v.PatientID === p.PatientID).some(v => 
-                    getVisitMedicinesList(v).some(vm => vm.MedicineType === 'C')
+                return clinicalPatients.map((p, idx) => {
+                  const hasMeds = visits.filter(v => v.PatientID === p.PatientID).some(v => 
+                    getVisitMedicinesList(v).length > 0
                   );
 
                   return (
                     <button
-                      key={p.PatientID}
+                      key={`lbl-pt-${p.PatientID}-${idx}`}
                       onClick={() => {
                         setLabelPatientId(p.PatientID);
                         // Auto-select latest visit if available
@@ -3015,11 +3421,11 @@ export default function PharmacyPOS({
                     >
                       <div className="min-w-0 pr-2">
                         <p className="font-extrabold uppercase truncate">{p.PatientName}</p>
-                        <p className="text-[10px] text-slate-400 font-mono truncate">ID: {p.PatientID} • {p.AgeYears}Y • {p.Sex}</p>
+                        <p className="text-[10px] text-slate-400 font-mono truncate">ID: {p.PatientID} • {p.AgeYears || 0}Y • {p.Sex || 'N/A'}</p>
                       </div>
-                      {hasClinical && (
+                      {hasMeds && (
                         <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 shrink-0 font-mono">
-                          Clinical
+                          Rx Meds
                         </span>
                       )}
                     </button>
@@ -3048,9 +3454,7 @@ export default function PharmacyPOS({
                   return (
                     <div className="space-y-1 max-h-[220px] overflow-y-auto pr-1">
                       {pVisits.map((v) => {
-                        const hasCompounding = getVisitMedicinesList(v).some(
-                          (vm) => vm.MedicineType === 'C'
-                        );
+                        const hasMeds = getVisitMedicinesList(v).length > 0;
                         return (
                           <button
                             key={v.VisitID}
@@ -3065,13 +3469,13 @@ export default function PharmacyPOS({
                               <p className="font-bold">{v.VisitDate}</p>
                               <p className="text-[9px] opacity-70 font-mono leading-none mt-0.5 truncate">Visit ID: {v.VisitID}</p>
                             </div>
-                            {hasCompounding && (
+                            {hasMeds && (
                               <span className={`text-[8px] font-black uppercase tracking-wider px-1 py-0.5 rounded shrink-0 font-mono ${
                                 labelVisitId === v.VisitID
                                   ? 'bg-indigo-800 text-indigo-100'
                                   : 'bg-indigo-50 border border-indigo-100 text-indigo-700'
                               }`}>
-                                🧪 Compounded
+                                🧪 Prescribed
                               </span>
                             )}
                           </button>
@@ -3092,12 +3496,12 @@ export default function PharmacyPOS({
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 pb-3 gap-2">
               <h3 className="text-sm font-bold text-slate-900 flex items-center">
                 <Tag className="w-4 h-4 text-indigo-600 mr-2" />
-                Prescribed Clinical Compounding Medicines
+                Prescribed Medicines for Patient Label Printer
               </h3>
               {(() => {
-                const pat = patients.find(p => p.PatientID === labelPatientId);
+                const pat = allKnownPatients.find(p => p.PatientID === labelPatientId);
                 const vis = visits.find(v => v.VisitID === labelVisitId);
-                const cMeds = getVisitMedicinesList(vis || null).filter(vm => vm.MedicineType === 'C');
+                const cMeds = getVisitMedicinesList(vis || null);
                 
                 if (pat && vis && cMeds.length > 0) {
                   return (
@@ -3140,21 +3544,19 @@ export default function PharmacyPOS({
               if (!labelPatientId || !labelVisitId) {
                 return (
                   <div className="p-12 text-center text-slate-400 italic text-xs">
-                    Please select a Patient and a Visit Date from the left panel to load clinical compounding medicines.
+                    Please select a Patient and a Visit Date from the left panel to load prescribed medicines.
                   </div>
                 );
               }
 
-              const pat = patients.find(p => p.PatientID === labelPatientId);
+              const pat = allKnownPatients.find(p => p.PatientID === labelPatientId);
               const vis = visits.find(v => v.VisitID === labelVisitId);
-              const clinicalMeds = getVisitMedicinesList(vis || null).filter(
-                (vm) => vm.MedicineType === 'C'
-              );
+              const clinicalMeds = getVisitMedicinesList(vis || null);
 
               if (clinicalMeds.length === 0) {
                 return (
                   <div className="p-12 text-center text-slate-400 italic text-xs bg-slate-50 border border-dashed rounded-xl">
-                    No clinical compounding medicines (Type C) found in this visit. Only clinical compounded formula medicines require custom sticker label printing.
+                    No prescribed medicines found in this visit.
                   </div>
                 );
               }
@@ -3276,57 +3678,28 @@ export default function PharmacyPOS({
                             </div>
                           </div>
 
-                          {/* Live Sticker Preview Panel - 4" x 8" Roller Sticker Format */}
-                          <div className="w-full xl:w-[280px] shrink-0 flex flex-col justify-between bg-white border-2 border-slate-300 rounded-xl shadow-xs relative overflow-hidden min-h-[360px] p-4 text-slate-900">
-                            
-                            {/* Clinic Header */}
-                            <div className="text-center border-b border-slate-200 pb-2">
-                              <span className="font-black text-xs text-slate-900 uppercase block tracking-tight">
-                                PUNJAB HOMEOPATHIC CLINIC
-                              </span>
-                              <span className="text-[8px] font-bold text-slate-500 uppercase tracking-widest block mt-0.5">
-                                Clinical Medicine Label (4" x 8" Roll)
-                              </span>
-                            </div>
-
-                            {/* Patient Info Bar */}
-                            <div className="my-2 bg-slate-50 border border-slate-200 rounded-lg p-2 text-[10px] space-y-1">
-                              <div className="flex justify-between font-extrabold text-slate-900">
-                                <span className="truncate uppercase">PATIENT: {pat?.PatientName}</span>
-                                <span className="font-mono text-[9px] shrink-0 ml-1">{pat?.AgeYears}Y • {pat?.Sex[0]}</span>
+                          {/* Live Sticker Preview Panel - 3-Line Simple Label Format */}
+                          <div className="w-full xl:w-[280px] shrink-0 flex flex-col justify-between bg-white border border-slate-300 rounded-xl p-4 text-slate-900 min-h-[180px]">
+                            <div className="space-y-2 text-xs font-sans">
+                              <div className="border-b border-slate-100 pb-1.5 mb-2">
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">3-Line Label Preview</span>
                               </div>
-                              <div className="flex justify-between text-[8px] text-slate-500 font-mono">
-                                <span>DATE: {vis?.VisitDate}</span>
-                                <span>VISIT: {vis?.VisitID.slice(-4)}</span>
+                              <div className="font-bold text-slate-900 text-xs">
+                                <span>Patient Name: </span>
+                                <span className="font-extrabold text-slate-900">{pat?.PatientName}</span>
                               </div>
-                            </div>
-
-                            {/* Dedicated Usage of Clinical Medicine Section */}
-                            <div className="border-2 border-slate-900 bg-slate-50 rounded-xl p-3 text-center my-1.5 flex-1 flex flex-col justify-center">
-                              <span className="inline-block text-[8px] font-black text-slate-950 uppercase tracking-widest bg-slate-200 px-2 py-0.5 rounded mb-1.5">
-                                USAGE OF CLINICAL MEDICINE
-                              </span>
-                              <span className="block font-extrabold text-[11px] text-slate-700 uppercase mb-1">
-                                {medicineName}
-                              </span>
-                              <p className="text-xs font-black text-slate-950 uppercase leading-snug break-words tracking-tight py-1">
-                                {instructionsValue || "10 DROPS 3 TIMES A DAY IN WATER BEFORE MEALS"}
-                              </p>
-                              {notesValue && (
-                                <p className="text-[8px] font-bold text-slate-600 mt-1 italic border-t border-slate-200 pt-1">
-                                  Note: {notesValue}
-                                </p>
-                              )}
-                            </div>
-
-                            {/* Expiry & Quantity Footer */}
-                            <div className="flex justify-between items-center text-[10px] font-extrabold text-slate-800 pt-2 border-t border-slate-200">
-                              <span>QTY: {qtyValue}</span>
-                              <span className="font-mono text-slate-900">EXP: {expiryValue || "N/A"}</span>
+                              <div className="font-bold text-slate-900 text-xs">
+                                <span>Medicine Usage: </span>
+                                <span className="font-extrabold text-indigo-700">{instructionsValue || "Take as directed"}</span>
+                              </div>
+                              <div className="font-bold text-slate-900 text-xs">
+                                <span>Expire Date: </span>
+                                <span className="font-extrabold text-slate-800 font-mono">{expiryValue || "N/A"}</span>
+                              </div>
                             </div>
 
                             {/* Print Trigger Button */}
-                            <div className="mt-3 pt-2 border-t border-slate-200">
+                            <div className="mt-4 pt-2 border-t border-slate-100">
                               <button
                                 onClick={() => {
                                   setLabelPrintData({
@@ -3345,10 +3718,10 @@ export default function PharmacyPOS({
                                   });
                                   setIsLabelPrintModalOpen(true);
                                 }}
-                                className="w-full py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xxs rounded-lg flex items-center justify-center transition shadow-xs cursor-pointer"
+                                className="w-full py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg flex items-center justify-center transition shadow-xs cursor-pointer"
                               >
-                                <Printer className="w-3 h-3 mr-1" />
-                                Print Label (4" x 8" Roll)
+                                <Printer className="w-3.5 h-3.5 mr-1.5" />
+                                Print Label (3 Lines)
                               </button>
                             </div>
 
@@ -3371,14 +3744,14 @@ export default function PharmacyPOS({
       {/* Clinical Medicine Sticker Label Print-Preview Modal Overlay */}
       {isLabelPrintModalOpen && labelPrintData && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[9999] overflow-y-auto print:absolute print:inset-0 print:bg-white print:p-0">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-2xl w-full max-h-[90vh] flex flex-col print:shadow-none print:border-0 print:max-h-full print:w-full print:rounded-none animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-2xl w-full max-h-[90vh] flex flex-col print:shadow-none print:border-0 print:max-h-full print:w-full print:rounded-none">
             
             {/* Dynamic Sticker Print Style Injector */}
             <style dangerouslySetInnerHTML={{ __html: `
               @media print {
                 @page {
-                  size: 4in 8in;
-                  margin: 0;
+                  size: A4;
+                  margin: 10mm;
                 }
                 body * {
                   visibility: hidden !important;
@@ -3388,32 +3761,36 @@ export default function PharmacyPOS({
                 }
                 #sticker-print-container {
                   position: absolute !important;
-                  left: 0 !important;
-                  top: 0 !important;
+                  left: 10mm !important;
+                  top: 10mm !important;
                   width: 100% !important;
                   padding: 0 !important;
                   box-shadow: none !important;
                   border: none !important;
                 }
-                .label-sticker-page {
-                  width: 4in !important;
-                  height: 8in !important;
-                  padding: 0.25in !important;
-                  margin: 0 auto 0.4in auto !important;
-                  border: 2px dashed #000000 !important;
-                  border-radius: 8px !important;
-                  box-sizing: border-box !important;
-                  page-break-after: always !important;
+                .label-grid-page {
+                  display: grid !important;
+                  grid-template-columns: 2in 2in !important;
+                  column-gap: 2in !important;
+                  row-gap: 0.25in !important;
                   page-break-inside: avoid !important;
-                  display: flex !important;
-                  flex-direction: column !important;
-                  justify-content: space-between !important;
-                  background-color: #ffffff !important;
-                  color: #000000 !important;
+                  page-break-after: always !important;
+                  margin-bottom: 10mm !important;
                 }
-                .label-sticker-page:last-child {
+                .label-grid-page:last-child {
                   page-break-after: avoid !important;
-                  margin-bottom: 0 !important;
+                }
+                .label-sticker-page {
+                  width: 2in !important;
+                  min-height: 0.2in !important;
+                  max-width: 2in !important;
+                  box-sizing: border-box !important;
+                  margin: 0 !important;
+                  box-shadow: none !important;
+                  border: 1px dashed #475569 !important;
+                  border-radius: 3px !important;
+                  padding: 2px 4px !important;
+                  color: #000000 !important;
                 }
               }
             ` }} />
@@ -3423,27 +3800,18 @@ export default function PharmacyPOS({
               <div className="flex items-center space-x-2">
                 <Tag className="w-5 h-5 text-indigo-600 shrink-0" />
                 <div>
-                  <span className="text-sm font-bold text-slate-900 block">Clinical Medicine Label Sticker Printer</span>
-                  <span className="text-xxs text-slate-500 font-semibold">Configured for 4" Width x 8" Height Sticker Label Roller Printer</span>
+                  <span className="text-sm font-bold text-slate-900 block">Medicine Label Printer (2" x 0.2" - 2x2 Grid Layout on A4)</span>
+                  <span className="text-xxs text-slate-500 font-semibold">2 Columns x 2 Rows Layout (2" Space Between Columns, Max 4 Labels Per Page)</span>
                 </div>
               </div>
               <div className="flex flex-wrap items-center space-x-2">
                 <button
                   type="button"
-                  onClick={() => handleCleanLabelPrint('4x8')}
-                  className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xxs rounded-lg flex items-center shadow-md transition cursor-pointer"
-                  title="Open clean printable sticker tab auto-fitted to 4 inch width x 8 inch height label roller paper"
+                  onClick={() => handleCleanLabelPrint('2x0.2')}
+                  className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg flex items-center shadow-md transition cursor-pointer"
                 >
                   <Printer className="w-3.5 h-3.5 mr-1" />
-                  Print Label (4" W x 8" H Roll)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleCleanLabelPrint('8x5')}
-                  className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xxs rounded-lg border border-slate-300 transition cursor-pointer"
-                  title="Alternative 8x5 inch wide paper"
-                >
-                  Print (8" x 5")
+                  Print 2x2 Grid Labels (A4)
                 </button>
                 <button
                   type="button"
@@ -3459,66 +3827,30 @@ export default function PharmacyPOS({
             </div>
 
             {/* Print Area */}
-            <div className="flex-1 overflow-y-auto p-6 bg-slate-100 print:bg-white" id="sticker-print-container">
-              {labelPrintData.medicines.map((med, idx) => (
-                <div key={idx} className="label-sticker-page bg-white border-2 border-slate-800 rounded-xl shadow-sm max-w-[4in] w-full min-h-[7.8in] mx-auto my-4 p-5 flex flex-col justify-between overflow-hidden text-slate-900">
-                  
-                  {/* Clinic Header */}
-                  <div className="text-center border-b-2 border-slate-900 pb-3">
-                    <h2 className="font-black text-base text-slate-950 uppercase tracking-tight">PUNJAB HOMEOPATHIC CLINIC</h2>
-                    <p className="text-[10px] font-extrabold text-slate-600 uppercase tracking-widest mt-0.5">10-Shalimar Road, Garhi Shahu Lahore • Tel: 042-36302450</p>
-                  </div>
-
-                  {/* Patient Meta Block */}
-                  <div className="bg-slate-50 border border-slate-300 rounded-lg p-2.5 my-2 space-y-1 text-xs">
-                    <div className="flex justify-between font-black text-slate-950">
-                      <span>PATIENT: <strong className="uppercase">{labelPrintData.patientName}</strong></span>
-                      <span className="font-mono text-xs">{labelPrintData.patientAge}Y • {labelPrintData.patientSex[0]}</span>
-                    </div>
-                    <div className="flex justify-between text-[10px] text-slate-600 font-mono font-bold">
-                      <span>DATE: {labelPrintData.visitDate}</span>
-                      <span>VISIT ID: {labelPrintData.visitId}</span>
-                    </div>
-                  </div>
-
-                  {/* Prominent Clinical Medicine Usage Block */}
-                  <div className="border-2 border-slate-950 bg-slate-50/80 rounded-xl p-4 text-center my-3 flex-1 flex flex-col justify-center space-y-3">
-                    <div className="bg-slate-950 text-white font-black text-xs uppercase tracking-widest py-1 px-3 rounded-md mx-auto inline-block">
-                      USAGE OF CLINICAL MEDICINE
-                    </div>
-
-                    <div>
-                      <span className="text-xxs font-extrabold text-slate-500 uppercase tracking-wider block">Prescribed Medicine</span>
-                      <p className="text-sm font-black text-slate-900 uppercase leading-snug">{med.name}</p>
-                    </div>
-
-                    <div className="border-t border-b border-slate-300 py-3 my-1">
-                      <span className="text-[10px] font-black text-slate-700 uppercase tracking-widest block mb-1">DIRECTIONS / DOSAGE INSTRUCTIONS</span>
-                      <p className="text-lg font-black text-slate-950 uppercase leading-tight tracking-tight break-words">
-                        {med.instructions || "10 DROPS 3 TIMES A DAY IN WATER BEFORE MEALS"}
-                      </p>
-                    </div>
-
-                    {med.notes && (
-                      <div className="text-xxs font-extrabold text-slate-700 italic">
-                        Special Note: {med.notes}
+            <div className="flex-1 overflow-y-auto p-6 bg-slate-100 print:bg-white flex flex-col items-center" id="sticker-print-container">
+              {Array.from({ length: Math.ceil(labelPrintData.medicines.length / 4) }).map((_, pageIdx) => {
+                const pageMeds = labelPrintData.medicines.slice(pageIdx * 4, pageIdx * 4 + 4);
+                return (
+                  <div key={pageIdx} className="label-grid-page grid grid-cols-2 gap-x-[2in] gap-y-4 p-4 bg-white border border-dashed border-slate-300 rounded-xl mb-6 print:mb-0 print:border-none print:p-0 print:page-break-after-always">
+                    {pageMeds.map((med, idx) => (
+                      <div key={idx} className="label-sticker-page bg-white border border-slate-300 rounded shadow-xs w-[2in] max-w-[2in] min-h-[0.2in] p-1 font-sans text-slate-900 flex flex-col justify-start text-[9px] leading-tight box-border space-y-0">
+                        <div className="font-bold text-[9px] m-0 p-0 truncate">
+                          <span className="text-slate-500">Patient: </span>
+                          <strong className="text-slate-900 font-black">{labelPrintData.patientName}</strong>
+                        </div>
+                        <div className="font-bold text-[9px] m-0 p-0 truncate">
+                          <span className="text-slate-500">Usage: </span>
+                          <strong className="text-slate-900 font-black">{med.instructions || "As directed"}</strong>
+                        </div>
+                        <div className="font-bold text-[9px] m-0 p-0 truncate flex justify-between items-center">
+                          <span>Exp: <strong className="font-black text-slate-900">{med.expiry || "N/A"}</strong></span>
+                          <span className="text-[7px] text-slate-400 font-mono">2"x0.2"</span>
+                        </div>
                       </div>
-                    )}
+                    ))}
                   </div>
-
-                  {/* Footer Info */}
-                  <div className="border-t-2 border-slate-900 pt-3 space-y-1">
-                    <div className="flex justify-between items-center text-xs font-black text-slate-900">
-                      <span>QTY PRESCRIBED: {med.qty}</span>
-                      <span className="font-mono text-xs text-red-700 font-black">EXP DATE: {med.expiry}</span>
-                    </div>
-                    <div className="text-center text-[9px] font-bold text-slate-500 uppercase tracking-wider pt-1">
-                      Prescribed by Dr. Ejaz Ahmad • Punjab Homeopathic Clinic Lahore
-                    </div>
-                  </div>
-
-                </div>
-              ))}
+                );
+              })}
             </div>
 
           </div>
@@ -3563,7 +3895,13 @@ export default function PharmacyPOS({
               <div className="flex space-x-2">
                 <button
                   type="button"
-                  onClick={() => window.print()}
+                  onClick={() => {
+                    if (currentUser?.Role !== 'Administrator' && (currentUser?.Permissions?.canPrintPOSInvoice === false || userRights.find(r => r.MenuID === 'pharmacy')?.PrintRec === false)) {
+                      alert("Printing Pharmacy POS Bills is restricted by administrator permissions.");
+                      return;
+                    }
+                    window.print();
+                  }}
                   className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xxs rounded-lg flex items-center shadow-md transition cursor-pointer"
                 >
                   <Printer className="w-3.5 h-3.5 mr-1" />
@@ -4017,14 +4355,238 @@ export default function PharmacyPOS({
         </div>
       )}
 
-      {/* Pop-up modal to Select Medicine Category & Print Low Stock Report */}
+      {/* Pop-up modal box for Add / Edit Medicine */}
+      {isAddMedicineModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[9999] p-4 animate-fadeIn font-sans" id="add-medicine-modal">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full overflow-hidden space-y-0">
+            
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-150 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+                  <Database className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-950">
+                    {editingItem ? `Edit Medicine: ${editingItem.ItemID}` : 'Add New Medicine to Inventory'}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 font-medium">
+                    {editingItem ? 'Modify unit cost, retail price, minimum threshold, or stock level.' : 'Enter new medicine parameters, category dropdown, and initial stock.'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={resetItemForm}
+                className="text-slate-400 hover:text-slate-600 p-1.5 hover:bg-slate-100 rounded-full transition cursor-pointer font-bold"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Form Body */}
+            <form onSubmit={handleSaveItem} className="p-6 space-y-4 text-xs">
+              {invErrorMsg && (
+                <div className="p-3 bg-red-50 text-red-700 text-xs rounded-lg font-semibold border border-red-100 flex items-center">
+                  <AlertCircle className="w-4 h-4 mr-2 shrink-0 text-red-500" />
+                  {invErrorMsg}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">Item ID *</label>
+                  <input
+                    type="text"
+                    required
+                    disabled={!!editingItem}
+                    placeholder="e.g. ITM-020"
+                    value={itemFormId}
+                    onChange={(e) => setItemFormId(e.target.value.toUpperCase())}
+                    className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-indigo-500 font-mono disabled:bg-slate-50 disabled:text-slate-500 border-slate-200 text-slate-900 font-bold"
+                  />
+                  {!editingItem && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextId = `ITM-${String(items.length + 1).padStart(3, '0')}`;
+                        setItemFormId(nextId);
+                      }}
+                      className="text-[9px] text-indigo-600 font-extrabold mt-1 hover:underline text-left block"
+                    >
+                      + Generate ID
+                    </button>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">Medicine Type</label>
+                  <select
+                    value={itemFormMedicineType}
+                    onChange={(e) => setItemFormMedicineType(e.target.value as 'C' | 'P')}
+                    className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-indigo-500 border-slate-200 font-semibold bg-white text-slate-900"
+                  >
+                    <option value="P">Patent Medicine (/P)</option>
+                    <option value="C">Clinical Compounding (/C)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">Medicine / Item Name *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Panadol 500mg Tab"
+                  value={itemFormName}
+                  onChange={(e) => setItemFormName(e.target.value)}
+                  className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-indigo-500 border-slate-200 font-bold text-slate-900"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">
+                    Medicine Category Dropdown *
+                  </label>
+                  <div className="space-y-1">
+                    <select
+                      value={categories.includes(itemFormUnit) ? itemFormUnit : 'Custom'}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val !== 'Custom') {
+                          setItemFormUnit(val);
+                        } else {
+                          setItemFormUnit('');
+                        }
+                      }}
+                      className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-indigo-500 border-slate-200 font-semibold text-slate-800 bg-white"
+                    >
+                      {categories.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                      <option value="Custom">Custom / Other Category...</option>
+                    </select>
+
+                    {(!categories.includes(itemFormUnit) || itemFormUnit === '') && (
+                      <input
+                        type="text"
+                        required
+                        placeholder="Type custom category / unit (e.g. Lotion)..."
+                        value={itemFormUnit}
+                        onChange={(e) => setItemFormUnit(e.target.value)}
+                        className="w-full p-1.5 text-xs border rounded-lg focus:ring-1 focus:ring-indigo-500 border-slate-200 font-semibold text-slate-800 bg-amber-50/50"
+                      />
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">Minimum Threshold</label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="10"
+                    value={itemFormMinStock}
+                    onChange={(e) => setItemFormMinStock(e.target.value === '' ? '' : Number(e.target.value))}
+                    className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-indigo-500 border-slate-200 font-mono font-bold text-slate-900"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">Purchase Price (Rs.)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="Cost price"
+                    value={itemFormPurchasePrice}
+                    onChange={(e) => setItemFormPurchasePrice(e.target.value === '' ? '' : Number(e.target.value))}
+                    className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-indigo-500 border-slate-200 font-mono font-bold text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">Retail Price (Rs.)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="Sale price"
+                    value={itemFormRetailPrice}
+                    onChange={(e) => setItemFormRetailPrice(e.target.value === '' ? '' : Number(e.target.value))}
+                    className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-indigo-500 border-slate-200 font-mono font-bold text-slate-900"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">Current Stock Level</label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="e.g. 500"
+                    value={itemFormCStock}
+                    onChange={(e) => setItemFormCStock(e.target.value === '' ? '' : Number(e.target.value))}
+                    className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-indigo-500 border-slate-200 font-mono font-bold text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-extrabold text-indigo-600 uppercase tracking-wider mb-1">Buy / Reorder QTY</label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="e.g. 100"
+                    value={itemFormReorderQty}
+                    onChange={(e) => setItemFormReorderQty(e.target.value === '' ? '' : Number(e.target.value))}
+                    className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-indigo-500 border-indigo-200 bg-indigo-50/30 font-mono font-bold text-indigo-950"
+                  />
+                </div>
+              </div>
+
+              {/* Modal Footer Buttons */}
+              <div className="pt-4 border-t border-slate-100 flex justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={resetItemForm}
+                  className="px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-lg transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!canAdd}
+                  className={`px-5 py-2 rounded-lg text-white font-bold text-xs transition shadow-md ${
+                    canAdd
+                      ? 'bg-indigo-600 hover:bg-indigo-700'
+                      : 'bg-slate-400 cursor-not-allowed'
+                  }`}
+                >
+                  {editingItem ? 'Update Medicine' : 'Add to Inventory'}
+                </button>
+              </div>
+            </form>
+
+          </div>
+        </div>
+      )}
+
+      {/* Pop-up modal to Select Medicine Category & Print Low Stock / Purchase Order Report */}
       {isLowStockReportModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[9999] p-4 animate-fadeIn font-sans print:absolute print:inset-0 print:bg-white print:p-0" id="low-stock-report-modal">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden print:shadow-none print:border-0 print:max-h-full print:w-full print:rounded-none">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden print:shadow-none print:border-0 print:max-h-full print:w-full print:rounded-none">
             
             {/* Dynamic Print Style Injector for Low Stock Report */}
             <style dangerouslySetInnerHTML={{ __html: `
               @media print {
+                @page {
+                  size: A4 portrait;
+                  margin: 15mm 15mm 15mm 15mm;
+                }
                 body * {
                   visibility: hidden !important;
                 }
@@ -4036,7 +4598,7 @@ export default function PharmacyPOS({
                   left: 0 !important;
                   top: 0 !important;
                   width: 100% !important;
-                  padding: 1.5rem !important;
+                  padding: 0 !important;
                   box-shadow: none !important;
                   border: none !important;
                 }
@@ -4050,8 +4612,8 @@ export default function PharmacyPOS({
                   <Printer className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-slate-950">Generate Low Stock Report</h3>
-                  <p className="text-[11px] text-slate-500 font-medium">Select a medicine category to filter and print current critical stocks</p>
+                  <h3 className="text-sm font-bold text-slate-950">A4 Letterhead Purchase Order & Minimum Threshold Report</h3>
+                  <p className="text-[11px] text-slate-500 font-medium">Filter by category (Drops, Syrup, Tab, etc.) to generate printable Purchase Orders</p>
                 </div>
               </div>
               <button
@@ -4059,6 +4621,7 @@ export default function PharmacyPOS({
                 onClick={() => {
                   setIsLowStockReportModalOpen(false);
                   setSelectedReportCategory('ALL');
+                  setPoOnlyLowStock(true);
                 }}
                 className="text-slate-400 hover:text-slate-600 p-1.5 hover:bg-slate-100 rounded-full transition cursor-pointer font-bold"
               >
@@ -4068,40 +4631,67 @@ export default function PharmacyPOS({
 
             {/* Modal Body / Selection Screen (Hidden during Print) */}
             <div className="flex-1 overflow-y-auto p-6 space-y-5 print:hidden">
-              {/* Category Dropdown Selector */}
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
-                <label className="block text-xxs font-extrabold text-slate-500 uppercase tracking-wide">
-                  Select Medicine Category
-                </label>
-                <select
-                  value={selectedReportCategory}
-                  onChange={(e) => setSelectedReportCategory(e.target.value as 'ALL' | 'C' | 'P')}
-                  className="w-full text-xs border border-slate-200 bg-white rounded-lg p-2.5 focus:ring-1 focus:ring-rose-500 focus:outline-none font-bold text-slate-800"
-                >
-                  <option value="ALL">All Pharmaceutical Categories (Clinical & Patent)</option>
-                  <option value="P">Patent Medicine Only (/P)</option>
-                  <option value="C">Clinical Compounding Only (/C)</option>
-                </select>
-                <p className="text-[10px] text-slate-400 font-medium mt-1 leading-relaxed">
-                  Only medicines with current stock level less than or equal to their configured minimum alert threshold will be included in the print layout.
-                </p>
+              {/* Category & Scope Controls */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                
+                {/* Category Selector */}
+                <div className="space-y-1.5">
+                  <label className="block text-xxs font-extrabold text-slate-500 uppercase tracking-wide">
+                    Medicine Category
+                  </label>
+                  <select
+                    value={poCategoryFilter}
+                    onChange={(e) => setPoCategoryFilter(e.target.value)}
+                    className="w-full text-xs border border-slate-200 bg-white rounded-lg p-2 focus:ring-1 focus:ring-rose-500 focus:outline-none font-bold text-slate-800"
+                  >
+                    <option value="ALL">All Categories</option>
+                    <option value="C">Clinical Compounding (/C)</option>
+                    <option value="P">Patent Medicine (/P)</option>
+                    {categories.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Scope Toggle */}
+                <div className="space-y-1.5">
+                  <label className="block text-xxs font-extrabold text-slate-500 uppercase tracking-wide">
+                    Report Scope
+                  </label>
+                  <select
+                    value={poOnlyLowStock ? 'LOW_STOCK' : 'ALL_ITEMS'}
+                    onChange={(e) => setPoOnlyLowStock(e.target.value === 'LOW_STOCK')}
+                    className="w-full text-xs border border-slate-200 bg-white rounded-lg p-2 focus:ring-1 focus:ring-rose-500 focus:outline-none font-bold text-slate-800"
+                  >
+                    <option value="LOW_STOCK">Below Minimum Threshold Only (Shortage PO)</option>
+                    <option value="ALL_ITEMS">All Category Medicines (Full Purchase Requisition)</option>
+                  </select>
+                </div>
+
               </div>
 
               {/* Real-time Preview in Pop-up */}
               <div className="space-y-2.5">
                 <div className="flex items-center justify-between">
                   <h4 className="text-xxs font-extrabold text-slate-400 uppercase tracking-wider">
-                    Report Preview ({items.filter(itm => {
-                      const isLow = itm.CStock <= (itm.MinStock || 10);
-                      if (!isLow) return false;
-                      if (selectedReportCategory === 'ALL') return true;
-                      if (selectedReportCategory === 'C') return itm.MedicineType === 'C';
-                      if (selectedReportCategory === 'P') return itm.MedicineType !== 'C';
+                    Purchase Order Preview ({items.filter(itm => {
+                      if (poOnlyLowStock && itm.CStock > (itm.MinStock || 10)) return false;
+                      if (poCategoryFilter !== 'ALL') {
+                        if (poCategoryFilter === 'C') {
+                          if (itm.MedicineType !== 'C') return false;
+                        } else if (poCategoryFilter === 'P') {
+                          if (itm.MedicineType === 'C') return false;
+                        } else {
+                          const u = (itm.Unit || '').toLowerCase().trim();
+                          const c = poCategoryFilter.toLowerCase().trim();
+                          if (u !== c && !u.includes(c)) return false;
+                        }
+                      }
                       return true;
-                    }).length} items found)
+                    }).length} items selected)
                   </h4>
                   <span className="text-xxs font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-100">
-                    Below Threshold
+                    A4 Printable Layout
                   </span>
                 </div>
 
@@ -4111,50 +4701,67 @@ export default function PharmacyPOS({
                       <tr>
                         <th className="p-2.5">Item ID</th>
                         <th className="p-2.5">Medicine Name</th>
-                        <th className="p-2.5">Type</th>
-                        <th className="p-2.5 text-right">Min Qty</th>
-                        <th className="p-2.5 text-right text-rose-700">Current Stock</th>
+                        <th className="p-2.5">Category</th>
+                        <th className="p-2.5 text-right">Min Stock</th>
+                        <th className="p-2.5 text-right">Current Stock</th>
+                        <th className="p-2.5 text-right text-indigo-700">Reorder Qty</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-150 font-medium text-slate-700 bg-white">
                       {items.filter(itm => {
-                        const isLow = itm.CStock <= (itm.MinStock || 10);
-                        if (!isLow) return false;
-                        if (selectedReportCategory === 'ALL') return true;
-                        if (selectedReportCategory === 'C') return itm.MedicineType === 'C';
-                        if (selectedReportCategory === 'P') return itm.MedicineType !== 'C';
+                        if (poOnlyLowStock && itm.CStock > (itm.MinStock || 10)) return false;
+                        if (poCategoryFilter !== 'ALL') {
+                          if (poCategoryFilter === 'C') {
+                            if (itm.MedicineType !== 'C') return false;
+                          } else if (poCategoryFilter === 'P') {
+                            if (itm.MedicineType === 'C') return false;
+                          } else {
+                            const u = (itm.Unit || '').toLowerCase().trim();
+                            const c = poCategoryFilter.toLowerCase().trim();
+                            if (u !== c && !u.includes(c)) return false;
+                          }
+                        }
                         return true;
                       }).length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="p-8 text-center text-slate-400 font-bold bg-white">
-                            🎉 Excellent! No items are currently low on stock in this category.
+                          <td colSpan={6} className="p-8 text-center text-slate-400 font-bold bg-white">
+                            No items found matching the selected category and stock threshold options.
                           </td>
                         </tr>
                       ) : (
                         items.filter(itm => {
-                          const isLow = itm.CStock <= (itm.MinStock || 10);
-                          if (!isLow) return false;
-                          if (selectedReportCategory === 'ALL') return true;
-                          if (selectedReportCategory === 'C') return itm.MedicineType === 'C';
-                          if (selectedReportCategory === 'P') return itm.MedicineType !== 'C';
+                          if (poOnlyLowStock && itm.CStock > (itm.MinStock || 10)) return false;
+                          if (poCategoryFilter !== 'ALL') {
+                            if (poCategoryFilter === 'C') {
+                              if (itm.MedicineType !== 'C') return false;
+                            } else if (poCategoryFilter === 'P') {
+                              if (itm.MedicineType === 'C') return false;
+                            } else {
+                              const u = (itm.Unit || '').toLowerCase().trim();
+                              const c = poCategoryFilter.toLowerCase().trim();
+                              if (u !== c && !u.includes(c)) return false;
+                            }
+                          }
                           return true;
-                        }).map((itm, idx) => (
-                          <tr key={`${itm.ItemID}-${idx}`} className="hover:bg-slate-50/50">
-                            <td className="p-2.5 font-mono font-bold text-slate-400">{itm.ItemID}</td>
-                            <td className="p-2.5 font-bold text-slate-900">{itm.ItemName}</td>
-                            <td className="p-2.5">
-                              <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider ${
-                                itm.MedicineType === 'C'
-                                  ? 'bg-indigo-50 border border-indigo-100 text-indigo-700'
-                                  : 'bg-emerald-50 border border-emerald-100 text-emerald-700'
-                              }`}>
-                                {itm.MedicineType === 'C' ? 'Clinical' : 'Patent'}
-                              </span>
-                            </td>
-                            <td className="p-2.5 text-right font-mono text-slate-500 font-semibold">{itm.MinStock || 10} {itm.Unit}s</td>
-                            <td className="p-2.5 text-right font-mono font-bold text-rose-600 bg-rose-50/30">{itm.CStock} {itm.Unit}s</td>
-                          </tr>
-                        ))
+                        }).map((itm, idx) => {
+                          const reorderQty = (itm.ReorderQty !== undefined && itm.ReorderQty > 0)
+                            ? itm.ReorderQty
+                            : Math.max((itm.MinStock || 10) * 2 - itm.CStock, 10);
+                          return (
+                            <tr key={`${itm.ItemID}-${idx}`} className="hover:bg-slate-50/50">
+                              <td className="p-2.5 font-mono font-bold text-slate-400">{itm.ItemID}</td>
+                              <td className="p-2.5 font-bold text-slate-900">{itm.ItemName}</td>
+                              <td className="p-2.5">
+                                <span className="px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700 border border-slate-200">
+                                  {itm.Unit || 'Tab'}
+                                </span>
+                              </td>
+                              <td className="p-2.5 text-right font-mono text-slate-500 font-semibold">{itm.MinStock || 10}</td>
+                              <td className="p-2.5 text-right font-mono font-bold text-rose-600 bg-rose-50/30">{itm.CStock}</td>
+                              <td className="p-2.5 text-right font-mono font-bold text-indigo-700 bg-indigo-50/30">{reorderQty} {itm.Unit || 'Tab'}s</td>
+                            </tr>
+                          );
+                        })
                       )}
                     </tbody>
                   </table>
@@ -4177,134 +4784,527 @@ export default function PharmacyPOS({
               <button
                 type="button"
                 onClick={() => {
-                  window.print();
+                  setIsPOPrintPreviewOpen(true);
+                  setTimeout(() => {
+                    try {
+                      window.print();
+                    } catch (err) {
+                      console.warn('Direct print blocked or failed:', err);
+                    }
+                  }, 250);
                 }}
                 disabled={items.filter(itm => {
-                  const isLow = itm.CStock <= (itm.MinStock || 10);
-                  if (!isLow) return false;
-                  if (selectedReportCategory === 'ALL') return true;
-                  if (selectedReportCategory === 'C') return itm.MedicineType === 'C';
-                  if (selectedReportCategory === 'P') return itm.MedicineType !== 'C';
+                  if (poOnlyLowStock && itm.CStock > (itm.MinStock || 10)) return false;
+                  if (poCategoryFilter !== 'ALL') {
+                    if (poCategoryFilter === 'C') {
+                      if (itm.MedicineType !== 'C') return false;
+                    } else if (poCategoryFilter === 'P') {
+                      if (itm.MedicineType === 'C') return false;
+                    } else {
+                      const u = (itm.Unit || '').toLowerCase().trim();
+                      const c = poCategoryFilter.toLowerCase().trim();
+                      if (u !== c && !u.includes(c)) return false;
+                    }
+                  }
                   return true;
                 }).length === 0}
                 className="px-4 py-2 bg-rose-600 hover:bg-rose-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold text-xs rounded-lg shadow-md hover:shadow-rose-600/10 transition flex items-center justify-center cursor-pointer"
               >
                 <Printer className="w-4 h-4 mr-1.5" />
-                <span>Print Stock Report</span>
+                <span>Print A4 Purchase Order</span>
               </button>
             </div>
 
-            {/* Absolute Hidden-on-screen, Visible-on-print Layout Container */}
-            <div className="hidden print:block p-8 font-sans text-xs text-slate-900 bg-white" id="printable-low-stock-report">
-              <div className="space-y-6">
-                
-                {/* Clinic Header Block */}
-                <div className="text-center border-b border-slate-300 pb-5">
-                  <h1 className="text-lg font-black uppercase tracking-wide text-slate-950">
-                    {clinicSettings?.ClinicName || "PUNJAB CLINIC"}
-                  </h1>
-                  <p className="text-xxs text-slate-600 font-semibold mt-0.5">
-                    {clinicSettings?.Address || "Opposite State Bank, Mall Road, Lahore"}
-                  </p>
-                  <p className="text-xxs text-slate-600 font-semibold">
-                    Phone: {clinicSettings?.PhoneNo || "042-3111222"}
-                  </p>
-                  
-                  <div className="mt-4 inline-block border-2 border-slate-900 bg-slate-50 px-5 py-1.5 rounded-none text-xs font-black uppercase text-slate-900 tracking-widest font-mono">
-                    PHARMACY LOW STOCK SHORTAGE REPORT
-                  </div>
-                </div>
+            {/* Absolute Hidden-on-screen, Visible-on-print Layout Container (A4 Printable Letter Head) */}
+            <div className="hidden print:block p-6 font-sans text-xs text-black bg-white" id="printable-low-stock-report">
+              {(() => {
+                const filteredPoItems = items.filter(itm => {
+                  if (poOnlyLowStock && itm.CStock > (itm.MinStock || 10)) return false;
+                  if (poCategoryFilter !== 'ALL') {
+                    if (poCategoryFilter === 'C') {
+                      if (itm.MedicineType !== 'C') return false;
+                    } else if (poCategoryFilter === 'P') {
+                      if (itm.MedicineType === 'C') return false;
+                    } else {
+                      const u = (itm.Unit || '').toLowerCase().trim();
+                      const c = poCategoryFilter.toLowerCase().trim();
+                      if (u !== c && !u.includes(c)) return false;
+                    }
+                  }
+                  return true;
+                });
 
-                {/* Report Metadata Block */}
-                <div className="grid grid-cols-2 gap-4 text-xxs font-semibold border-b border-slate-200 pb-4 text-slate-700">
-                  <div>
-                    <span className="text-slate-400 block font-normal uppercase tracking-wider">Report Category:</span>
-                    <strong className="text-slate-900 text-[11px] uppercase">
-                      {selectedReportCategory === 'ALL' && "All Pharmaceutical Items"}
-                      {selectedReportCategory === 'C' && "Clinical Compounding (/C) Only"}
-                      {selectedReportCategory === 'P' && "Patent Medicines (/P) Only"}
-                    </strong>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block font-normal uppercase tracking-wider">Date & Time Generated:</span>
-                    <strong className="text-slate-900 text-[11px] font-mono">
-                      {new Date().toLocaleString()} (PKT)
-                    </strong>
-                  </div>
-                </div>
+                const poRows = [];
+                for (let i = 0; i < filteredPoItems.length; i += 3) {
+                  poRows.push([
+                    filteredPoItems[i],
+                    filteredPoItems[i + 1] || null,
+                    filteredPoItems[i + 2] || null
+                  ]);
+                }
 
-                {/* Main Items Listing Table */}
-                <div className="space-y-3">
-                  <h3 className="text-xxs font-bold text-slate-400 uppercase tracking-widest">
-                    Items Identified Below Safety Levels
-                  </h3>
-                  
-                  <table className="w-full text-left text-xxs border-collapse border border-slate-300">
-                    <thead>
-                      <tr className="bg-slate-100 border-b border-slate-300 text-slate-800 uppercase font-bold">
-                        <th className="p-2 border-r border-slate-300 text-center w-12">S.No</th>
-                        <th className="p-2 border-r border-slate-300 w-24">Item ID</th>
-                        <th className="p-2 border-r border-slate-300">Medicine Name</th>
-                        <th className="p-2 border-r border-slate-300 w-24">Category</th>
-                        <th className="p-2 border-r border-slate-300 text-right w-24">Min Threshold</th>
-                        <th className="p-2 text-right w-24 text-rose-700 font-bold">Current Stock</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-300 font-semibold text-slate-800">
-                      {items.filter(itm => {
-                        const isLow = itm.CStock <= (itm.MinStock || 10);
-                        if (!isLow) return false;
-                        if (selectedReportCategory === 'ALL') return true;
-                        if (selectedReportCategory === 'C') return itm.MedicineType === 'C';
-                        if (selectedReportCategory === 'P') return itm.MedicineType !== 'C';
-                        return true;
-                      }).map((itm, idx) => {
-                        const isClinical = itm.MedicineType === 'C';
-                        return (
-                          <tr key={`${itm.ItemID}-${idx}`} className="bg-white">
-                            <td className="p-2 border-r border-slate-300 text-center font-mono">{idx + 1}</td>
-                            <td className="p-2 border-r border-slate-300 font-mono font-bold text-slate-600">{itm.ItemID}</td>
-                            <td className="p-2 border-r border-slate-300 font-bold">{itm.ItemName}</td>
-                            <td className="p-2 border-r border-slate-300 uppercase font-mono">
-                              {isClinical ? "Clinical" : "Patent"}
+                return (
+                  <div>
+                    {/* Clinic Name Header above Purchase Order */}
+                    <div className="text-center mb-3">
+                      <h1 className="text-xl font-black uppercase text-black tracking-wide">
+                        {clinicSettings?.ClinicName || "Punjab Homeopathic Clinic"}
+                      </h1>
+                      <p className="text-sm font-extrabold text-black uppercase mt-0.5">
+                        Purchase Order
+                      </p>
+                    </div>
+
+                    {/* Compact 3-Column Grid Table matching PDF format */}
+                    <table className="w-full text-left border-collapse border-2 border-black text-xs font-sans">
+                      <thead>
+                        <tr>
+                          <th colSpan={6} className="border border-black p-2 text-center font-bold text-sm bg-white uppercase text-black">
+                            Purchase Order
+                          </th>
+                        </tr>
+                        <tr className="bg-white">
+                          <th className="border border-black p-1.5 font-bold text-center w-[22%] text-black">Medicine Name</th>
+                          <th className="border border-black p-1.5 font-bold text-center w-[11.33%] text-black">Required QTY</th>
+                          <th className="border border-black p-1.5 font-bold text-center w-[22%] text-black">Medicine Name</th>
+                          <th className="border border-black p-1.5 font-bold text-center w-[11.33%] text-black">Required QTY</th>
+                          <th className="border border-black p-1.5 font-bold text-center w-[22%] text-black">Medicine Name</th>
+                          <th className="border border-black p-1.5 font-bold text-center w-[11.33%] text-black">Required QTY</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {poRows.map((row, rIdx) => (
+                          <tr key={rIdx}>
+                            <td className="border border-black px-2 py-1 font-medium text-left text-black">{row[0]?.ItemName || ''}</td>
+                            <td className="border border-black px-2 py-1 font-bold text-center text-black">
+                              {row[0] ? ((row[0].ReorderQty !== undefined && row[0].ReorderQty > 0) ? row[0].ReorderQty : Math.max((row[0].MinStock || 10) * 2 - row[0].CStock, 10)) : ''}
                             </td>
-                            <td className="p-2 border-r border-slate-300 text-right font-mono text-slate-600">
-                              {itm.MinStock || 10} {itm.Unit || 'Tab'}s
+
+                            <td className="border border-black px-2 py-1 font-medium text-left text-black">{row[1]?.ItemName || ''}</td>
+                            <td className="border border-black px-2 py-1 font-bold text-center text-black">
+                              {row[1] ? ((row[1].ReorderQty !== undefined && row[1].ReorderQty > 0) ? row[1].ReorderQty : Math.max((row[1].MinStock || 10) * 2 - row[1].CStock, 10)) : ''}
                             </td>
-                            <td className="p-2 text-right font-mono font-bold text-rose-700 bg-rose-50/20">
-                              {itm.CStock} {itm.Unit || 'Tab'}s
+
+                            <td className="border border-black px-2 py-1 font-medium text-left text-black">{row[2]?.ItemName || ''}</td>
+                            <td className="border border-black px-2 py-1 font-bold text-center text-black">
+                              {row[2] ? ((row[2].ReorderQty !== undefined && row[2].ReorderQty > 0) ? row[2].ReorderQty : Math.max((row[2].MinStock || 10) * 2 - row[2].CStock, 10)) : ''}
                             </td>
                           </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Audit Safety Warning Box */}
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded-none text-[9px] text-slate-600 font-medium italic mt-8">
-                  * Note: This document is an official real-time stock discrepancy summary generated directly from the Clinic Pharmacy ERP system. Items listed have crossed below their safety minimum stock thresholds and require urgent procurement inward GRN to prevent out-of-stock medical service disruption.
-                </div>
-
-                {/* Institutional Authorization Signatures Block */}
-                <div className="grid grid-cols-3 gap-8 pt-16 text-center text-xxs font-bold text-slate-700">
-                  <div className="border-t border-dashed border-slate-400 pt-3">
-                    <p className="text-slate-900">PREPARED BY</p>
-                    <p className="text-[9px] text-slate-400 font-medium mt-1">Pharmacy In-charge</p>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                  <div className="border-t border-dashed border-slate-400 pt-3">
-                    <p className="text-slate-900">VERIFIED BY</p>
-                    <p className="text-[9px] text-slate-400 font-medium mt-1">Operations Auditor</p>
-                  </div>
-                  <div className="border-t border-dashed border-slate-400 pt-3">
-                    <p className="text-slate-900">AUTHORIZED CLINICAL SIGNATURE</p>
-                    <p className="text-[9px] text-slate-400 font-medium mt-1">Medical Director</p>
-                  </div>
-                </div>
+                );
+              })()}
+            </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* A4 Purchase Order Print Dialog Box & Preview Modal */}
+      {isPOPrintPreviewOpen && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[9999] flex flex-col items-center justify-start p-4 overflow-y-auto print:hidden">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl overflow-hidden my-auto flex flex-col max-h-[92vh]">
+            {/* Dialog Header */}
+            <div className="p-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-2">
+                <Printer className="w-5 h-5 text-indigo-400" />
+                <h2 className="font-extrabold text-sm uppercase tracking-wider text-white">
+                  A4 Purchase Order Print Dialog & Preview
+                </h2>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const printContent = document.getElementById('po-dialog-sheet-content')?.innerHTML;
+                    const win = window.open('', '_blank', 'width=950,height=1000');
+                    if (win) {
+                      win.document.write(`
+                        <!DOCTYPE html>
+                        <html>
+                          <head>
+                            <title>Purchase Order - ${clinicSettings?.ClinicName || "Punjab Homeopathic Clinic"}</title>
+                            <style>
+                              @page {
+                                size: A4 portrait;
+                                margin: 10mm 10mm 10mm 10mm;
+                              }
+                              @media print {
+                                html, body {
+                                  width: 210mm;
+                                  height: auto;
+                                  margin: 0;
+                                  padding: 0;
+                                  background: #fff !important;
+                                  color: #000 !important;
+                                }
+                                .no-print { display: none !important; }
+                                table { page-break-inside: auto; width: 100% !important; }
+                                tr { page-break-inside: avoid; page-break-after: auto; }
+                                thead { display: table-header-group; }
+                                tfoot { display: table-footer-group; }
+                              }
+                              body {
+                                font-family: Arial, Helvetica, sans-serif;
+                                padding: 15px;
+                                color: #000;
+                                background: #fff;
+                                font-size: 11px;
+                                line-height: 1.3;
+                              }
+                              h1 { font-size: 18px; font-weight: 900; text-transform: uppercase; margin: 0 0 2px 0; text-align: center; color: #000; }
+                              p { margin: 0; text-align: center; font-weight: 800; font-size: 12px; text-transform: uppercase; }
+                              table { width: 100%; border-collapse: collapse; border: 2px solid #000; margin-top: 10px; font-size: 11px; }
+                              th, td { border: 1px solid #000; padding: 4px 6px; text-align: left; box-sizing: border-box; }
+                              th { background-color: #f8fafc; font-weight: bold; text-transform: uppercase; color: #000; }
+                              .text-center { text-align: center !important; }
+                              .text-left { text-align: left !important; }
+                              .text-right { text-align: right !important; }
+                              .font-bold { font-weight: bold; }
+                              .font-black { font-weight: 900; }
+                              .uppercase { text-transform: uppercase; }
+                            </style>
+                          </head>
+                          <body>
+                            ${printContent || ''}
+                            <script>
+                              window.onload = function() {
+                                setTimeout(function() {
+                                  window.print();
+                                }, 300);
+                              };
+                            </script>
+                          </body>
+                        </html>
+                      `);
+                      win.document.close();
+                    } else {
+                      window.print();
+                    }
+                  }}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg transition flex items-center shadow-sm cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5 mr-1" />
+                  <span>Open & Print in Pop-up</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.print();
+                  }}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg transition flex items-center shadow-sm cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5 mr-1" />
+                  <span>Trigger Direct Print</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsPOPrintPreviewOpen(false)}
+                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition cursor-pointer"
+                  title="Close Print Dialog"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
             </div>
 
+            {/* Dialog Subheader info */}
+            <div className="bg-slate-100 border-b border-slate-200 px-6 py-2.5 flex flex-wrap items-center justify-between text-xs text-slate-600 font-medium gap-2">
+              <span>📄 Paper Format: <strong className="text-slate-900">A4 Standard Letterhead</strong></span>
+              <span>Clinic Header: <strong className="text-slate-900">{clinicSettings?.ClinicName || "Punjab Homeopathic Clinic"}</strong></span>
+              <span>Requisition Count: <strong className="text-indigo-700">{
+                items.filter(itm => {
+                  if (poOnlyLowStock && itm.CStock > (itm.MinStock || 10)) return false;
+                  if (poCategoryFilter !== 'ALL') {
+                    if (poCategoryFilter === 'C') {
+                      if (itm.MedicineType !== 'C') return false;
+                    } else if (poCategoryFilter === 'P') {
+                      if (itm.MedicineType === 'C') return false;
+                    } else {
+                      const u = (itm.Unit || '').toLowerCase().trim();
+                      const c = poCategoryFilter.toLowerCase().trim();
+                      if (u !== c && !u.includes(c)) return false;
+                    }
+                  }
+                  return true;
+                }).length
+              } Medicines</strong></span>
+            </div>
+
+            {/* Printable Sheet Preview Box */}
+            <div className="p-6 overflow-y-auto bg-slate-200/70 flex justify-center flex-1">
+              <div className="bg-white shadow-2xl border border-slate-300 p-6 w-full max-w-[210mm] min-h-[297mm] text-black font-sans text-xs shrink-0" id="po-dialog-sheet-content">
+                {(() => {
+                  const filteredPoItems = items.filter(itm => {
+                    if (poOnlyLowStock && itm.CStock > (itm.MinStock || 10)) return false;
+                    if (poCategoryFilter !== 'ALL') {
+                      if (poCategoryFilter === 'C') {
+                        if (itm.MedicineType !== 'C') return false;
+                      } else if (poCategoryFilter === 'P') {
+                        if (itm.MedicineType === 'C') return false;
+                      } else {
+                        const u = (itm.Unit || '').toLowerCase().trim();
+                        const c = poCategoryFilter.toLowerCase().trim();
+                        if (u !== c && !u.includes(c)) return false;
+                      }
+                    }
+                    return true;
+                  });
+
+                  const poRows = [];
+                  for (let i = 0; i < filteredPoItems.length; i += 3) {
+                    poRows.push([
+                      filteredPoItems[i],
+                      filteredPoItems[i + 1] || null,
+                      filteredPoItems[i + 2] || null
+                    ]);
+                  }
+
+                  return (
+                    <div>
+                      {/* Clinic Name Header above Purchase Order */}
+                      <div className="text-center mb-4">
+                        <h1 className="text-xl font-black uppercase text-black tracking-wide">
+                          {clinicSettings?.ClinicName || "Punjab Homeopathic Clinic"}
+                        </h1>
+                        <p className="text-sm font-extrabold text-black uppercase mt-0.5">
+                          Purchase Order
+                        </p>
+                      </div>
+
+                      {/* Compact 3-Column Grid Table matching PDF format */}
+                      <table className="w-full text-left border-collapse border-2 border-black text-xs font-sans">
+                        <thead>
+                          <tr>
+                            <th colSpan={6} className="border border-black p-2 text-center font-bold text-sm bg-white uppercase text-black">
+                              Purchase Order
+                            </th>
+                          </tr>
+                          <tr className="bg-white">
+                            <th className="border border-black p-1.5 font-bold text-center w-[22%] text-black">Medicine Name</th>
+                            <th className="border border-black p-1.5 font-bold text-center w-[11.33%] text-black">Required QTY</th>
+                            <th className="border border-black p-1.5 font-bold text-center w-[22%] text-black">Medicine Name</th>
+                            <th className="border border-black p-1.5 font-bold text-center w-[11.33%] text-black">Required QTY</th>
+                            <th className="border border-black p-1.5 font-bold text-center w-[22%] text-black">Medicine Name</th>
+                            <th className="border border-black p-1.5 font-bold text-center w-[11.33%] text-black">Required QTY</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {poRows.map((row, rIdx) => (
+                            <tr key={rIdx}>
+                              <td className="border border-black px-2 py-1 font-medium text-left text-black">{row[0]?.ItemName || ''}</td>
+                              <td className="border border-black px-2 py-1 font-bold text-center text-black">
+                                {row[0] ? ((row[0].ReorderQty !== undefined && row[0].ReorderQty > 0) ? row[0].ReorderQty : Math.max((row[0].MinStock || 10) * 2 - row[0].CStock, 10)) : ''}
+                              </td>
+
+                              <td className="border border-black px-2 py-1 font-medium text-left text-black">{row[1]?.ItemName || ''}</td>
+                              <td className="border border-black px-2 py-1 font-bold text-center text-black">
+                                {row[1] ? ((row[1].ReorderQty !== undefined && row[1].ReorderQty > 0) ? row[1].ReorderQty : Math.max((row[1].MinStock || 10) * 2 - row[1].CStock, 10)) : ''}
+                              </td>
+
+                              <td className="border border-black px-2 py-1 font-medium text-left text-black">{row[2]?.ItemName || ''}</td>
+                              <td className="border border-black px-2 py-1 font-bold text-center text-black">
+                                {row[2] ? ((row[2].ReorderQty !== undefined && row[2].ReorderQty > 0) ? row[2].ReorderQty : Math.max((row[2].MinStock || 10) * 2 - row[2].CStock, 10)) : ''}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+
+            {/* Dialog Footer */}
+            <div className="p-4 bg-slate-100 border-t border-slate-200 flex justify-between items-center text-xs text-slate-500">
+              <span>Click <strong>Open & Print in Pop-up</strong> to open in a new tab if browser iframe restricts print dialogs.</span>
+              <button
+                type="button"
+                onClick={() => setIsPOPrintPreviewOpen(false)}
+                className="px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-lg transition cursor-pointer"
+              >
+                Close Print Dialog
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Category Add & Edit Modal */}
+      {isCategoryModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200 flex flex-col max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
+              <div className="flex items-center space-x-2">
+                <Tag className="w-5 h-5 text-emerald-400" />
+                <div>
+                  <h3 className="text-base font-bold text-white">Medicine Category Manager</h3>
+                  <p className="text-[11px] text-slate-300 font-medium">Add, Edit, Rename or Remove Medicine Categories</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCategoryModalOpen(false);
+                  setEditingCatIndex(null);
+                  setCatErrorMsg('');
+                  setCatSuccessMsg('');
+                }}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 space-y-4 overflow-y-auto flex-1">
+              {/* Feedback messages */}
+              {catSuccessMsg && (
+                <div className="p-2.5 bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs rounded-lg font-bold flex items-center">
+                  <CheckCircle className="w-4 h-4 text-emerald-600 mr-2 shrink-0" />
+                  {catSuccessMsg}
+                </div>
+              )}
+              {catErrorMsg && (
+                <div className="p-2.5 bg-red-50 text-red-800 border border-red-200 text-xs rounded-lg font-bold flex items-center">
+                  <AlertCircle className="w-4 h-4 text-red-600 mr-2 shrink-0" />
+                  {catErrorMsg}
+                </div>
+              )}
+
+              {/* Add New Category Form */}
+              <form onSubmit={handleAddCategory} className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2">
+                <label className="block text-xs font-black text-slate-700 uppercase tracking-wide">
+                  Add New Category
+                </label>
+                <div className="flex space-x-2">
+                  <input
+                    type="text"
+                    value={newCatInput}
+                    onChange={(e) => setNewCatInput(e.target.value)}
+                    placeholder="Enter category name (e.g. Lotion, Drops, Ointment)..."
+                    className="flex-1 px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 font-semibold bg-white text-slate-900"
+                  />
+                  <button
+                    type="submit"
+                    className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg transition cursor-pointer flex items-center shadow-xs shrink-0"
+                  >
+                    <Plus className="w-4 h-4 mr-1" />
+                    <span>Add Category</span>
+                  </button>
+                </div>
+              </form>
+
+              {/* Categories List */}
+              <div className="space-y-2">
+                <div className="flex justify-between items-center px-1">
+                  <span className="text-xs font-black text-slate-700 uppercase tracking-wider">
+                    Existing Categories ({categories.length})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleResetCategories}
+                    className="text-[10px] font-bold text-slate-500 hover:text-indigo-600 underline cursor-pointer"
+                  >
+                    Reset to Defaults
+                  </button>
+                </div>
+
+                <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden bg-white max-h-[300px] overflow-y-auto">
+                  {categories.map((cat, idx) => {
+                    const itemCount = items.filter(itm => (itm.Unit || '').toLowerCase().trim() === cat.toLowerCase().trim()).length;
+                    const isEditing = editingCatIndex === idx;
+
+                    return (
+                      <div key={idx} className="p-2.5 flex items-center justify-between hover:bg-slate-50/80 transition">
+                        {isEditing ? (
+                          <div className="flex items-center space-x-2 w-full">
+                            <input
+                              type="text"
+                              value={editingCatName}
+                              onChange={(e) => setEditingCatName(e.target.value)}
+                              className="flex-1 px-2 py-1 text-xs border border-indigo-400 rounded focus:outline-none font-bold text-slate-900 bg-indigo-50/50"
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleSaveEditCategory(idx);
+                                if (e.key === 'Escape') setEditingCatIndex(null);
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleSaveEditCategory(idx)}
+                              className="px-2.5 py-1 bg-indigo-600 text-white font-bold text-xs rounded hover:bg-indigo-700 cursor-pointer"
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingCatIndex(null)}
+                              className="px-2 py-1 bg-slate-200 text-slate-700 font-bold text-xs rounded hover:bg-slate-300 cursor-pointer"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex items-center space-x-2 truncate">
+                              <span className="text-xs font-extrabold text-slate-800">{cat}</span>
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-100 text-slate-600">
+                                {itemCount} {itemCount === 1 ? 'item' : 'items'}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center space-x-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingCatIndex(idx);
+                                  setEditingCatName(cat);
+                                }}
+                                className="p-1 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition cursor-pointer"
+                                title="Edit / Rename Category"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteCategory(idx)}
+                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
+                                title="Delete Category"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCategoryModalOpen(false);
+                  setEditingCatIndex(null);
+                  setCatErrorMsg('');
+                  setCatSuccessMsg('');
+                }}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl transition cursor-pointer shadow-xs"
+              >
+                Done
+              </button>
+            </div>
           </div>
         </div>
       )}

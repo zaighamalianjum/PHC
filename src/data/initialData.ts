@@ -40,16 +40,19 @@ export const INITIAL_SUPPLIERS: Supplier[] = [
 ];
 
 export const INITIAL_ITEMS: Item[] = [
-  { ItemID: 'ITM-001', ItemName: 'Panadol 500mg (Paracetamol)', Price: 3.5, PurchasePrice: 2.8, CStock: 1200, MinStock: 200, Unit: 'Tab' },
-  { ItemID: 'ITM-002', ItemName: 'Augmentin 625mg (Co-Amoxiclav)', Price: 45.0, PurchasePrice: 38.0, CStock: 450, MinStock: 50, Unit: 'Tab' },
-  { ItemID: 'ITM-003', ItemName: 'Lofnac 50mg (Diclofenac Sodium)', Price: 8.0, PurchasePrice: 6.2, CStock: 800, MinStock: 100, Unit: 'Tab' },
-  { ItemID: 'ITM-004', ItemName: 'Arinac Forte (Ibuprofen / Pseudoephedrine)', Price: 12.0, PurchasePrice: 9.5, CStock: 600, MinStock: 100, Unit: 'Tab' },
-  { ItemID: 'ITM-005', ItemName: 'Surbex-Z (Multivitamins & Zinc)', Price: 15.0, PurchasePrice: 12.0, CStock: 350, MinStock: 50, Unit: 'Tab' },
-  { ItemID: 'ITM-006', ItemName: 'Gravinate Syrup 120ml', Price: 95.0, PurchasePrice: 80.0, CStock: 85, MinStock: 20, Unit: 'Syrup' },
-  { ItemID: 'ITM-007', ItemName: 'Amoxil 250mg Suspension', Price: 135.0, PurchasePrice: 115.0, CStock: 60, MinStock: 15, Unit: 'Syrup' },
-  { ItemID: 'ITM-008', ItemName: 'Ponstan 250mg (Mefenamic Acid)', Price: 4.5, PurchasePrice: 3.6, CStock: 1000, MinStock: 150, Unit: 'Tab' },
-  { ItemID: 'ITM-009', ItemName: 'Risek 40mg Cap (Omeprazole)', Price: 32.0, PurchasePrice: 26.0, CStock: 500, MinStock: 100, Unit: 'Cap' },
-  { ItemID: 'ITM-010', ItemName: 'Ventolin Inhaler', Price: 260.0, PurchasePrice: 220.0, CStock: 40, MinStock: 10, Unit: 'Inhaler' }
+  { ItemID: 'ITM-001', ItemName: 'BM 1 Drops (Hypertension / Heart)', Price: 180.0, PurchasePrice: 140.0, CStock: 8, MinStock: 10, Unit: 'BM Drops', ReorderQty: 10 },
+  { ItemID: 'ITM-002', ItemName: 'BM 12 Drops (Stomach / Gastric)', Price: 180.0, PurchasePrice: 140.0, CStock: 5, MinStock: 10, Unit: 'BM Drops', ReorderQty: 10 },
+  { ItemID: 'ITM-003', ItemName: 'Acid Phos Q (Mother Tincture)', Price: 250.0, PurchasePrice: 190.0, CStock: 3, MinStock: 5, Unit: 'Q D DROPS', ReorderQty: 2 },
+  { ItemID: 'ITM-004', ItemName: 'Berberis Vulg Q (Kidney & Liver)', Price: 280.0, PurchasePrice: 210.0, CStock: 2, MinStock: 5, Unit: 'Q D DROPS', ReorderQty: 6 },
+  { ItemID: 'ITM-005', ItemName: 'Acid Phos 30', Price: 120.0, PurchasePrice: 90.0, CStock: 4, MinStock: 10, Unit: 'Potency 30', ReorderQty: 3 },
+  { ItemID: 'ITM-006', ItemName: 'Arnica Mont 30 (Injury / Pain)', Price: 120.0, PurchasePrice: 90.0, CStock: 2, MinStock: 10, Unit: 'Potency 30', ReorderQty: 10 },
+  { ItemID: 'ITM-007', ItemName: 'Acid Phos 200', Price: 150.0, PurchasePrice: 110.0, CStock: 3, MinStock: 5, Unit: 'Potency 200', ReorderQty: 2 },
+  { ItemID: 'ITM-008', ItemName: 'Arnica Mont 200', Price: 150.0, PurchasePrice: 110.0, CStock: 1, MinStock: 5, Unit: 'Potency 200', ReorderQty: 6 },
+  { ItemID: 'ITM-009', ItemName: 'Phosmet Plus Syp', Price: 220.0, PurchasePrice: 170.0, CStock: 6, MinStock: 10, Unit: 'Syrup', ReorderQty: 12 },
+  { ItemID: 'ITM-010', ItemName: 'Cardiac Care Drop', Price: 310.0, PurchasePrice: 240.0, CStock: 4, MinStock: 10, Unit: 'Drops', ReorderQty: 20 },
+  { ItemID: 'ITM-011', ItemName: 'Panadol 500mg (Paracetamol)', Price: 3.5, PurchasePrice: 2.8, CStock: 1200, MinStock: 200, Unit: 'Tab' },
+  { ItemID: 'ITM-012', ItemName: 'Augmentin 625mg (Co-Amoxiclav)', Price: 45.0, PurchasePrice: 38.0, CStock: 450, MinStock: 50, Unit: 'Tab' },
+  { ItemID: 'ITM-013', ItemName: 'Risek 40mg Cap (Omeprazole)', Price: 32.0, PurchasePrice: 26.0, CStock: 500, MinStock: 100, Unit: 'Cap' }
 ];
 
 export const INITIAL_LAB_TESTS: LabTest[] = [
@@ -94,25 +97,25 @@ export const INITIAL_SL_ACCOUNTS: SLAccount[] = [
 // Third level: TLID (6 digits, starts with SLID)
 export const INITIAL_TL_ACCOUNTS: TLAccount[] = [
   // Cash & Bank (SLID 101)
-  { FLID: 1, SLID: 101, TLID: 101001, TLName: 'Dr. Cash-in-Hand (Morning Shift)', AcBalance: 45000 },
-  { FLID: 1, SLID: 101, TLID: 101002, TLName: 'Dr. Cash-in-Hand (Evening Shift)', AcBalance: 125000 },
-  { FLID: 1, SLID: 101, TLID: 101003, TLName: 'Appointment Cash Desk', AcBalance: 15000 },
-  { FLID: 1, SLID: 101, TLID: 101004, TLName: 'Bank Al-Falah (Current Account)', AcBalance: 450000 },
+  { FLID: 1, SLID: 101, TLID: 101001, TLName: 'Cash-in-Hand (Morning Shift)', AcBalance: 0 },
+  { FLID: 1, SLID: 101, TLID: 101002, TLName: 'Cash-in-Hand (Evening Shift)', AcBalance: 0 },
+  { FLID: 1, SLID: 101, TLID: 101003, TLName: 'Appointment Cash Desk', AcBalance: 0 },
+  { FLID: 1, SLID: 101, TLID: 101004, TLName: 'Main Bank Current Account', AcBalance: 0 },
   // Receivables (SLID 102)
-  { FLID: 1, SLID: 102, TLID: 102001, TLName: 'SBP Panel Employee Receivables', AcBalance: 68000 },
+  { FLID: 1, SLID: 102, TLID: 102001, TLName: 'Corporate & Panel Receivables', AcBalance: 0 },
   // Inventory (SLID 103)
-  { FLID: 1, SLID: 103, TLID: 103001, TLName: 'Pharmacy Pharmacy Stock Ledger', AcBalance: 245000 },
+  { FLID: 1, SLID: 103, TLID: 103001, TLName: 'Pharmacy Stock Ledger', AcBalance: 0 },
   
   // Accounts Payable (SLID 201)
-  { FLID: 2, SLID: 201, TLID: 201001, TLName: 'Payable to Standipharm Pakistan', AcBalance: -15000 },
-  { FLID: 2, SLID: 201, TLID: 201002, TLName: 'Payable to Getz Pharma', AcBalance: -28000 },
+  { FLID: 2, SLID: 201, TLID: 201001, TLName: 'Accounts Payable (Primary Suppliers)', AcBalance: 0 },
+  { FLID: 2, SLID: 201, TLID: 201002, TLName: 'Accounts Payable (Secondary Suppliers)', AcBalance: 0 },
   
   // Capital Accounts (SLID 301)
-  { FLID: 3, SLID: 301, TLID: 301001, TLName: 'Owner Capital Equity Account', AcBalance: -800000 },
+  { FLID: 3, SLID: 301, TLID: 301001, TLName: 'Owner Capital Equity Account', AcBalance: 0 },
 
   // Clinical Income (SLID 401)
-  { FLID: 4, SLID: 401, TLID: 401001, TLName: 'Appointment OPD Ticket Revenue', AcBalance: -35000 },
-  { FLID: 4, SLID: 401, TLID: 401002, TLName: 'Lab & Diagnostics Revenue', AcBalance: -18000 },
+  { FLID: 4, SLID: 401, TLID: 401001, TLName: 'Appointment OPD Ticket Revenue', AcBalance: 0 },
+  { FLID: 4, SLID: 401, TLID: 401002, TLName: 'Lab & Diagnostics Revenue', AcBalance: 0 },
   
   // Shift-based Revenue Accounts
   { FLID: 4, SLID: 401, TLID: 401101, TLName: 'Morning Shift: Appointment Revenue', AcBalance: 0 },
@@ -127,18 +130,18 @@ export const INITIAL_TL_ACCOUNTS: TLAccount[] = [
   { FLID: 4, SLID: 401, TLID: 401205, TLName: 'Evening Shift: File & Card Fee Revenue', AcBalance: 0 },
 
   // Pharmacy Sales (SLID 402)
-  { FLID: 4, SLID: 402, TLID: 402001, TLName: 'Pharmacy Store Cash Sales', AcBalance: -185000 },
+  { FLID: 4, SLID: 402, TLID: 402001, TLName: 'Pharmacy Store Cash Sales', AcBalance: 0 },
 
   // Costs & Discounts (SLID 501)
-  { FLID: 5, SLID: 501, TLID: 501001, TLName: 'Pharmacy Cost of Goods Sold (COGS)', AcBalance: 110000 },
-  { FLID: 5, SLID: 501, TLID: 501002, TLName: 'Pharmacy Customer Discounts Allowed', AcBalance: 7500 },
-  { FLID: 5, SLID: 501, TLID: 501003, TLName: 'Pharmacy Sales Return Debit A/C', AcBalance: 4000 },
-  { FLID: 5, SLID: 501, TLID: 501004, TLName: 'Pharmacy Sales Return Disc Reversal', AcBalance: -500 },
+  { FLID: 5, SLID: 501, TLID: 501001, TLName: 'Pharmacy Cost of Goods Sold (COGS)', AcBalance: 0 },
+  { FLID: 5, SLID: 501, TLID: 501002, TLName: 'Pharmacy Customer Discounts Allowed', AcBalance: 0 },
+  { FLID: 5, SLID: 501, TLID: 501003, TLName: 'Pharmacy Sales Return Debit A/C', AcBalance: 0 },
+  { FLID: 5, SLID: 501, TLID: 501004, TLName: 'Pharmacy Sales Return Disc Reversal', AcBalance: 0 },
 
   // Operating Expenses (SLID 502)
-  { FLID: 5, SLID: 502, TLID: 502001, TLName: 'Clinic Rent & Lease Expense', AcBalance: 30000 },
-  { FLID: 5, SLID: 502, TLID: 502002, TLName: 'Electricity & Water Utility Bills', AcBalance: 12000 },
-  { FLID: 5, SLID: 502, TLID: 502003, TLName: 'Doctor Consultation Sharing Pay', AcBalance: 15000 }
+  { FLID: 5, SLID: 502, TLID: 502001, TLName: 'Clinic Rent & Lease Expense', AcBalance: 0 },
+  { FLID: 5, SLID: 502, TLID: 502002, TLName: 'Electricity & Water Utility Bills', AcBalance: 0 },
+  { FLID: 5, SLID: 502, TLID: 502003, TLName: 'Doctor Consultation Sharing Pay', AcBalance: 0 }
 ];
 
 export const INITIAL_CONFIG: Config = {
@@ -165,112 +168,63 @@ export const INITIAL_USERS: User[] = [
 // User permissions for each user role
 export const ROLE_RIGHTS: Record<User['Role'], UserRight[]> = {
   Administrator: [
-    { MenuID: 'patients', MenuName: 'Patient Intake & Queue', Status: true, AddRec: true, PostRec: true, CancelPosted: true },
-    { MenuID: 'emr', MenuName: 'EMR & Clinical Desk', Status: true, AddRec: true, PostRec: true, CancelPosted: true },
-    { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Inventory', Status: true, AddRec: true, PostRec: true, CancelPosted: true },
-    { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: true, AddRec: true, PostRec: true, CancelPosted: true },
-    { MenuID: 'reports', MenuName: 'Financial & Executive Reports', Status: true, AddRec: true, PostRec: true, CancelPosted: true },
-    { MenuID: 'uploads', MenuName: 'CSV Imports & Uploads', Status: true, AddRec: true, PostRec: true, CancelPosted: true },
-    { MenuID: 'settings', MenuName: 'Clinic Setup & Settings', Status: true, AddRec: true, PostRec: true, CancelPosted: true },
-    { MenuID: 'queries', MenuName: 'Query Handler & Audit', Status: true, AddRec: true, PostRec: true, CancelPosted: true },
-    { MenuID: 'nhc_history', MenuName: 'NHC Patient History', Status: true, AddRec: true, PostRec: true, CancelPosted: true }
+    { MenuID: 'patients', MenuName: 'Patient Intake & Queue', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
+    { MenuID: 'emr', MenuName: 'EMR & Clinical Desk', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
+    { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Inventory', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
+    { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
+    { MenuID: 'reports', MenuName: 'Financial & Executive Reports', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
+    { MenuID: 'uploads', MenuName: 'CSV Imports & Uploads', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
+    { MenuID: 'settings', MenuName: 'Clinic Setup & Settings', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
+    { MenuID: 'queries', MenuName: 'Query Handler & Audit', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
+    { MenuID: 'nhc_history', MenuName: 'NHC Patient History', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true }
   ],
   Doctor: [
-    { MenuID: 'patients', MenuName: 'Patient Intake & Queue', Status: true, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'emr', MenuName: 'EMR & Clinical Desk', Status: true, AddRec: true, PostRec: true, CancelPosted: false },
-    { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Inventory', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'reports', MenuName: 'Financial & Executive Reports', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'uploads', MenuName: 'CSV Imports & Uploads', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'settings', MenuName: 'Clinic Setup & Settings', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'queries', MenuName: 'Query Handler & Audit', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'nhc_history', MenuName: 'NHC Patient History', Status: true, AddRec: true, PostRec: true, CancelPosted: false }
+    { MenuID: 'patients', MenuName: 'Patient Intake & Queue', Status: true, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: true, ExportRec: false },
+    { MenuID: 'emr', MenuName: 'EMR & Clinical Desk', Status: true, AddRec: true, PostRec: true, CancelPosted: false, PrintRec: true, ExportRec: true },
+    { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Inventory', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'reports', MenuName: 'Financial & Executive Reports', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'uploads', MenuName: 'CSV Imports & Uploads', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'settings', MenuName: 'Clinic Setup & Settings', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'queries', MenuName: 'Query Handler & Audit', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'nhc_history', MenuName: 'NHC Patient History', Status: true, AddRec: true, PostRec: true, CancelPosted: false, PrintRec: true, ExportRec: true }
   ],
   Receptionist: [
-    { MenuID: 'patients', MenuName: 'Patient Intake & Queue', Status: true, AddRec: true, PostRec: true, CancelPosted: false },
-    { MenuID: 'emr', MenuName: 'EMR & Clinical Desk', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Inventory', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'reports', MenuName: 'Financial & Executive Reports', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'uploads', MenuName: 'CSV Imports & Uploads', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'settings', MenuName: 'Clinic Setup & Settings', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'queries', MenuName: 'Query Handler & Audit', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'nhc_history', MenuName: 'NHC Patient History', Status: true, AddRec: false, PostRec: false, CancelPosted: false }
+    { MenuID: 'patients', MenuName: 'Patient Intake & Queue', Status: true, AddRec: true, PostRec: true, CancelPosted: false, PrintRec: true, ExportRec: false },
+    { MenuID: 'emr', MenuName: 'EMR & Clinical Desk', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Inventory', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'reports', MenuName: 'Financial & Executive Reports', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'uploads', MenuName: 'CSV Imports & Uploads', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'settings', MenuName: 'Clinic Setup & Settings', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'queries', MenuName: 'Query Handler & Audit', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'nhc_history', MenuName: 'NHC Patient History', Status: true, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: true, ExportRec: false }
   ],
   Pharmacist: [
-    { MenuID: 'patients', MenuName: 'Patient Intake & Queue', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'emr', MenuName: 'EMR & Clinical Desk', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Inventory', Status: true, AddRec: true, PostRec: true, CancelPosted: false },
-    { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'reports', MenuName: 'Financial & Executive Reports', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'uploads', MenuName: 'CSV Imports & Uploads', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'settings', MenuName: 'Clinic Setup & Settings', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'queries', MenuName: 'Query Handler & Audit', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'nhc_history', MenuName: 'NHC Patient History', Status: false, AddRec: false, PostRec: false, CancelPosted: false }
+    { MenuID: 'patients', MenuName: 'Patient Intake & Queue', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'emr', MenuName: 'EMR & Clinical Desk', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Inventory', Status: true, AddRec: true, PostRec: true, CancelPosted: false, PrintRec: true, ExportRec: true },
+    { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'reports', MenuName: 'Financial & Executive Reports', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'uploads', MenuName: 'CSV Imports & Uploads', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'settings', MenuName: 'Clinic Setup & Settings', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'queries', MenuName: 'Query Handler & Audit', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'nhc_history', MenuName: 'NHC Patient History', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false }
   ],
   Accountant: [
-    { MenuID: 'patients', MenuName: 'Patient Intake & Queue', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'emr', MenuName: 'EMR & Clinical Desk', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Inventory', Status: true, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: true, AddRec: true, PostRec: true, CancelPosted: true },
-    { MenuID: 'reports', MenuName: 'Financial & Executive Reports', Status: true, AddRec: true, PostRec: true, CancelPosted: false },
-    { MenuID: 'uploads', MenuName: 'CSV Imports & Uploads', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'settings', MenuName: 'Clinic Setup & Settings', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'queries', MenuName: 'Query Handler & Audit', Status: false, AddRec: false, PostRec: false, CancelPosted: false },
-    { MenuID: 'nhc_history', MenuName: 'NHC Patient History', Status: false, AddRec: false, PostRec: false, CancelPosted: false }
+    { MenuID: 'patients', MenuName: 'Patient Intake & Queue', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'emr', MenuName: 'EMR & Clinical Desk', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Inventory', Status: true, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: true, ExportRec: true },
+    { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
+    { MenuID: 'reports', MenuName: 'Financial & Executive Reports', Status: true, AddRec: true, PostRec: true, CancelPosted: false, PrintRec: true, ExportRec: true },
+    { MenuID: 'uploads', MenuName: 'CSV Imports & Uploads', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'settings', MenuName: 'Clinic Setup & Settings', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'queries', MenuName: 'Query Handler & Audit', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'nhc_history', MenuName: 'NHC Patient History', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false }
   ]
 };
 
-export const INITIAL_PATIENTS: Patient[] = [
-  {
-    PatientID: 'PAT-001',
-    PatientName: 'Zubair Ahmad Qureshi',
-    Father_husband: 'Muhammad Ishaq',
-    AgeYears: 42,
-    Sex: 'Male',
-    MaritalStatus: 'Married',
-    Occupation: 'Government Servant',
-    Address: 'House 42, Block C, Model Town',
-    CityID: 1, // Lahore
-    Country: 'Pakistan',
-    PhoneMobile: '0300-4567891',
-    PhoneRes: '042-35851234',
-    Email: 'zubair.qureshi@gmail.com',
-    RegistrationDate: '2026-06-15T09:30:00'
-  },
-  {
-    PatientID: 'PAT-002',
-    PatientName: 'Saima Parveen',
-    Father_husband: 'Tariq Mahmood',
-    AgeYears: 29,
-    Sex: 'Female',
-    MaritalStatus: 'Married',
-    Occupation: 'Housewife',
-    Address: 'St 4, Mohallah Sharifpura',
-    CityID: 2, // Faisalabad
-    Country: 'Pakistan',
-    PhoneMobile: '0321-7654321',
-    PhoneRes: '041-8812345',
-    Email: 'saima.tariq@yahoo.com',
-    RegistrationDate: '2026-06-20T17:15:00'
-  },
-  {
-    PatientID: 'PAT-003',
-    PatientName: 'Haris Ali SBP',
-    Father_husband: 'Liaqat Ali',
-    AgeYears: 35,
-    Sex: 'Male',
-    MaritalStatus: 'Single',
-    Occupation: 'SBP Officer',
-    Address: 'State Bank Officers Colony, G-9',
-    CityID: 10, // Islamabad
-    Country: 'Pakistan',
-    PhoneMobile: '0333-5511223',
-    PhoneOff: '051-9201234',
-    Email: 'haris.ali@sbp.org.pk',
-    RegistrationDate: '2026-07-01T10:00:00'
-  }
-];
+export const INITIAL_PATIENTS: Patient[] = [];
 
 export const INITIAL_APPOINTMENTS: Appointment[] = [];
 

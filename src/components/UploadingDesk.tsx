@@ -55,6 +55,9 @@ export default function UploadingDesk({
   const [medicinePreview, setMedicinePreview] = useState<Item[]>([]);
   const [labTestPreview, setLabTestPreview] = useState<LabTest[]>([]);
   const [nhcPreview, setNhcPreview] = useState<NhcPatientHistory[]>([]);
+  const [medPreviewCategoryFilter, setMedPreviewCategoryFilter] = useState<string>('ALL');
+  const [dragActiveMed, setDragActiveMed] = useState(false);
+  const fileInputMedRef = React.useRef<HTMLInputElement>(null);
   
   // Statuses
   const [errorMsg, setErrorMsg] = useState('');
@@ -282,6 +285,37 @@ export default function UploadingDesk({
     setSmartLocatorPasteText('');
   };
 
+  // Medicine Category Normalizer
+  const normalizeCategory = (input: string, itemName: string = ''): string => {
+    const clean = (input || '').trim().toLowerCase();
+    const cleanName = (itemName || '').trim().toLowerCase();
+
+    if (clean.includes('bm') || clean.includes('b.m')) return 'BM Drops';
+    if (clean.includes('mother') || clean.includes('tincture') || clean.includes('q d') || clean.includes('q.d') || clean === 'q') return 'Q D DROPS';
+    if (clean.includes('potency 30') || clean === '30' || clean === 'p30' || clean.includes('potency30')) return 'Potency 30';
+    if (clean.includes('potency 200') || clean === '200' || clean === 'p200' || clean.includes('potency200')) return 'Potency 200';
+    if (clean.includes('syrup') || clean.includes('syp')) return 'Syrup';
+    if (clean === 'drop' || clean === 'drops') return 'Drops';
+    if (clean.includes('tab')) return 'Tab';
+    if (clean.includes('cap')) return 'Cap';
+    if (clean.includes('inj')) return 'Injection';
+    if (clean.includes('oint') || clean.includes('cream')) return 'Ointment';
+
+    if (input && input.trim()) return input.trim();
+
+    // Fallback smart inference from item name
+    if (cleanName.includes('bm drops') || cleanName.includes('bm-')) return 'BM Drops';
+    if (cleanName.includes(' q') || cleanName.includes(' mother') || cleanName.endsWith(' q')) return 'Q D DROPS';
+    if (cleanName.includes(' 30') || cleanName.endsWith('30') || cleanName.includes(' 30c')) return 'Potency 30';
+    if (cleanName.includes(' 200') || cleanName.endsWith('200') || cleanName.includes(' 200c')) return 'Potency 200';
+    if (cleanName.includes('syrup') || cleanName.includes('syp')) return 'Syrup';
+    if (cleanName.includes('drop')) return 'Drops';
+    if (cleanName.includes('tab') || cleanName.includes('500mg')) return 'Tab';
+    if (cleanName.includes('cap')) return 'Cap';
+
+    return 'Tab';
+  };
+
   // Parser: Comma, Tab or Semicolon Separated text
   const parseMedicineData = (text: string): Item[] => {
     if (!text.trim()) return [];
@@ -291,7 +325,7 @@ export default function UploadingDesk({
     // Header check
     let startIndex = 0;
     const firstLine = lines[0].toLowerCase();
-    if (firstLine.includes('itemid') || firstLine.includes('itemname') || firstLine.includes('id') || firstLine.includes('name')) {
+    if (firstLine.includes('itemid') || firstLine.includes('itemname') || firstLine.includes('id') || firstLine.includes('name') || firstLine.includes('retail') || firstLine.includes('price')) {
       startIndex = 1; // skip header line
     }
     
@@ -305,15 +339,18 @@ export default function UploadingDesk({
       if (cols.length < 2) cols = line.split(';');
       
       if (cols.length >= 2) {
-        const itemid = cols[0]?.trim() || `ITM-${Math.floor(100 + Math.random() * 900)}`;
+        const itemid = cols[0]?.trim() || `ITM-${Math.floor(1000 + Math.random() * 9000)}`;
         const name = cols[1]?.trim() || 'Unnamed Medicine';
         const price = parseFloat(cols[2]?.trim() || '0') || 10;
-        const purchasePrice = parseFloat(cols[3]?.trim() || '0') || (price * 0.8);
+        const purchasePrice = parseFloat(cols[3]?.trim() || '0') || (price > 0 ? price * 0.8 : 8);
         const cStock = parseInt(cols[4]?.trim() || '0', 10) || 0;
         const minStock = parseInt(cols[5]?.trim() || '0', 10) || 10;
-        const unit = cols[6]?.trim() || 'Tab';
+        const rawUnit = cols[6]?.trim() || '';
+        const unit = normalizeCategory(rawUnit, name);
         const rawType = cols[7]?.trim().toUpperCase() || 'P';
         const medType: 'C' | 'P' = (rawType.startsWith('C') || rawType === 'CLINICAL') ? 'C' : 'P';
+        const reqQtyVal = cols[8]?.trim();
+        const reorderQty = reqQtyVal ? parseInt(reqQtyVal, 10) : Math.max(minStock * 2 - cStock, 10);
         
         parsed.push({
           ItemID: itemid,
@@ -323,11 +360,109 @@ export default function UploadingDesk({
           CStock: cStock,
           MinStock: minStock,
           Unit: unit,
-          MedicineType: medType
+          MedicineType: medType,
+          ReorderQty: reorderQty
         });
       }
     }
     return parsed;
+  };
+
+  const handleMedicineFileRead = (file: File) => {
+    if (!file) return;
+    const fileExt = file.name.split('.').pop()?.toLowerCase();
+    if (fileExt !== 'xlsx' && fileExt !== 'xls' && fileExt !== 'csv') {
+      setErrorMsg('Invalid file format. Please upload an Excel (.xlsx, .xls) or CSV (.csv) spreadsheet.');
+      return;
+    }
+
+    setErrorMsg('');
+    setSuccessMsg('');
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        import('xlsx').then((XLSX) => {
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          const rawData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+          
+          if (rawData.length === 0) {
+            setErrorMsg('The Excel sheet appears to be empty.');
+            return;
+          }
+
+          const headers = rawData[0].map(h => String(h || '').toLowerCase().trim());
+          const idIdx = headers.findIndex(h => h.includes('itemid') || h === 'id' || h.includes('code'));
+          const nameIdx = headers.findIndex(h => h.includes('name') || h.includes('medicine') || h.includes('item') || h.includes('description'));
+          const priceIdx = headers.findIndex(h => h.includes('retail') || h.includes('price') || h.includes('mrp') || h.includes('sale'));
+          const costIdx = headers.findIndex(h => h.includes('purchase') || h.includes('cost') || h.includes('buy'));
+          const stockIdx = headers.findIndex(h => h.includes('stock') || h.includes('qty') || h.includes('quantity') || h.includes('cstock'));
+          const minStockIdx = headers.findIndex(h => h.includes('min') || h.includes('reorder level'));
+          const unitIdx = headers.findIndex(h => h.includes('unit') || h.includes('category') || h.includes('type') || h.includes('form') || h.includes('potency'));
+          const medTypeIdx = headers.findIndex(h => h.includes('medicinetype') || h.includes('type') || h.includes('class'));
+          const reqQtyIdx = headers.findIndex(h => h.includes('reorderqty') || h.includes('po req') || h.includes('required'));
+
+          const startRow = (nameIdx >= 0 || idIdx >= 0 || priceIdx >= 0) ? 1 : 0;
+          
+          const iIdx = idIdx >= 0 ? idIdx : 0;
+          const nIdx = nameIdx >= 0 ? nameIdx : 1;
+          const pIdx = priceIdx >= 0 ? priceIdx : 2;
+          const cIdx = costIdx >= 0 ? costIdx : 3;
+          const sIdx = stockIdx >= 0 ? stockIdx : 4;
+          const mIdx = minStockIdx >= 0 ? minStockIdx : 5;
+          const uIdx = unitIdx >= 0 ? unitIdx : 6;
+          const tIdx = medTypeIdx >= 0 ? medTypeIdx : 7;
+          const rIdx = reqQtyIdx >= 0 ? reqQtyIdx : 8;
+
+          const parsed: Item[] = [];
+          for (let i = startRow; i < rawData.length; i++) {
+            const row = rawData[i];
+            if (!row || row.length === 0) continue;
+            
+            const rawId = String(row[iIdx] || '').trim();
+            const itemid = rawId || `ITM-${Math.floor(1000 + Math.random() * 9000)}`;
+            const name = String(row[nIdx] || '').trim();
+            if (!name) continue;
+            
+            const price = parseFloat(String(row[pIdx] || '0')) || 10;
+            const purchasePrice = parseFloat(String(row[cIdx] || '0')) || (price > 0 ? price * 0.8 : 8);
+            const cStock = parseInt(String(row[sIdx] || '0'), 10) || 0;
+            const minStock = parseInt(String(row[mIdx] || '10'), 10) || 10;
+            const rawUnit = String(row[uIdx] || '').trim();
+            const unit = normalizeCategory(rawUnit, name);
+            const rawType = String(row[tIdx] || '').trim().toUpperCase();
+            const medType: 'C' | 'P' = (rawType.startsWith('C') || rawType === 'CLINICAL') ? 'C' : 'P';
+            const reqVal = String(row[rIdx] || '').trim();
+            const reorderQty = reqVal ? parseInt(reqVal, 10) : Math.max(minStock * 2 - cStock, 10);
+
+            parsed.push({
+              ItemID: itemid,
+              ItemName: name,
+              Price: price,
+              PurchasePrice: purchasePrice,
+              CStock: cStock,
+              MinStock: minStock,
+              Unit: unit,
+              MedicineType: medType,
+              ReorderQty: reorderQty
+            });
+          }
+
+          if (parsed.length === 0) {
+            setErrorMsg('Could not extract any valid medicine rows. Ensure Excel sheet has medicine names and prices.');
+          } else {
+            setMedicinePreview(parsed);
+            setSuccessMsg(`Successfully parsed ${parsed.length} medicines from ${file.name}! Review category-wise below and click Save.`);
+          }
+        });
+      } catch (err: any) {
+        setErrorMsg(`Excel Parse Error: ${err.message}`);
+      }
+    };
+    reader.readAsArrayBuffer(file);
   };
 
   const parseLabTestData = (text: string): LabTest[] => {
@@ -370,11 +505,11 @@ export default function UploadingDesk({
     try {
       const res = parseMedicineData(medicinePasteText);
       if (res.length === 0) {
-        setErrorMsg('Could not find any valid row. Copy-paste columns: ItemID, ItemName, RetailPrice, PurchasePrice, CurrentStock, MinStock, Unit, MedicineType (C=Clinical, P=Patent).');
+        setErrorMsg('Could not find any valid row. Copy-paste columns: ItemID, ItemName, RetailPrice, PurchasePrice, Stock, MinStock, Unit/Category (BM Drops, Q D DROPS, Potency 30, Potency 200, Syrup, Drops, Tab, Cap), MedicineType (C=Clinical, P=Patent), PO Req Qty.');
         return;
       }
       setMedicinePreview(res);
-      setSuccessMsg(`Successfully parsed ${res.length} medicines. Please review the table preview below.`);
+      setSuccessMsg(`Successfully parsed ${res.length} medicines. Review category-wise below and save to MongoDB database.`);
     } catch (e: any) {
       setErrorMsg(`Error parsing data: ${e.message}`);
     }
@@ -387,10 +522,11 @@ export default function UploadingDesk({
     setItems((prev) => {
       let updated = [...prev];
       if (!append) {
-        // Overwrite but keep any that might not be in uploader, or full overwrite?
-        // Let's do a smart merge/replace. If ItemID matches, overwrite. If not, append.
         medicinePreview.forEach(newItem => {
-          const idx = updated.findIndex(u => u.ItemID.toLowerCase() === newItem.ItemID.toLowerCase());
+          const idx = updated.findIndex(u => 
+            u.ItemID.toLowerCase() === newItem.ItemID.toLowerCase() ||
+            u.ItemName.toLowerCase() === newItem.ItemName.toLowerCase()
+          );
           if (idx > -1) {
             updated[idx] = newItem;
           } else {
@@ -398,13 +534,15 @@ export default function UploadingDesk({
           }
         });
       } else {
-        // Simple merge
         medicinePreview.forEach(newItem => {
-          const idx = updated.findIndex(u => u.ItemID.toLowerCase() === newItem.ItemID.toLowerCase());
+          const idx = updated.findIndex(u => 
+            u.ItemID.toLowerCase() === newItem.ItemID.toLowerCase() ||
+            u.ItemName.toLowerCase() === newItem.ItemName.toLowerCase()
+          );
           if (idx > -1) {
             updated[idx] = {
               ...newItem,
-              CStock: updated[idx].CStock + newItem.CStock // Add stock together
+              CStock: updated[idx].CStock + newItem.CStock
             };
           } else {
             updated.push(newItem);
@@ -412,7 +550,6 @@ export default function UploadingDesk({
         });
       }
       
-      // Save to localStorage
       localStorage.setItem('cms_items', JSON.stringify(updated));
       updatedList = updated;
       return updated;
@@ -420,25 +557,27 @@ export default function UploadingDesk({
 
     if (mongoDbSettings.SyncEnabled) {
       const bridgeUrl = mongoDbSettings.BridgeUrl || window.location.origin;
-      fetch(`${bridgeUrl}/api/items/bulk`, {
+      fetch(`${bridgeUrl}/api/items/bulk?wipe=${!append}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedList)
+        body: JSON.stringify(medicinePreview)
       })
       .then(res => {
         if (!res.ok) throw new Error(`HTTP Status ${res.status}`);
         return res.json();
       })
-      .then(() => {
-        console.log('Successfully synchronized updated items catalog with MongoDB.');
+      .then((data) => {
+        console.log('Successfully synchronized items catalog with MongoDB:', data);
+        setSuccessMsg(`Master Medicines DB updated & synchronized in MongoDB! Stored ${medicinePreview.length} items category-wise.`);
       })
       .catch(err => {
         console.error('Failed to sync updated items catalog to MongoDB:', err.message);
         setErrorMsg(`Items saved locally but MongoDB synchronization failed: ${err.message}`);
       });
+    } else {
+      setSuccessMsg(`Master Medicines DB updated with ${medicinePreview.length} items!`);
     }
 
-    setSuccessMsg(`Master Medicines DB updated successfully with ${medicinePreview.length} items!`);
     setMedicinePreview([]);
     setMedicinePasteText('');
   };
@@ -876,66 +1015,139 @@ NHC-1003\tZainab Khan\tIrfan\t12\tFemale\t03451122334\t2026-07-12\tSore Throat\t
       {activeUploadTab === 'medicines' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           
-          {/* Paste card */}
+          {/* Paste & Excel Upload Card */}
           <div className="lg:col-span-5 bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-4">
-            <div className="border-b border-slate-100 pb-2">
-              <span className="text-xs font-black text-slate-800 uppercase tracking-wider">Paste Excel Medicine List</span>
-              <p className="text-[10px] text-slate-400 mt-0.5">Copy columns from Excel sheet (or .csv) and paste them directly into this area.</p>
+            <div className="border-b border-slate-100 pb-2 flex justify-between items-center">
+              <div>
+                <span className="text-xs font-black text-slate-800 uppercase tracking-wider">Paste or Upload Excel Medicines</span>
+                <p className="text-[10px] text-slate-400 mt-0.5">Import Homeopathic & Allopathic medicine lists category-wise directly into MongoDB.</p>
+              </div>
+            </div>
+
+            {/* Excel File Dropzone / File Picker */}
+            <div
+              onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setDragActiveMed(true); }}
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragActiveMed(true); }}
+              onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setDragActiveMed(false); }}
+              onDrop={(e) => {
+                e.preventDefault(); e.stopPropagation(); setDragActiveMed(false);
+                if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                  handleMedicineFileRead(e.dataTransfer.files[0]);
+                }
+              }}
+              className={`p-3.5 border-2 border-dashed rounded-lg text-center transition cursor-pointer flex flex-col items-center justify-center space-y-1 ${
+                dragActiveMed ? 'border-indigo-500 bg-indigo-50/50' : 'border-slate-200 bg-slate-50 hover:bg-slate-100/70'
+              }`}
+              onClick={() => fileInputMedRef.current?.click()}
+            >
+              <input
+                ref={fileInputMedRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files && e.target.files[0]) {
+                    handleMedicineFileRead(e.target.files[0]);
+                  }
+                }}
+              />
+              <FileSpreadsheet className="w-6 h-6 text-indigo-600 mb-1" />
+              <span className="text-xs font-bold text-slate-700">Drop Excel (.xlsx, .csv) File Here</span>
+              <p className="text-[10px] text-slate-400">or click to browse from device</p>
+            </div>
+
+            <div className="relative flex py-0.5 items-center">
+              <div className="flex-grow border-t border-slate-200"></div>
+              <span className="shrink-0 mx-2 text-[10px] text-slate-400 uppercase font-bold">or copy-paste text below</span>
+              <div className="flex-grow border-t border-slate-200"></div>
             </div>
 
             {/* Template Sample */}
             <div className="bg-slate-50 p-3 rounded border border-slate-150 font-mono text-[9px] text-slate-600 space-y-1">
               <span className="font-extrabold text-indigo-600 block">EXPECTED COLUMN STRUCTURE:</span>
-              <p className="border-b border-slate-200 pb-1">ItemID [TAB] ItemName [TAB] RetailPrice [TAB] PurchasePrice [TAB] Stock [TAB] MinStock [TAB] Unit [TAB] MedicineType</p>
-              <p className="text-slate-400">ITM-011   Amoxil 500mg Cap   15.50   12.00   600   100   Cap   P</p>
-              <p className="text-slate-400">ITM-012   Entamizole Tab     9.00    7.20    450   50    Tab   P</p>
-              <p className="text-slate-400">ITM-003   Clinical Comp Salt 20.00   15.00   120   10    Gram  C</p>
+              <p className="border-b border-slate-200 pb-1 text-indigo-700 font-bold">ItemID [TAB] ItemName [TAB] RetailPrice [TAB] PurchasePrice [TAB] Stock [TAB] MinStock [TAB] Category/Unit [TAB] Type [TAB] PO Req Qty</p>
+              <p className="text-slate-500 font-semibold">ITM-001   BM 1 Drops          150.00   110.00   45   10   BM Drops     P   30</p>
+              <p className="text-slate-500 font-semibold">ITM-002   Acid Phos 30        120.00   85.00    20   10   Potency 30   P   25</p>
+              <p className="text-slate-500 font-semibold">ITM-003   Avena Sat Q         180.00   130.00   15   10   Q D DROPS    P   20</p>
+              <p className="text-slate-500 font-semibold">ITM-004   Arn M 200           140.00   100.00   30   10   Potency 200  P   15</p>
+              <p className="text-slate-500 font-semibold">ITM-005   Acefyl Cough Syp    110.00   80.00    50   10   Syrup        P   40</p>
             </div>
 
             <textarea
               value={medicinePasteText}
               onChange={(e) => setMedicinePasteText(e.target.value)}
-              placeholder="Paste raw data here from your excel spreadsheet..."
-              rows={10}
+              placeholder="Paste raw Excel data here..."
+              rows={6}
               className="w-full bg-slate-50 border border-slate-200 rounded-lg p-3 font-mono text-[11px] focus:ring-1 focus:ring-indigo-500 focus:outline-none"
             />
 
             <button
               onClick={handleMedicineProcess}
-              className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg flex items-center justify-center space-x-1.5 transition"
+              className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg flex items-center justify-center space-x-1.5 transition shadow-xs"
             >
               <UploadCloud className="w-4 h-4" />
-              <span>Validate & Preview Rows</span>
+              <span>Validate & Parse Paste Data</span>
             </button>
           </div>
 
           {/* Preview grid */}
-          <div className="lg:col-span-7 bg-white p-5 rounded-xl border border-slate-200 shadow-xs flex flex-col h-[460px]">
-            <div className="border-b border-slate-100 pb-2 mb-4 flex justify-between items-center shrink-0">
+          <div className="lg:col-span-7 bg-white p-5 rounded-xl border border-slate-200 shadow-xs flex flex-col h-[520px]">
+            <div className="border-b border-slate-100 pb-2 mb-2 flex justify-between items-center shrink-0">
               <div>
-                <span className="text-xs font-black text-slate-800 uppercase tracking-wider">Bulk Import Preview</span>
-                <p className="text-[10px] text-slate-400 mt-0.5">Review items before writing to database.</p>
+                <span className="text-xs font-black text-slate-800 uppercase tracking-wider">Bulk Import Preview ({medicinePreview.length} Items)</span>
+                <p className="text-[10px] text-slate-400 mt-0.5">Review category-wise items before saving to MongoDB database.</p>
               </div>
               
               {medicinePreview.length > 0 && (
                 <div className="flex space-x-2">
                   <button
                     onClick={() => handleMedicineSave(true)}
-                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xxs font-bold rounded flex items-center"
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xxs font-bold rounded flex items-center shadow-xs transition"
                   >
                     <Plus className="w-3.5 h-3.5 mr-1" />
-                    Merge & Add Stock
+                    Merge Stock & Save
                   </button>
                   <button
                     onClick={() => handleMedicineSave(false)}
-                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xxs font-bold rounded flex items-center"
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xxs font-bold rounded flex items-center shadow-xs transition"
                   >
                     <Check className="w-3.5 h-3.5 mr-1" />
-                    Replace Existing DB
+                    Save & Update Database
                   </button>
                 </div>
               )}
             </div>
+
+            {/* Category Filter Pills in Preview */}
+            {medicinePreview.length > 0 && (
+              <div className="flex flex-wrap gap-1 mb-2 pb-2 border-b border-slate-100 shrink-0">
+                {['ALL', 'BM Drops', 'Q D DROPS', 'Potency 30', 'Potency 200', 'Syrup', 'Drops', 'Tab', 'Cap'].map((cat) => {
+                  const count = cat === 'ALL' 
+                    ? medicinePreview.length 
+                    : medicinePreview.filter(i => (i.Unit || '').toLowerCase() === cat.toLowerCase()).length;
+                  if (cat !== 'ALL' && count === 0) return null;
+
+                  return (
+                    <button
+                      key={cat}
+                      onClick={() => setMedPreviewCategoryFilter(cat)}
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center space-x-1 transition ${
+                        medPreviewCategoryFilter === cat 
+                          ? 'bg-indigo-600 text-white shadow-xs' 
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      <span>{cat}</span>
+                      <span className={`px-1 py-0.2 rounded-full text-[9px] ${
+                        medPreviewCategoryFilter === cat ? 'bg-indigo-800 text-indigo-100' : 'bg-slate-200 text-slate-700'
+                      }`}>
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
             {/* Preview table */}
             <div className="flex-1 overflow-auto border border-slate-100 rounded-lg">
@@ -943,41 +1155,60 @@ NHC-1003\tZainab Khan\tIrfan\t12\tFemale\t03451122334\t2026-07-12\tSore Throat\t
                 <div className="h-full flex flex-col items-center justify-center text-center text-slate-400 p-8 space-y-2">
                   <Database className="w-10 h-10 text-slate-300 animate-pulse" />
                   <span className="text-xs font-bold">No Records Parsed</span>
-                  <p className="text-[10px] max-w-xs text-slate-400">Validate paste data in the left panel to populate the preview grid.</p>
+                  <p className="text-[10px] max-w-xs text-slate-400">Upload an Excel spreadsheet or copy-paste text in the left panel to populate the category preview grid.</p>
                 </div>
               ) : (
                 <table className="min-w-full divide-y divide-slate-100 text-xxs">
                   <thead className="bg-slate-50 sticky top-0 text-slate-500 text-[10px] font-semibold text-left">
                     <tr>
-                      <th className="px-3 py-2">Item Code</th>
-                      <th className="px-3 py-2">Item Description</th>
-                      <th className="px-3 py-2 text-right">Retail</th>
-                      <th className="px-3 py-2 text-right">Cost</th>
-                      <th className="px-3 py-2 text-right">Initial Stock</th>
-                      <th className="px-3 py-2">Unit</th>
-                      <th className="px-3 py-2">Type</th>
+                      <th className="px-2.5 py-2">Item Code</th>
+                      <th className="px-2.5 py-2">Item Description</th>
+                      <th className="px-2.5 py-2">Category</th>
+                      <th className="px-2.5 py-2 text-right">Retail</th>
+                      <th className="px-2.5 py-2 text-right">Cost</th>
+                      <th className="px-2.5 py-2 text-right">Stock</th>
+                      <th className="px-2.5 py-2 text-right">PO Req Qty</th>
+                      <th className="px-2.5 py-2">Type</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
-                    {medicinePreview.map((itm, index) => (
-                      <tr key={index} className="hover:bg-slate-55">
-                        <td className="px-3 py-2 font-mono font-bold text-slate-700">{itm.ItemID}</td>
-                        <td className="px-3 py-2 font-medium text-slate-900">{itm.ItemName}</td>
-                        <td className="px-3 py-2 text-right font-mono text-slate-600">Rs. {itm.Price.toFixed(2)}</td>
-                        <td className="px-3 py-2 text-right font-mono text-slate-600">Rs. {itm.PurchasePrice.toFixed(2)}</td>
-                        <td className="px-3 py-2 text-right font-mono text-slate-900 font-bold">{itm.CStock}</td>
-                        <td className="px-3 py-2 text-slate-500 font-bold">{itm.Unit}</td>
-                        <td className="px-3 py-2">
-                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-black uppercase ${
-                            itm.MedicineType === 'C'
-                              ? 'bg-indigo-50 border border-indigo-100 text-indigo-700'
-                              : 'bg-emerald-50 border border-emerald-100 text-emerald-700'
-                          }`}>
-                            {itm.MedicineType === 'C' ? 'Clinical' : 'Patent'}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                    {medicinePreview
+                      .filter(itm => medPreviewCategoryFilter === 'ALL' || (itm.Unit || '').toLowerCase() === medPreviewCategoryFilter.toLowerCase())
+                      .map((itm, index) => {
+                        const unitLabel = itm.Unit || 'Tab';
+                        let badgeBg = 'bg-slate-100 text-slate-700 border-slate-200';
+                        if (unitLabel.includes('BM')) badgeBg = 'bg-amber-50 text-amber-800 border-amber-200';
+                        else if (unitLabel.includes('Q D')) badgeBg = 'bg-purple-50 text-purple-800 border-purple-200';
+                        else if (unitLabel.includes('30')) badgeBg = 'bg-blue-50 text-blue-800 border-blue-200';
+                        else if (unitLabel.includes('200')) badgeBg = 'bg-indigo-50 text-indigo-800 border-indigo-200';
+                        else if (unitLabel.includes('Syrup')) badgeBg = 'bg-pink-50 text-pink-800 border-pink-200';
+                        else if (unitLabel.includes('Drops')) badgeBg = 'bg-teal-50 text-teal-800 border-teal-200';
+
+                        return (
+                          <tr key={index} className="hover:bg-slate-50">
+                            <td className="px-2.5 py-1.5 font-mono font-bold text-slate-700">{itm.ItemID}</td>
+                            <td className="px-2.5 py-1.5 font-semibold text-slate-900">{itm.ItemName}</td>
+                            <td className="px-2.5 py-1.5">
+                              <span className={`text-[9px] px-1.5 py-0.5 rounded border font-bold ${badgeBg}`}>
+                                {unitLabel}
+                              </span>
+                            </td>
+                            <td className="px-2.5 py-1.5 text-right font-mono text-slate-600">Rs. {itm.Price.toFixed(2)}</td>
+                            <td className="px-2.5 py-1.5 text-right font-mono text-slate-600">Rs. {itm.PurchasePrice.toFixed(2)}</td>
+                            <td className="px-2.5 py-1.5 text-right font-mono text-slate-900 font-bold">{itm.CStock}</td>
+                            <td className="px-2.5 py-1.5 text-right font-mono text-indigo-700 font-bold">{itm.ReorderQty ?? Math.max(itm.MinStock * 2 - itm.CStock, 10)}</td>
+                            <td className="px-2.5 py-1.5">
+                              <span className={`text-[9px] px-1.5 py-0.5 rounded font-black uppercase ${
+                                itm.MedicineType === 'C'
+                                  ? 'bg-indigo-50 border border-indigo-100 text-indigo-700'
+                                  : 'bg-emerald-50 border border-emerald-100 text-emerald-700'
+                              }`}>
+                                {itm.MedicineType === 'C' ? 'Clinical' : 'Patent'}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
                   </tbody>
                 </table>
               )}

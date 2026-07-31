@@ -43,9 +43,11 @@ import {
   Ticket,
   Stethoscope,
   CalendarPlus,
+  LayoutGrid,
   Edit3,
   Calendar,
-  Ban
+  Ban,
+  Zap
 } from 'lucide-react';
 import { User, ClinicSettings, SmsSettings, MongoDbSettings, UserRight } from '../types';
 import { ROLE_RIGHTS } from '../data/initialData';
@@ -74,7 +76,7 @@ export default function SettingsDesk({
   setMongoDbSettings
 }: SettingsDeskProps) {
   // Tabs: settings details vs user management vs access control
-  const [activeSettingsTab, setActiveSettingsTab] = useState<'details' | 'users' | 'access' | 'sms' | 'mongodb' | 'maintenance'>('details');
+  const [activeSettingsTab, setActiveSettingsTab] = useState<'details' | 'printer' | 'users' | 'access' | 'sms' | 'mongodb' | 'maintenance'>('details');
 
   // Custom Access Management System State
   const [selectedAccessUserId, setSelectedAccessUserId] = useState<string>(usersList[0]?.UserID || 'USR-01');
@@ -97,6 +99,7 @@ export default function SettingsDesk({
     canAccessPatientRegistration: true,
     canAccessTokenIssue: true,
     canAccessPatientVisitDesk: true,
+    canAccessGridView: true,
     canAccessAppointmentsDesk: true,
     canAccessLargeScreenDisplay: true,
 
@@ -105,7 +108,16 @@ export default function SettingsDesk({
     canIssueToken: true,
     canBookAppointment: true,
     canCancelAppointment: true,
-    canCallServeToken: true
+    canCallServeToken: true,
+
+    canPrintPrescription: true,
+    canPrintLabAdvice: true,
+    canPrintVisitSlip: true,
+    canPrintTokenSlip: true,
+    canPrintPOSInvoice: true,
+    canPrintVouchers: true,
+    canPrintFinancialReports: true,
+    canExportCSVExcel: true
   };
 
   // Selected User's Permissions & Access Controls
@@ -127,13 +139,15 @@ export default function SettingsDesk({
   }, [selectedAccessUserId, usersList]);
 
   const handleToggleDeskPermission = (key: keyof NonNullable<User['Permissions']>) => {
+    if (selectedAccessUser?.Role === 'Administrator') return;
     setAccessPermissions(prev => ({
       ...prev,
       [key]: !prev[key]
     }));
   };
 
-  const handleToggleUserRight = (menuId: string, field: 'Status' | 'AddRec' | 'PostRec' | 'CancelPosted') => {
+  const handleToggleUserRight = (menuId: string, field: 'Status' | 'AddRec' | 'PostRec' | 'CancelPosted' | 'PrintRec' | 'ExportRec') => {
+    if (selectedAccessUser?.Role === 'Administrator') return;
     setAccessUserRights(prev => prev.map(r => {
       if (r.MenuID === menuId) {
         return { ...r, [field]: !r[field] };
@@ -143,6 +157,7 @@ export default function SettingsDesk({
   };
 
   const handleToggleTargetUserAccess = (targetUserId: string) => {
+    if (selectedAccessUser?.Role === 'Administrator') return;
     setAccessAllowedUserIDs(prev => {
       const filtered = prev.filter(id => id !== 'ALL' && id !== '*');
       if (filtered.includes(targetUserId)) {
@@ -155,6 +170,7 @@ export default function SettingsDesk({
   };
 
   const handleToggleWildcardAll = () => {
+    if (selectedAccessUser?.Role === 'Administrator') return;
     if (accessAllowedUserIDs.includes('ALL') || accessAllowedUserIDs.includes('*')) {
       setAccessAllowedUserIDs([selectedAccessUserId]);
     } else {
@@ -163,6 +179,7 @@ export default function SettingsDesk({
   };
 
   const handleApplyRolePreset = (role: User['Role']) => {
+    if (selectedAccessUser?.Role === 'Administrator') return;
     setAccessUserRights(ROLE_RIGHTS[role] || ROLE_RIGHTS['Doctor']);
     if (role === 'Administrator') {
       setAccessPermissions({
@@ -180,6 +197,7 @@ export default function SettingsDesk({
         canAccessPatientRegistration: true,
         canAccessTokenIssue: true,
         canAccessPatientVisitDesk: true,
+        canAccessGridView: true,
         canAccessAppointmentsDesk: true,
         canAccessLargeScreenDisplay: true,
         canAddPatient: true,
@@ -187,7 +205,15 @@ export default function SettingsDesk({
         canIssueToken: true,
         canBookAppointment: true,
         canCancelAppointment: true,
-        canCallServeToken: true
+        canCallServeToken: true,
+        canPrintPrescription: true,
+        canPrintLabAdvice: true,
+        canPrintVisitSlip: true,
+        canPrintTokenSlip: true,
+        canPrintPOSInvoice: true,
+        canPrintVouchers: true,
+        canPrintFinancialReports: true,
+        canExportCSVExcel: true
       });
       setAccessAllowedUserIDs(['ALL']);
     } else if (role === 'Doctor') {
@@ -206,6 +232,7 @@ export default function SettingsDesk({
         canAccessPatientRegistration: false,
         canAccessTokenIssue: false,
         canAccessPatientVisitDesk: true,
+        canAccessGridView: true,
         canAccessAppointmentsDesk: true,
         canAccessLargeScreenDisplay: true,
         canAddPatient: false,
@@ -213,7 +240,15 @@ export default function SettingsDesk({
         canIssueToken: false,
         canBookAppointment: true,
         canCancelAppointment: false,
-        canCallServeToken: true
+        canCallServeToken: true,
+        canPrintPrescription: true,
+        canPrintLabAdvice: true,
+        canPrintVisitSlip: true,
+        canPrintTokenSlip: false,
+        canPrintPOSInvoice: false,
+        canPrintVouchers: false,
+        canPrintFinancialReports: false,
+        canExportCSVExcel: true
       });
       setAccessAllowedUserIDs([selectedAccessUserId]);
     } else if (role === 'Receptionist') {
@@ -232,6 +267,7 @@ export default function SettingsDesk({
         canAccessPatientRegistration: true,
         canAccessTokenIssue: true,
         canAccessPatientVisitDesk: false,
+        canAccessGridView: true,
         canAccessAppointmentsDesk: true,
         canAccessLargeScreenDisplay: true,
         canAddPatient: true,
@@ -239,7 +275,15 @@ export default function SettingsDesk({
         canIssueToken: true,
         canBookAppointment: true,
         canCancelAppointment: false,
-        canCallServeToken: true
+        canCallServeToken: true,
+        canPrintPrescription: false,
+        canPrintLabAdvice: false,
+        canPrintVisitSlip: true,
+        canPrintTokenSlip: true,
+        canPrintPOSInvoice: false,
+        canPrintVouchers: false,
+        canPrintFinancialReports: false,
+        canExportCSVExcel: false
       });
       setAccessAllowedUserIDs([selectedAccessUserId]);
     } else if (role === 'Pharmacist') {
@@ -258,6 +302,7 @@ export default function SettingsDesk({
         canAccessPatientRegistration: false,
         canAccessTokenIssue: false,
         canAccessPatientVisitDesk: false,
+        canAccessGridView: false,
         canAccessAppointmentsDesk: false,
         canAccessLargeScreenDisplay: false,
         canAddPatient: false,
@@ -265,7 +310,15 @@ export default function SettingsDesk({
         canIssueToken: false,
         canBookAppointment: false,
         canCancelAppointment: false,
-        canCallServeToken: false
+        canCallServeToken: false,
+        canPrintPrescription: false,
+        canPrintLabAdvice: false,
+        canPrintVisitSlip: false,
+        canPrintTokenSlip: false,
+        canPrintPOSInvoice: true,
+        canPrintVouchers: false,
+        canPrintFinancialReports: false,
+        canExportCSVExcel: true
       });
       setAccessAllowedUserIDs([selectedAccessUserId]);
     } else if (role === 'Accountant') {
@@ -287,6 +340,10 @@ export default function SettingsDesk({
 
   const handleSaveAccessPermissions = () => {
     if (!selectedAccessUser) return;
+    if (selectedAccessUser.Role === 'Administrator') {
+      setErrorMsg('Administrator access profile is locked and cannot be modified. Admin accounts maintain full system permissions by default.');
+      return;
+    }
     setSuccessMsg('');
     setErrorMsg('');
 
@@ -348,6 +405,13 @@ export default function SettingsDesk({
   const [thermalPrinterName, setThermalPrinterName] = useState(clinicSettings.ThermalPrinterName || 'Thermal Printer');
   const [thermalPaperWidth, setThermalPaperWidth] = useState(clinicSettings.ThermalPaperWidth || '60mm');
   const [thermalPaperHeight, setThermalPaperHeight] = useState(clinicSettings.ThermalPaperHeight || 'auto');
+  const [thermalDirectPrint, setThermalDirectPrint] = useState(clinicSettings.ThermalDirectPrint !== false);
+  const [thermalWidthOffset, setThermalWidthOffset] = useState(clinicSettings.ThermalWidthOffset || '+0in');
+  const [thermalFontSize, setThermalFontSize] = useState(clinicSettings.ThermalFontSize || '11px');
+  const [thermalBadgeStyle, setThermalBadgeStyle] = useState<'white' | 'black' | 'outline'>(clinicSettings.ThermalBadgeStyle || 'white');
+  const [thermalShowPrinterHeader, setThermalShowPrinterHeader] = useState(clinicSettings.ThermalShowPrinterHeader !== false);
+  const [thermalMargin, setThermalMargin] = useState(clinicSettings.ThermalMargin || '0mm');
+  const [thermalScale, setThermalScale] = useState(clinicSettings.ThermalScale || '100%');
 
   // User list states
   const [successMsg, setSuccessMsg] = useState('');
@@ -367,8 +431,83 @@ export default function SettingsDesk({
   const [editRole, setEditRole] = useState<User['Role']>('Doctor');
   const [editShift, setEditShift] = useState<1 | 2 | 'Both'>('Both');
 
-  const handleSaveClinicSettings = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleTestPrintSampleToken = () => {
+    const elem = document.getElementById('sample-thermal-receipt-preview');
+    if (!elem) {
+      window.print();
+      return;
+    }
+
+    const printWin = window.open('', '_blank', 'width=600,height=700');
+    if (!printWin) {
+      window.print();
+      return;
+    }
+
+    const basePaperWidth = thermalPaperWidth || '60mm';
+    const widthOffset = thermalWidthOffset || '+0in';
+    const effectiveWidth = widthOffset && widthOffset !== '+0in' ? `calc(${basePaperWidth} + ${widthOffset})` : basePaperWidth;
+    const marginVal = thermalMargin || '0mm';
+    const scaleVal = thermalScale || '100%';
+    const scaleFactor = parseFloat(scaleVal) > 1 ? parseFloat(scaleVal) / 100 : (parseFloat(scaleVal) || 1);
+
+    printWin.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Test OPD Token Ticket - ${thermalPrinterName || 'Thermal Printer'}</title>
+          <script src="https://cdn.tailwindcss.com"></script>
+          <style>
+            @page {
+              size: ${effectiveWidth} auto;
+              margin: ${marginVal};
+            }
+            html, body {
+              margin: 0;
+              padding: 0;
+              width: ${effectiveWidth};
+              background: white !important;
+              color: black !important;
+              font-family: Arial, Helvetica, sans-serif !important;
+              font-weight: 900 !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            *, p, span, div, h1, h2, h3, h4, strong, b {
+              font-weight: 900 !important;
+            }
+            #thermal-receipt-container {
+              width: ${effectiveWidth};
+              margin: ${marginVal} auto;
+              padding: 6px 4px;
+              box-sizing: border-box;
+              ${scaleVal && scaleVal !== '100%' ? `transform: scale(${scaleFactor}); transform-origin: top center;` : ''}
+            }
+          </style>
+        </head>
+        <body>
+          <div id="thermal-receipt-container">
+            ${elem.innerHTML}
+          </div>
+          <script>
+            window.onload = function() {
+              setTimeout(function() {
+                window.focus();
+                window.print();
+                setTimeout(function() {
+                  try { window.close(); } catch(e) {}
+                }, 300);
+              }, 100);
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    printWin.document.close();
+  };
+
+  const handleSaveClinicSettings = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setSuccessMsg('');
     setErrorMsg('');
 
@@ -385,7 +524,14 @@ export default function SettingsDesk({
       ClinicalLabelImage: clinicalLabelImage,
       ThermalPrinterName: thermalPrinterName,
       ThermalPaperWidth: thermalPaperWidth,
-      ThermalPaperHeight: thermalPaperHeight
+      ThermalPaperHeight: thermalPaperHeight,
+      ThermalDirectPrint: thermalDirectPrint,
+      ThermalWidthOffset: thermalWidthOffset,
+      ThermalFontSize: thermalFontSize,
+      ThermalBadgeStyle: thermalBadgeStyle,
+      ThermalShowPrinterHeader: thermalShowPrinterHeader,
+      ThermalMargin: thermalMargin,
+      ThermalScale: thermalScale
     };
 
     setClinicSettings(updated);
@@ -730,6 +876,19 @@ export default function SettingsDesk({
           </button>
           <button
             onClick={() => {
+              setActiveSettingsTab('printer');
+              setErrorMsg('');
+              setSuccessMsg('');
+            }}
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition flex items-center space-x-1 ${
+              activeSettingsTab === 'printer' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Printer className="w-3.5 h-3.5 mr-1 text-indigo-300" />
+            <span>Printer & Slip Setup</span>
+          </button>
+          <button
+            onClick={() => {
               setActiveSettingsTab('users');
               setErrorMsg('');
               setSuccessMsg('');
@@ -884,35 +1043,26 @@ export default function SettingsDesk({
               />
             </div>
 
-            <div className="space-y-1">
-              <label className="font-bold text-slate-700 block">Thermal Printer Device Model</label>
-              <input
-                type="text"
-                required
-                value={thermalPrinterName}
-                onChange={(e) => setThermalPrinterName(e.target.value)}
-                placeholder="Thermal Printer"
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 font-bold text-indigo-900 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-              />
-              <span className="text-[10px] text-slate-500">Configured for Token Issue printer</span>
-            </div>
-
-            <div className="space-y-1">
-              <label className="font-bold text-slate-700 block">Thermal Paper Roll Size</label>
-              <select
-                value={thermalPaperWidth}
-                onChange={(e) => {
-                  setThermalPaperWidth(e.target.value);
-                  setThermalPaperHeight('auto');
-                }}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 font-bold text-slate-800 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+            <div className="bg-indigo-50/70 p-3.5 rounded-lg border border-indigo-100 flex items-center justify-between col-span-1 md:col-span-2">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-indigo-600 text-white rounded-lg shadow-sm">
+                  <Printer className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="font-extrabold text-indigo-950 text-xs block">Token Printer & Slip Customization</span>
+                  <p className="text-[11px] text-indigo-700">
+                    Adjust paper widths, direct printing dialog behavior, and font sizes in the dedicated tab.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveSettingsTab('printer')}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-xs transition flex items-center space-x-1 cursor-pointer"
               >
-                <option value="60mm">60mm Roll Width (Standard Default)</option>
-                <option value="58mm">58mm Roll Width (Standard POS Thermal)</option>
-                <option value="80mm">80mm Roll Width (Wide POS Thermal)</option>
-                <option value="7in">7 Inch Roll Width (Special Thermal Paper)</option>
-              </select>
-              <span className="text-[10px] text-slate-500">Page sizing automatically matches standard thermal receipt paper roll</span>
+                <span>Open Printer Setup</span>
+                <Sliders className="w-3.5 h-3.5 ml-1" />
+              </button>
             </div>
 
             <div className="bg-slate-50 p-4 rounded-lg border border-slate-150 flex flex-col justify-center space-y-1">
@@ -1155,6 +1305,329 @@ export default function SettingsDesk({
             </button>
           </div>
         </form>
+      )}
+
+      {/* View: Thermal Printer & Token Slip Setup */}
+      {activeSettingsTab === 'printer' && (
+        <div className="space-y-6">
+          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-xs space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-3">
+              <div className="flex items-center space-x-3">
+                <div className="p-3 bg-indigo-600 text-white rounded-xl shadow-md">
+                  <Printer className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">Thermal Printer & Token Slip Setup</h3>
+                  <p className="text-xs text-slate-500">
+                    Customize thermal slip widths, direct auto-printing preferences without preview dialogs, and text layouts.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={handleTestPrintSampleToken}
+                  className="px-4 py-2 bg-indigo-100 hover:bg-indigo-200 text-indigo-900 font-bold text-xs rounded-lg flex items-center space-x-1.5 transition cursor-pointer"
+                >
+                  <Printer className="w-4 h-4 text-indigo-700" />
+                  <span>Test Print Sample Ticket</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSaveClinicSettings()}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg flex items-center space-x-1.5 transition shadow-sm cursor-pointer"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>Save Printer Settings</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Form Controls Column */}
+              <div className="lg:col-span-7 space-y-5">
+                
+                {/* Direct Print Toggle Card */}
+                <div className="p-4 bg-indigo-50/80 border border-indigo-200 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2.5">
+                      <Zap className="w-5 h-5 text-indigo-600" />
+                      <div>
+                        <span className="font-extrabold text-slate-900 text-xs block">Direct Auto-Print Mode</span>
+                        <span className="text-[11px] text-slate-600 block">Bypass print preview dialog box when issuing tokens</span>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={thermalDirectPrint}
+                        onChange={(e) => setThermalDirectPrint(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                    </label>
+                  </div>
+                  <p className="text-[11px] text-indigo-800 bg-white/80 p-2.5 rounded-lg border border-indigo-100 font-medium">
+                    {thermalDirectPrint ? (
+                      <span className="text-emerald-700 font-bold flex items-center">
+                        <CheckCircle2 className="w-3.5 h-3.5 mr-1 inline" />
+                        Direct Print Enabled: Token ticket immediately prints and auto-closes without asking for print confirmation.
+                      </span>
+                    ) : (
+                      <span className="text-slate-600 font-bold flex items-center">
+                        <Eye className="w-3.5 h-3.5 mr-1 inline" />
+                        Preview Enabled: Token ticket modal stays open on screen so receptionist can preview before pressing print.
+                      </span>
+                    )}
+                  </p>
+                </div>
+
+                {/* Printer Device Name */}
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-800 text-xs block">Thermal Printer Device Name / Model</label>
+                  <input
+                    type="text"
+                    value={thermalPrinterName}
+                    onChange={(e) => setThermalPrinterName(e.target.value)}
+                    placeholder="Thermal Printer"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 font-bold text-slate-900 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                  />
+                  <span className="text-[10px] text-slate-500">Device model identifier used on OPD token tickets</span>
+                </div>
+
+                {/* Grid for Roll Size, Width Offset, Margins & Scale */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-800 text-xs block">Thermal Roll Base Width</label>
+                    <input
+                      type="text"
+                      value={thermalPaperWidth}
+                      onChange={(e) => setThermalPaperWidth(e.target.value)}
+                      placeholder="e.g. 60mm, 58mm, 80mm, 7in"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 font-bold text-slate-900 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    />
+                    <span className="text-[10px] text-slate-500">Standard paper roll size loaded in printer (e.g., 60mm, 58mm, 80mm)</span>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-800 text-xs block">Extra Width Margin Expansion</label>
+                    <input
+                      type="text"
+                      value={thermalWidthOffset}
+                      onChange={(e) => setThermalWidthOffset(e.target.value)}
+                      placeholder="e.g. +0in, +0.5in, +1in, 10px"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 font-bold text-slate-900 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    />
+                    <span className="text-[10px] text-slate-500">Fine-tune print border width margins (e.g., +0in, +0.5in, 10px)</span>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-800 text-xs block">Thermal Ticket Print Margins</label>
+                    <input
+                      type="text"
+                      value={thermalMargin}
+                      onChange={(e) => setThermalMargin(e.target.value)}
+                      placeholder="e.g. 0mm, 2mm, 5px, 0.1in"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 font-bold text-slate-900 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    />
+                    <span className="text-[10px] text-slate-500">Page & ticket margin padding (e.g., 0mm, 2mm, 5px, 0.1in)</span>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-800 text-xs block">Print Scale Ratio (%)</label>
+                    <input
+                      type="text"
+                      value={thermalScale}
+                      onChange={(e) => setThermalScale(e.target.value)}
+                      placeholder="e.g. 100%, 90%, 85%, 110%"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 font-bold text-slate-900 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    />
+                    <span className="text-[10px] text-slate-500">Print zoom / scale ratio textbox (e.g., 100%, 90%, 85%)</span>
+                  </div>
+                </div>
+
+                {/* Font Size & Badge Styling */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-800 text-xs block">Slip Font Size</label>
+                    <input
+                      type="text"
+                      value={thermalFontSize}
+                      onChange={(e) => setThermalFontSize(e.target.value)}
+                      placeholder="e.g. 11px, 10px, 12px, 14px"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 font-bold text-slate-900 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    />
+                    <span className="text-[10px] text-slate-500">Font size for ticket text (e.g., 10px, 11px, 12px, 14px)</span>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-800 text-xs block">Shift / Badge Styling</label>
+                    <select
+                      value={thermalBadgeStyle}
+                      onChange={(e) => setThermalBadgeStyle(e.target.value as any)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 font-bold text-slate-800 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    >
+                      <option value="white">Clean White Badge with Black Border</option>
+                      <option value="black">Inverted Solid Black Badge</option>
+                      <option value="outline">Dashed Outline Badge</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Show Header Banner Toggle */}
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
+                  <div>
+                    <span className="font-bold text-slate-800 text-xs block">Show Size & Printer Header Info</span>
+                    <span className="text-[10px] text-slate-500">Prints device name & size label on top of receipt</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={thermalShowPrinterHeader}
+                      onChange={(e) => setThermalShowPrinterHeader(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                  </label>
+                </div>
+
+              </div>
+
+              {/* Live Preview Column */}
+              <div className="lg:col-span-5 bg-slate-100 p-4 rounded-xl border border-slate-200 flex flex-col space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center">
+                    <Eye className="w-3.5 h-3.5 mr-1 text-indigo-600" />
+                    Live Ticket Preview
+                  </span>
+                  <span className="text-[10px] font-mono text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">
+                    Width: calc({thermalPaperWidth} {thermalWidthOffset !== '+0in' ? thermalWidthOffset : ''})
+                  </span>
+                </div>
+
+                {/* Rendered Ticket Box */}
+                <div className="p-4 bg-white rounded-lg border border-slate-300 shadow-xs overflow-y-auto max-h-[500px]">
+                  <div
+                    id="sample-thermal-receipt-preview"
+                    className="mx-auto text-black font-black space-y-2 select-all bg-white font-sans"
+                    style={{
+                      width: thermalWidthOffset && thermalWidthOffset !== '+0in' ? `calc(${thermalPaperWidth} + ${thermalWidthOffset})` : thermalPaperWidth,
+                      fontSize: thermalFontSize,
+                      fontFamily: "Arial, Helvetica, sans-serif",
+                      padding: thermalMargin || '0mm',
+                      transform: thermalScale && thermalScale !== '100%' ? `scale(${parseFloat(thermalScale) > 1 ? parseFloat(thermalScale)/100 : parseFloat(thermalScale) || 1})` : undefined,
+                      transformOrigin: 'top center'
+                    }}
+                  >
+                    {/* Optional Printer Header */}
+                    {thermalShowPrinterHeader && (
+                      <p className="text-[8px] font-black uppercase tracking-widest bg-white py-0.5 border-b border-black mb-1 text-center m-0 text-black">
+                        PRINTER: {thermalPrinterName || 'THERMAL PRINTER'} ({thermalPaperWidth})
+                      </p>
+                    )}
+
+                    {/* Top Header: Clinic Name, Document Type, Appointment Date, Doctor Info */}
+                    <div className="text-center pt-1 pb-2.5 border-b border-dashed border-black space-y-2 m-0 font-black">
+                      <h2 className="text-base font-black text-black tracking-wide uppercase leading-normal m-0">
+                        {clinicName || 'PUNJAB HOMEOPATHIC CLINIC'}
+                      </h2>
+                      
+                      <div className="py-1">
+                        <span className="text-xs font-black uppercase inline-block px-3 py-1 rounded-xs bg-black text-white tracking-widest">
+                          APPOINTMENT PAYMENT
+                        </span>
+                      </div>
+
+                      <div className="text-xs font-black text-black py-1.5 flex flex-col items-center justify-center border-t border-dotted border-black mt-1.5 space-y-0.5">
+                        <span className="font-black uppercase tracking-widest text-[11px] block">APPOINTMENT DATE</span>
+                        <span className="font-mono text-black font-black text-base underline decoration-2 tracking-widest block">
+                          {new Date().toISOString().split('T')[0]}
+                        </span>
+                      </div>
+
+                      <div className="text-xs font-black text-black pt-2 border-t border-dotted border-black mt-1.5 leading-relaxed space-y-1">
+                        <div className="text-xs font-black text-black uppercase tracking-wide">Dr. Ejaz Ahmad, D.H.M.S (Pak)</div>
+                        <div className="text-[10px] font-black text-black uppercase tracking-wide leading-normal">
+                          Registered Homeopathic Medical Practitioner No: 48776
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Token Number & Patient ID Section */}
+                    <div className="text-center py-3 border-b border-dashed border-black space-y-2 m-0 font-black">
+                      <span className="text-xs font-black text-black uppercase tracking-widest block">OPD TOKEN NUMBER</span>
+                      <span className="text-5xl font-black tracking-widest block leading-snug py-1 text-black font-mono">
+                        #012
+                      </span>
+                      <span className="text-xl font-black tracking-wider block leading-snug text-black font-mono py-0.5">
+                        PATIENT ID: PHC-10492
+                      </span>
+                      <span className={`text-xs font-black uppercase inline-block tracking-widest px-2.5 py-1 rounded-sm mt-1 ${
+                        thermalBadgeStyle === 'black'
+                          ? 'bg-black text-white border border-black font-black'
+                          : thermalBadgeStyle === 'outline'
+                          ? 'bg-transparent text-black border border-dashed border-black font-black'
+                          : 'bg-white text-black border border-black font-black'
+                      }`}>
+                        BOTH SHIFTS
+                      </span>
+                    </div>
+
+                    {/* Patient Details */}
+                    <div className="space-y-2.5 py-3 border-b border-dashed border-black text-xs font-black text-black leading-relaxed">
+                      <div className="flex justify-between items-center py-1">
+                        <span className="font-black text-black uppercase tracking-wider">PATIENT TYPE:</span>
+                        <span className={`font-black uppercase px-2.5 py-1 rounded border border-black text-xs tracking-wide ${
+                          thermalBadgeStyle === 'black' ? 'bg-black text-white' : 'bg-white text-black'
+                        }`}>
+                          New Patient
+                        </span>
+                      </div>
+                      <div className="flex justify-between py-1">
+                        <span className="font-black text-black uppercase tracking-wider">PATIENT ID:</span>
+                        <span className="font-black text-black font-mono text-xs tracking-wider">PHC-10492</span>
+                      </div>
+                      <div className="flex justify-between py-1">
+                        <span className="font-black text-black uppercase tracking-wider">PATIENT NAME:</span>
+                        <span className="font-black text-black uppercase truncate max-w-[160px] text-xs tracking-wide">MUHAMMAD ALI</span>
+                      </div>
+                      <div className="flex justify-between py-1 items-center">
+                        <span className="font-black text-black uppercase tracking-wider">OPD / APP FEE:</span>
+                        <span className="font-black text-black font-mono text-xs tracking-wider">PKR {opdFee || 1500}</span>
+                      </div>
+                    </div>
+
+                    {/* Footer */}
+                    <div className="text-center space-y-1.5 text-xs pt-2.5 pb-1 font-black text-black leading-relaxed">
+                      <p className="font-black uppercase tracking-widest text-black">Please wait for your call.</p>
+                      <p className="text-xs font-black text-black uppercase tracking-wider">Kindly keep this ticket with you.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleTestPrintSampleToken}
+                  className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg shadow-sm flex items-center justify-center space-x-2 transition cursor-pointer"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Test Print Physical Receipt</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => handleSaveClinicSettings()}
+                className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg flex items-center space-x-2 transition shadow-sm cursor-pointer"
+              >
+                <Save className="w-4 h-4" />
+                <span>Save Thermal Printer & Slip Setup</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* View 2: Users credentials management */}
@@ -1468,40 +1941,55 @@ export default function SettingsDesk({
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
+                  disabled={selectedAccessUser?.Role === 'Administrator'}
                   onClick={() => handleApplyRolePreset('Administrator')}
-                  className="px-2.5 py-1 bg-purple-800/50 hover:bg-purple-700/60 text-purple-100 text-xxs font-bold rounded-lg border border-purple-400/30 transition flex items-center space-x-1 cursor-pointer"
+                  className={`px-2.5 py-1 bg-purple-800/50 hover:bg-purple-700/60 text-purple-100 text-xxs font-bold rounded-lg border border-purple-400/30 transition flex items-center space-x-1 ${
+                    selectedAccessUser?.Role === 'Administrator' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                  }`}
                 >
                   <Shield className="w-3 h-3 text-purple-300" />
                   <span>Admin (Full Control)</span>
                 </button>
                 <button
                   type="button"
+                  disabled={selectedAccessUser?.Role === 'Administrator'}
                   onClick={() => handleApplyRolePreset('Doctor')}
-                  className="px-2.5 py-1 bg-teal-800/50 hover:bg-teal-700/60 text-teal-100 text-xxs font-bold rounded-lg border border-teal-400/30 transition flex items-center space-x-1 cursor-pointer"
+                  className={`px-2.5 py-1 bg-teal-800/50 hover:bg-teal-700/60 text-teal-100 text-xxs font-bold rounded-lg border border-teal-400/30 transition flex items-center space-x-1 ${
+                    selectedAccessUser?.Role === 'Administrator' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                  }`}
                 >
                   <Briefcase className="w-3 h-3 text-teal-300" />
                   <span>Doctor (Clinical)</span>
                 </button>
                 <button
                   type="button"
+                  disabled={selectedAccessUser?.Role === 'Administrator'}
                   onClick={() => handleApplyRolePreset('Receptionist')}
-                  className="px-2.5 py-1 bg-amber-800/50 hover:bg-amber-700/60 text-amber-100 text-xxs font-bold rounded-lg border border-amber-400/30 transition flex items-center space-x-1 cursor-pointer"
+                  className={`px-2.5 py-1 bg-amber-800/50 hover:bg-amber-700/60 text-amber-100 text-xxs font-bold rounded-lg border border-amber-400/30 transition flex items-center space-x-1 ${
+                    selectedAccessUser?.Role === 'Administrator' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                  }`}
                 >
                   <Users className="w-3 h-3 text-amber-300" />
                   <span>Receptionist (OPD Queue)</span>
                 </button>
                 <button
                   type="button"
+                  disabled={selectedAccessUser?.Role === 'Administrator'}
                   onClick={() => handleApplyRolePreset('Pharmacist')}
-                  className="px-2.5 py-1 bg-blue-800/50 hover:bg-blue-700/60 text-blue-100 text-xxs font-bold rounded-lg border border-blue-400/30 transition flex items-center space-x-1 cursor-pointer"
+                  className={`px-2.5 py-1 bg-blue-800/50 hover:bg-blue-700/60 text-blue-100 text-xxs font-bold rounded-lg border border-blue-400/30 transition flex items-center space-x-1 ${
+                    selectedAccessUser?.Role === 'Administrator' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                  }`}
                 >
                   <Building className="w-3 h-3 text-blue-300" />
                   <span>Pharmacist (Store POS)</span>
                 </button>
                 <button
                   type="button"
+                  disabled={selectedAccessUser?.Role === 'Administrator'}
                   onClick={() => handleApplyRolePreset('Accountant')}
-                  className="px-2.5 py-1 bg-emerald-800/50 hover:bg-emerald-700/60 text-emerald-100 text-xxs font-bold rounded-lg border border-emerald-400/30 transition flex items-center space-x-1 cursor-pointer"
+                  className={`px-2.5 py-1 bg-emerald-800/50 hover:bg-emerald-700/60 text-emerald-100 text-xxs font-bold rounded-lg border border-emerald-400/30 transition flex items-center space-x-1 ${
+                    selectedAccessUser?.Role === 'Administrator' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                  }`}
                 >
                   <FileText className="w-3 h-3 text-emerald-300" />
                   <span>Accountant (Ledger)</span>
@@ -1509,6 +1997,22 @@ export default function SettingsDesk({
               </div>
             </div>
           </div>
+
+          {/* Admin Lock Notice Banner */}
+          {selectedAccessUser?.Role === 'Administrator' && (
+            <div className="bg-amber-500/10 border border-amber-300/60 p-4 rounded-2xl text-amber-900 flex items-start space-x-3 text-xs shadow-2xs">
+              <Lock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-extrabold text-amber-950 text-sm">🔒 Administrator Access Control Locked (Self-Access Protected)</p>
+                <p className="text-amber-900/90 mt-0.5">
+                  Administrators have full system rights by default. The Administrator account access rights cannot be edited or restricted, but you can configure and control access rights for all other staff accounts (Doctors, Receptionists, Pharmacists, Accountants).
+                </p>
+                <p className="text-amber-900 mt-1 font-bold">
+                  👉 Select a Doctor, Receptionist, Pharmacist, or Accountant from the "Configuring Staff" dropdown above to manage their permissions.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Section 1: User-to-User Access Control Matrix */}
           <div className="bg-white p-6 rounded-2xl border border-purple-200 shadow-sm space-y-5">
@@ -1691,6 +2195,7 @@ export default function SettingsDesk({
                   { key: 'canAccessPatientRegistration', label: 'Registration Form', icon: UserPlus, desc: 'Register new patients & view directory' },
                   { key: 'canAccessTokenIssue', label: 'Token Issue Counter', icon: Ticket, desc: 'Generate & print OPD shift tokens' },
                   { key: 'canAccessPatientVisitDesk', label: 'Patient Clinical Visit', icon: Stethoscope, desc: 'Prescribe medicine & symptom details' },
+                  { key: 'canAccessGridView', label: 'Patient Master Grid View', icon: LayoutGrid, desc: 'View comprehensive searchable patient master records grid' },
                   { key: 'canAccessAppointmentsDesk', label: 'Book Appointment & List', icon: CalendarPlus, desc: 'Schedule future patient appointments' },
                   { key: 'canAccessLargeScreenDisplay', label: 'Large Screen Queue Display', icon: Users, desc: 'Full-screen waiting queue for TV' }
                 ].map((item) => {
@@ -1765,15 +2270,65 @@ export default function SettingsDesk({
                 })}
               </div>
             </div>
+
+            {/* Printing & Document Generation Permissions (Admin Controlled) */}
+            <div className="space-y-2 pt-3 border-t border-slate-100">
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-black text-amber-900 uppercase tracking-wider flex items-center space-x-1.5">
+                  <Printer className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Printing & Document Export Privileges (Admin Master Control):</span>
+                </span>
+                <span className="text-[10px] text-slate-500 italic">Toggle printing rights for {selectedAccessUser?.FullName}</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                {[
+                  { key: 'canPrintPrescription', label: 'A4 Prescription Letterhead', icon: Printer, desc: 'Print doctor prescription & advice' },
+                  { key: 'canPrintLabAdvice', label: 'Lab Test Advice Slip', icon: Printer, desc: 'Print laboratory investigation advice' },
+                  { key: 'canPrintVisitSlip', label: 'A5 Patient Visit Receipt', icon: Printer, desc: 'Print consultation visit receipt' },
+                  { key: 'canPrintTokenSlip', label: 'OPD Queue Token Ticket', icon: Ticket, desc: 'Print thermal waiting token slip' },
+                  { key: 'canPrintPOSInvoice', label: 'Pharmacy Sales Bill POS', icon: Printer, desc: 'Print medicine cash & credit bills' },
+                  { key: 'canPrintVouchers', label: 'Accounting Vouchers', icon: Printer, desc: 'Print Cash Payment & Journal Vouchers' },
+                  { key: 'canPrintFinancialReports', label: 'Financial & Grid Reports', icon: Printer, desc: 'Print P&L, Ledgers & Patients Grid' },
+                  { key: 'canExportCSVExcel', label: 'CSV & Excel Data Export', icon: Upload, desc: 'Export system lists to CSV/Excel' }
+                ].map((item) => {
+                  const isEnabled = accessPermissions[item.key as keyof typeof accessPermissions] !== false;
+                  return (
+                    <label
+                      key={item.key}
+                      onClick={() => handleToggleDeskPermission(item.key as any)}
+                      className={`p-3 rounded-xl border transition-all flex items-start justify-between cursor-pointer select-none ${
+                        isEnabled 
+                          ? 'bg-amber-50/80 border-amber-300 text-slate-900 shadow-2xs' 
+                          : 'bg-slate-50 border-slate-200 text-slate-500 opacity-60 hover:opacity-100'
+                      }`}
+                    >
+                      <div className="space-y-0.5 pr-2">
+                        <div className="flex items-center space-x-1.5 font-extrabold text-xs">
+                          <item.icon className={`w-3.5 h-3.5 ${isEnabled ? 'text-amber-600' : 'text-slate-400'}`} />
+                          <span>{item.label}</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 font-medium">{item.desc}</p>
+                      </div>
+
+                      <div className="mt-0.5 shrink-0">
+                        <div className={`w-9 h-5 rounded-full transition-colors relative ${isEnabled ? 'bg-amber-600' : 'bg-slate-300'}`}>
+                          <div className={`w-4 h-4 rounded-full bg-white absolute top-0.5 transition-transform ${isEnabled ? 'left-4.5' : 'left-0.5'}`} />
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
           </div>
 
-          {/* Section 3: Action Level Permissions Matrix (Add, Post, Cancel Rights) */}
+          {/* Section 3: Action Level Permissions Matrix (Add, Post, Cancel, Print, Export Rights) */}
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
             <div className="border-b border-slate-100 pb-3 flex justify-between items-center">
               <div>
                 <h4 className="text-sm font-black text-slate-800 flex items-center space-x-2">
                   <Key className="w-4 h-4 text-emerald-600" />
-                  <span>Action Level Menu Rights Matrix (Create, Post, Cancel)</span>
+                  <span>Action Level Menu Rights Matrix (Create, Post, Cancel, Print & Export)</span>
                 </h4>
                 <p className="text-xs text-slate-500 mt-0.5">
                   Control specific transaction privileges for each menu module for <strong className="text-slate-800">{selectedAccessUser?.FullName}</strong>.
@@ -1786,10 +2341,12 @@ export default function SettingsDesk({
                 <thead className="bg-slate-50 font-bold text-slate-600 text-[11px] uppercase tracking-wider text-left">
                   <tr>
                     <th className="px-4 py-3">Menu / Desk Module</th>
-                    <th className="px-4 py-3 text-center">Menu Access (Status)</th>
-                    <th className="px-4 py-3 text-center">Add Record (AddRec)</th>
-                    <th className="px-4 py-3 text-center">Post Record (PostRec)</th>
-                    <th className="px-4 py-3 text-center">Cancel / Void (CancelPosted)</th>
+                    <th className="px-4 py-3 text-center">Menu Access</th>
+                    <th className="px-4 py-3 text-center">Add Record</th>
+                    <th className="px-4 py-3 text-center">Post Record</th>
+                    <th className="px-4 py-3 text-center">Cancel / Void</th>
+                    <th className="px-4 py-3 text-center">Print Slip/Doc</th>
+                    <th className="px-4 py-3 text-center">Export Data</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-white">
@@ -1851,6 +2408,32 @@ export default function SettingsDesk({
                           {right.CancelPosted ? 'Authorized' : 'Restricted'}
                         </button>
                       </td>
+
+                      {/* PrintRec */}
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleUserRight(right.MenuID, 'PrintRec')}
+                          className={`px-3 py-1 rounded-lg text-xxs font-bold transition cursor-pointer border ${
+                            right.PrintRec !== false ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-slate-100 text-slate-400 border-slate-200'
+                          }`}
+                        >
+                          {right.PrintRec !== false ? 'Print Allowed' : 'Print Locked'}
+                        </button>
+                      </td>
+
+                      {/* ExportRec */}
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleUserRight(right.MenuID, 'ExportRec')}
+                          className={`px-3 py-1 rounded-lg text-xxs font-bold transition cursor-pointer border ${
+                            right.ExportRec !== false ? 'bg-teal-100 text-teal-800 border-teal-200' : 'bg-slate-100 text-slate-400 border-slate-200'
+                          }`}
+                        >
+                          {right.ExportRec !== false ? 'Export Allowed' : 'Export Locked'}
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1863,18 +2446,35 @@ export default function SettingsDesk({
             <div className="flex items-center space-x-3">
               <ShieldCheck className="w-5 h-5 text-purple-400 shrink-0" />
               <div>
-                <span className="text-xs font-bold block">Save Custom Access Profile for {selectedAccessUser?.FullName}</span>
-                <span className="text-[10px] text-slate-400">All modified desk permissions, action rights, and user visibility rules will instantly apply.</span>
+                <span className="text-xs font-bold block">
+                  {selectedAccessUser?.Role === 'Administrator'
+                    ? 'Administrator Access Locked (Full Privileges)'
+                    : `Save Custom Access Profile for ${selectedAccessUser?.FullName}`}
+                </span>
+                <span className="text-[10px] text-slate-400">
+                  {selectedAccessUser?.Role === 'Administrator'
+                    ? 'Admin accounts maintain full system permissions by default.'
+                    : 'All modified desk permissions, action rights, and user visibility rules will instantly apply.'}
+                </span>
               </div>
             </div>
 
             <button
               type="button"
+              disabled={selectedAccessUser?.Role === 'Administrator'}
               onClick={handleSaveAccessPermissions}
-              className="w-full sm:w-auto px-6 py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs rounded-xl shadow-md transition flex items-center justify-center space-x-2 cursor-pointer"
+              className={`w-full sm:w-auto px-6 py-2.5 text-white font-bold text-xs rounded-xl shadow-md transition flex items-center justify-center space-x-2 ${
+                selectedAccessUser?.Role === 'Administrator'
+                  ? 'bg-slate-700 opacity-60 cursor-not-allowed'
+                  : 'bg-purple-600 hover:bg-purple-500 cursor-pointer'
+              }`}
             >
               <Save className="w-4 h-4" />
-              <span>Save & Apply Access Matrix</span>
+              <span>
+                {selectedAccessUser?.Role === 'Administrator'
+                  ? 'Admin Self-Access Profile Locked'
+                  : 'Save & Apply Access Matrix'}
+              </span>
             </button>
           </div>
 

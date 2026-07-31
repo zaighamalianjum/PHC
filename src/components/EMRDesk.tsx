@@ -861,10 +861,30 @@ export default function EMRDesk({
     setVisitRemarks(v.VisitRemarks || '');
 
     // Populate fees & sourcing choices
-    setConsultationFee(v.ConsultationFee !== undefined ? v.ConsultationFee : '');
+    let clinPay = v.ClinicalMedicinePayment || '';
+    let cardPay = v.CardsPayment || (v as any).CardFee || '';
+    let consFee: number | string = v.ConsultationFee !== undefined ? v.ConsultationFee : ((v as any).FileFee !== undefined ? (v as any).FileFee : '');
+
+    if (v.VisitRemarks) {
+      const rem = v.VisitRemarks;
+      if (!clinPay || String(clinPay) === '0') {
+        const cPkr = rem.match(/Clinical Meds PKR\s*(\d+)/);
+        if (cPkr) clinPay = cPkr[1];
+      }
+      if (!consFee || String(consFee) === '0') {
+        const fPkr = rem.match(/File PKR\s*(\d+)/);
+        if (fPkr) consFee = fPkr[1];
+      }
+      if (!cardPay || String(cardPay) === '0') {
+        const kPkr = rem.match(/Card PKR\s*(\d+)/);
+        if (kPkr) cardPay = kPkr[1];
+      }
+    }
+
+    setConsultationFee(consFee);
     setConsultationPaymentOption(v.ConsultationPaymentOption || 'Paid - Cash');
-    setCardsPayment(v.CardsPayment || '');
-    setClinicalMedicinePayment(v.ClinicalMedicinePayment || '');
+    setCardsPayment(cardPay);
+    setClinicalMedicinePayment(clinPay);
     setPatentPaymentOption(v.PatentPaymentOption || 'Clinic');
     setClinicalPaymentOption(v.ClinicalPaymentOption || 'Clinic');
 
@@ -978,6 +998,26 @@ export default function EMRDesk({
       testIds = labTests.filter(t => names.includes(t.TestName.toLowerCase())).map(t => t.TID);
     }
 
+    let clinPay = vis.ClinicalMedicinePayment || '';
+    let cardPay = vis.CardsPayment || (vis as any).CardFee || '';
+    let consFee: number | string = vis.ConsultationFee !== undefined ? vis.ConsultationFee : ((vis as any).FileFee !== undefined ? (vis as any).FileFee : 0);
+
+    if (vis.VisitRemarks) {
+      const rem = vis.VisitRemarks;
+      if (!clinPay || String(clinPay) === '0') {
+        const cPkr = rem.match(/Clinical Meds PKR\s*(\d+)/);
+        if (cPkr) clinPay = cPkr[1];
+      }
+      if (!consFee || String(consFee) === '0') {
+        const fPkr = rem.match(/File PKR\s*(\d+)/);
+        if (fPkr) consFee = fPkr[1];
+      }
+      if (!cardPay || String(cardPay) === '0') {
+        const kPkr = rem.match(/Card PKR\s*(\d+)/);
+        if (kPkr) cardPay = kPkr[1];
+      }
+    }
+
     setPrintData({
       patient: activePatient,
       visitID: vis.VisitID,
@@ -994,10 +1034,10 @@ export default function EMRDesk({
         Price: m.Price || 0
       })),
       selectedLabTests: testIds,
-      consultationFee: vis.ConsultationFee || 0,
+      consultationFee: consFee,
       consultationPaymentOption: vis.ConsultationPaymentOption || 'Paid - Cash',
-      cardsPayment: vis.CardsPayment || '',
-      clinicalMedicinePayment: vis.ClinicalMedicinePayment || '',
+      cardsPayment: cardPay,
+      clinicalMedicinePayment: clinPay,
       patentPaymentOption: vis.PatentPaymentOption || 'Clinic',
       clinicalPaymentOption: vis.ClinicalPaymentOption || 'Clinic'
     });
@@ -1452,9 +1492,9 @@ export default function EMRDesk({
 
                   return (
                     <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto divide-y divide-slate-100">
-                      {limitList.map((p) => (
+                      {limitList.map((p, idx) => (
                         <div
-                          key={p.PatientID}
+                          key={`emr-lim-${p.PatientID}-${idx}`}
                           onMouseDown={() => {
                             setSelectedPatientId(p.PatientID);
                             setPatientSearch(`${p.PatientName} (${p.PatientID})`);
@@ -2403,8 +2443,8 @@ export default function EMRDesk({
                   className="mt-1 w-full text-xs border border-slate-200 rounded-lg p-2.5 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                 >
                   <option value="">-- Choose Patient --</option>
-                  {patients.map((p) => (
-                    <option key={p.PatientID} value={p.PatientID}>
+                  {patients.map((p, idx) => (
+                    <option key={`emr-opt1-${p.PatientID}-${idx}`} value={p.PatientID}>
                       {p.PatientName} ({p.PatientID})
                     </option>
                   ))}
@@ -2532,8 +2572,8 @@ export default function EMRDesk({
                   className="mt-1 w-full text-xs border border-slate-200 rounded-lg p-2.5 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                 >
                   <option value="">-- Choose Corporate Account --</option>
-                  {patients.map((p) => (
-                    <option key={p.PatientID} value={p.PatientID}>
+                  {patients.map((p, idx) => (
+                    <option key={`emr-opt2-${p.PatientID}-${idx}`} value={p.PatientID}>
                       {p.PatientName} ({p.PatientID}) - {p.Occupation}
                     </option>
                   ))}
@@ -3506,11 +3546,11 @@ export default function EMRDesk({
                       return <p className="text-xxs text-slate-400 italic py-4 text-center">No matching records found.</p>;
                     }
 
-                    return combined.map((p) => {
+                    return combined.map((p, idx) => {
                       const isSelected = lookupPatientId === p.PatientID;
                       return (
                         <div
-                          key={p.PatientID}
+                          key={`emr-lkp-${p.PatientID}-${idx}`}
                           onClick={() => setLookupPatientId(p.PatientID)}
                           className={`p-2.5 rounded-lg border text-xxs cursor-pointer transition text-left flex flex-col space-y-1 ${
                             isSelected

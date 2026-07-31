@@ -34,6 +34,7 @@ import {
   VchDetail,
   ACLedger,
   UserRight,
+  User,
   Item,
   InvVchHeader,
   InvVchDetail,
@@ -58,6 +59,8 @@ interface AccountingDeskProps {
   grnDetails?: InvVchDetail[];
   invoices?: InvoiceHeader[];
   invoiceDetails?: InvoiceDetail[];
+  currentUser?: User;
+  onUnauthorized?: (msg?: string) => void;
 }
 
 export default function AccountingDesk({
@@ -76,8 +79,16 @@ export default function AccountingDesk({
   grns = [],
   grnDetails = [],
   invoices = [],
-  invoiceDetails = []
+  invoiceDetails = [],
+  currentUser,
+  onUnauthorized
 }: AccountingDeskProps) {
+  const triggerAuthAlert = (featureName?: string) => {
+    const msg = featureName ? `You are not authorized to access ${featureName}.` : 'You are not authorized to access.';
+    if (onUnauthorized) {
+      onUnauthorized(msg);
+    }
+  };
   // Navigation tabs
   const [activeSubTab, setActiveSubTab] = useState<'coa' | 'voucher' | 'pl_expenses' | 'commerce'>('coa');
 

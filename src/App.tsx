@@ -65,8 +65,10 @@ import {
   DatabaseBackup,
   Code,
   RefreshCw,
-  CheckCircle
+  CheckCircle,
+  Lock
 } from 'lucide-react';
+import UnauthorizedModal from './components/UnauthorizedModal';
 
 const MENU_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, restricted: true },
@@ -112,7 +114,30 @@ export default function App() {
     localStorage.setItem('cms_current_user', JSON.stringify(currentUser));
   }, [currentUser]);
 
+  // Synchronize currentUser if updated in usersList
+  useEffect(() => {
+    const updatedSelf = usersList.find(u => u.UserID === currentUser.UserID);
+    if (updatedSelf && JSON.stringify(updatedSelf) !== JSON.stringify(currentUser)) {
+      setCurrentUser(updatedSelf);
+    }
+  }, [usersList, currentUser.UserID]);
+
   const [activeTab, setActiveTab] = useState<string>('dashboard');
+
+  // Global Unauthorized Modal State
+  const [unauthorizedModalState, setUnauthorizedModalState] = useState<{
+    isOpen: boolean;
+    title?: string;
+    message?: string;
+  }>({ isOpen: false });
+
+  const triggerGlobalUnauthorized = (message?: string) => {
+    setUnauthorizedModalState({
+      isOpen: true,
+      title: 'Access Restricted',
+      message: message || 'You are not authorized to access.'
+    });
+  };
 
   // Clinic setup settings
   const [clinicSettings, setClinicSettings] = useState<ClinicSettings>(() => {
@@ -332,8 +357,8 @@ export default function App() {
       if (menuId === 'reports') return !!currentUser.Permissions.canViewReportingDesk;
       if (menuId === 'uploads') return !!currentUser.Permissions.canViewUploadingDesk;
       if (menuId === 'settings') return !!currentUser.Permissions.canViewSettingsDesk;
-      if (menuId === 'queryhandler') return !!currentUser.Permissions.canViewQueryHandlerDesk;
-      if (menuId === 'nhchistory') return !!currentUser.Permissions.canViewNhcHistoryDesk;
+      if (menuId === 'query_handler' || menuId === 'queryhandler') return !!currentUser.Permissions.canViewQueryHandlerDesk;
+      if (menuId === 'nhc_history' || menuId === 'nhchistory') return !!currentUser.Permissions.canViewNhcHistoryDesk;
     }
 
     if (menuId === 'settings') return currentUser.Role === 'Administrator';
@@ -962,8 +987,44 @@ export default function App() {
 
   // EMR Doctor Consult Assessment
   const handleAddVisit = (newVisit: Visit, medicines: VisitMedicine[], testIds: string[]) => {
-    setVisits((prev) => [...prev, newVisit]);
-    setVisitMedicines((prev) => [...prev, ...medicines]);
+    const existingVisit = visits.find((v) => v.VisitID === newVisit.VisitID);
+    const wasAlreadyPosted = existingVisit?.Status === 2;
+
+    setPatients((prev) => {
+      if (prev.some((p) => p.PatientID === newVisit.PatientID)) return prev;
+      return [
+        ...prev,
+        {
+          PatientID: newVisit.PatientID,
+          PatientName: `Patient (${newVisit.PatientID})`,
+          Father_husband: '',
+          AgeYears: 0,
+          Sex: 'Male',
+          MaritalStatus: 'Single',
+          Occupation: '',
+          Address: '',
+          CityID: 1,
+          Country: 'Pakistan',
+          PhoneMobile: '',
+          RegistrationDate: newVisit.VisitDate || new Date().toISOString().split('T')[0]
+        }
+      ];
+    });
+
+    setVisits((prev) => {
+      const idx = prev.findIndex((v) => v.VisitID === newVisit.VisitID);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = { ...copy[idx], ...newVisit };
+        return copy;
+      }
+      return [...prev, newVisit];
+    });
+
+    setVisitMedicines((prev) => {
+      const filtered = prev.filter((m) => m.VisitID !== newVisit.VisitID);
+      return [...filtered, ...medicines];
+    });
 
     const visitDateStr = newVisit.VisitDate ? newVisit.VisitDate.split('T')[0] : new Date().toISOString().split('T')[0];
 
@@ -988,8 +1049,8 @@ export default function App() {
     const assocToken = tokens.find(t => t.PatientID === newVisit.PatientID && (t.Date === visitDateStr || t.Status === 2));
     const shift = assocToken ? assocToken.Shift : (currentUser.AssignedShift !== 'Both' && typeof currentUser.AssignedShift === 'number' ? currentUser.AssignedShift : 1);
 
-    // Trigger financial postings on finalized post
-    if (newVisit.Status === 2) {
+    // Trigger financial postings on finalized post ONLY if it was not already posted
+    if (newVisit.Status === 2 && !wasAlreadyPosted) {
       triggerEMRFinancialPostings(newVisit, shift, testIds);
     }
 
@@ -1974,11 +2035,10 @@ export default function App() {
         <div className="bg-white border-b border-slate-200 px-6 py-2 flex flex-col lg:flex-row lg:items-center justify-between shadow-sm shrink-0 gap-3">
           <div className="flex-1 min-w-0 flex items-center space-x-1.5 overflow-x-auto pb-1 lg:pb-0 scrollbar-none pr-4">
             {MENU_ITEMS.filter((item) => {
-              // Hide dashboard if staff is logged in (restrict to Administrator only)
               if (currentUser.Role !== 'Administrator' && item.id === 'dashboard') {
                 return false;
               }
-              return !item.restricted || isAccessible(item.id);
+              return isAccessible(item.id);
             }).map((item) => {
               const active = activeTab === item.id;
               return (
@@ -2119,6 +2179,9 @@ export default function App() {
               items={items}
               currentUser={currentUser}
               labTests={labTests}
+              smartLocatorMedicines={smartLocatorMedicines}
+              invoices={invoices}
+              onUnauthorized={triggerGlobalUnauthorized}
             />
           )}
 
@@ -2145,6 +2208,8 @@ export default function App() {
               appointments={appointments}
               tokens={tokens}
               clinicSettings={clinicSettings}
+              currentUser={currentUser}
+              onUnauthorized={triggerGlobalUnauthorized}
             />
           )}
 
@@ -2166,10 +2231,12 @@ export default function App() {
               grnDetails={grnDetails}
               invoices={invoices}
               invoiceDetails={invoiceDetails}
+              currentUser={currentUser}
+              onUnauthorized={triggerGlobalUnauthorized}
             />
           )}
 
-          {activeTab === 'uploads' && currentUser.Role === 'Administrator' && (
+          {activeTab === 'uploads' && isAccessible('uploads') && (
             <UploadingDesk
               items={items}
               setItems={setItems}
@@ -2183,7 +2250,7 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'reports' && (currentUser.Role === 'Administrator' || currentUser.Role === 'Accountant') && (
+          {activeTab === 'reports' && isAccessible('reports') && (
             <ReportingDesk
               invoices={invoices}
               invoiceDetails={invoiceDetails}
@@ -2195,10 +2262,12 @@ export default function App() {
               visits={visits}
               visitMedicines={visitMedicines}
               items={items}
+              currentUser={currentUser}
+              onUnauthorized={triggerGlobalUnauthorized}
             />
           )}
 
-          {activeTab === 'settings' && currentUser.Role === 'Administrator' && (
+          {activeTab === 'settings' && isAccessible('settings') && (
             <SettingsDesk
               clinicSettings={clinicSettings}
               setClinicSettings={setClinicSettings}
@@ -2212,10 +2281,18 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'query_handler' && currentUser.Role === 'Administrator' && (
+          {activeTab === 'query_handler' && isAccessible('query_handler') && (
             <QueryHandlerDesk bridgeUrl={mongoDbSettings.BridgeUrl || 'http://localhost:5000'} />
           )}
         </div>
+
+        {/* Global Unauthorized Popup Modal */}
+        <UnauthorizedModal
+          isOpen={unauthorizedModalState.isOpen}
+          onClose={() => setUnauthorizedModalState({ isOpen: false })}
+          title={unauthorizedModalState.title}
+          message={unauthorizedModalState.message}
+        />
 
         {/* Bento Footer */}
         <footer className="h-8 bg-slate-200/60 border-t border-slate-300 px-6 flex items-center justify-between shrink-0 text-slate-600">
