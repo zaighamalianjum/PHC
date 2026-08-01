@@ -473,18 +473,8 @@ export default function NhcPatientHistoryDesk({ mongoDbSettings, setNhcPatients 
       {/* Main Body Panel: Excel Upload & Patient Table */}
       <div className="flex-1 flex flex-col overflow-y-auto p-6 space-y-6 lg:border-r lg:border-slate-200">
         
-        {/* Workspace Title Card */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs shrink-0">
-          <div>
-            <h2 className="text-xl font-extrabold text-slate-800 flex items-center gap-2">
-              <DatabaseBackup className="w-6 h-6 text-indigo-600 shrink-0" />
-              PHC Patient History Workstation
-            </h2>
-            <p className="text-xs text-slate-500 mt-1">
-              Consolidated clinic management workflow to parse spreadsheet archives and securely sync clinical records.
-            </p>
-          </div>
-          
+        {/* Workspace Action Card */}
+        <div className="flex flex-col md:flex-row md:items-center justify-end gap-4 bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs shrink-0">
           <div className="flex items-center gap-3">
             <button
               onClick={handleOpenAddForm}

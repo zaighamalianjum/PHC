@@ -88,6 +88,7 @@ export interface Visit {
   ClinicalMedicinePayment?: string;
   PatentPaymentOption?: string; // 'Clinic', 'Outside'
   ClinicalPaymentOption?: string; // 'Clinic', 'Outside'
+  Shift?: 1 | 2; // 1 = Morning, 2 = Evening
 }
 
 export interface VisitMedicine {
@@ -294,6 +295,7 @@ export interface User {
     canBookAppointment?: boolean;
     canCancelAppointment?: boolean;
     canCallServeToken?: boolean;
+    canEditStockLevel?: boolean;
 
     // Granular Admin Controlled Printing & Export Permissions
     canPrintPrescription?: boolean;

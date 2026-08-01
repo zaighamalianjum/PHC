@@ -160,8 +160,79 @@ export const INITIAL_USERS: User[] = [
   { UserID: 'USR-01', LoginName: 'admin', FullName: 'Dr. Zaigham Ali Anjum', PasswordHash: 'admin123', Role: 'Administrator', AssignedShift: 'Both' },
   { UserID: 'USR-02', LoginName: 'doctor_morn', FullName: 'Dr. Amjad Malik (Morning)', PasswordHash: 'doc123', Role: 'Doctor', AssignedShift: 1 },
   { UserID: 'USR-02b', LoginName: 'doctor_eve', FullName: 'Dr. Zaigham Ali (Evening)', PasswordHash: 'doc123', Role: 'Doctor', AssignedShift: 2 },
-  { UserID: 'USR-03', LoginName: 'reception', FullName: 'Kashif Mehmood', PasswordHash: 'rec123', Role: 'Receptionist', AssignedShift: 1 },
-  { UserID: 'USR-04', LoginName: 'pharmacy', FullName: 'Sana Fatima (R.Ph)', PasswordHash: 'ph123', Role: 'Pharmacist', AssignedShift: 'Both' },
+  { 
+    UserID: 'USR-03', 
+    LoginName: 'reception', 
+    FullName: 'Kashif Mehmood', 
+    PasswordHash: 'rec123', 
+    Role: 'Receptionist', 
+    AssignedShift: 1,
+    Permissions: {
+      canViewDashboard: false,
+      canViewPatientDesk: true,
+      canViewEMRDesk: false,
+      canViewPharmacyPOS: false,
+      canViewAccountingDesk: false,
+      canViewReportingDesk: false,
+      canViewUploadingDesk: false,
+      canViewSettingsDesk: false,
+      canViewQueryHandlerDesk: false,
+      canViewNhcHistoryDesk: false,
+
+      // Default Reception Access: ONLY Waiting Queue, Token Issue, and Appointment
+      canAccessWaitingQueue: true,
+      canAccessTokenIssue: true,
+      canAccessAppointmentsDesk: true,
+
+      // Disabled by default for Receptionist
+      canAccessPatientRegistration: false,
+      canAccessPatientVisitDesk: false,
+      canAccessGridView: false,
+      canAccessLargeScreenDisplay: false,
+
+      canAddPatient: true,
+      canEditPatient: true,
+      canIssueToken: true,
+      canBookAppointment: true,
+      canCancelAppointment: false,
+      canCallServeToken: true,
+      canEditStockLevel: false,
+
+      canPrintPrescription: false,
+      canPrintLabAdvice: false,
+      canPrintVisitSlip: true,
+      canPrintTokenSlip: true,
+      canPrintPOSInvoice: false,
+      canPrintVouchers: false,
+      canPrintFinancialReports: false,
+      canExportCSVExcel: false
+    }
+  },
+  { 
+    UserID: 'USR-04', 
+    LoginName: 'pharmacy', 
+    FullName: 'Store User', 
+    PasswordHash: 'ph123', 
+    Role: 'Pharmacist', 
+    AssignedShift: 'Both',
+    Permissions: {
+      canViewDashboard: false,
+      canViewPatientDesk: false,
+      canViewEMRDesk: false,
+      canViewPharmacyPOS: true,
+      canViewAccountingDesk: false,
+      canViewReportingDesk: false,
+      canViewUploadingDesk: false,
+      canViewSettingsDesk: false,
+      canViewQueryHandlerDesk: false,
+      canViewNhcHistoryDesk: false,
+
+      // Default Pharmacist CANNOT edit current stock levels
+      canEditStockLevel: false,
+      canPrintPOSInvoice: true,
+      canExportCSVExcel: true
+    }
+  },
   { UserID: 'USR-05', LoginName: 'accounts', FullName: 'Muhammad Salman', PasswordHash: 'acc123', Role: 'Accountant', AssignedShift: 'Both' }
 ];
 
@@ -170,7 +241,8 @@ export const ROLE_RIGHTS: Record<User['Role'], UserRight[]> = {
   Administrator: [
     { MenuID: 'patients', MenuName: 'Patient Intake & Queue', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
     { MenuID: 'emr', MenuName: 'EMR & Clinical Desk', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
-    { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Inventory', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
+    { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Billing', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
+    { MenuID: 'inventory', MenuName: 'Stock & Inventory Control', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
     { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
     { MenuID: 'reports', MenuName: 'Financial & Executive Reports', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
     { MenuID: 'uploads', MenuName: 'CSV Imports & Uploads', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
@@ -181,7 +253,8 @@ export const ROLE_RIGHTS: Record<User['Role'], UserRight[]> = {
   Doctor: [
     { MenuID: 'patients', MenuName: 'Patient Intake & Queue', Status: true, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: true, ExportRec: false },
     { MenuID: 'emr', MenuName: 'EMR & Clinical Desk', Status: true, AddRec: true, PostRec: true, CancelPosted: false, PrintRec: true, ExportRec: true },
-    { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Inventory', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Billing', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'inventory', MenuName: 'Stock & Inventory Control', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
     { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
     { MenuID: 'reports', MenuName: 'Financial & Executive Reports', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
     { MenuID: 'uploads', MenuName: 'CSV Imports & Uploads', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
@@ -192,18 +265,20 @@ export const ROLE_RIGHTS: Record<User['Role'], UserRight[]> = {
   Receptionist: [
     { MenuID: 'patients', MenuName: 'Patient Intake & Queue', Status: true, AddRec: true, PostRec: true, CancelPosted: false, PrintRec: true, ExportRec: false },
     { MenuID: 'emr', MenuName: 'EMR & Clinical Desk', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
-    { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Inventory', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Billing', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'inventory', MenuName: 'Stock & Inventory Control', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
     { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
     { MenuID: 'reports', MenuName: 'Financial & Executive Reports', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
     { MenuID: 'uploads', MenuName: 'CSV Imports & Uploads', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
     { MenuID: 'settings', MenuName: 'Clinic Setup & Settings', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
     { MenuID: 'queries', MenuName: 'Query Handler & Audit', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
-    { MenuID: 'nhc_history', MenuName: 'NHC Patient History', Status: true, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: true, ExportRec: false }
+    { MenuID: 'nhc_history', MenuName: 'NHC Patient History', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false }
   ],
   Pharmacist: [
     { MenuID: 'patients', MenuName: 'Patient Intake & Queue', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
     { MenuID: 'emr', MenuName: 'EMR & Clinical Desk', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
-    { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Inventory', Status: true, AddRec: true, PostRec: true, CancelPosted: false, PrintRec: true, ExportRec: true },
+    { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Billing', Status: true, AddRec: true, PostRec: true, CancelPosted: false, PrintRec: true, ExportRec: true },
+    { MenuID: 'inventory', MenuName: 'Stock & Inventory Control', Status: true, AddRec: true, PostRec: false, CancelPosted: false, PrintRec: true, ExportRec: true },
     { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
     { MenuID: 'reports', MenuName: 'Financial & Executive Reports', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
     { MenuID: 'uploads', MenuName: 'CSV Imports & Uploads', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
@@ -214,7 +289,8 @@ export const ROLE_RIGHTS: Record<User['Role'], UserRight[]> = {
   Accountant: [
     { MenuID: 'patients', MenuName: 'Patient Intake & Queue', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
     { MenuID: 'emr', MenuName: 'EMR & Clinical Desk', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
-    { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Inventory', Status: true, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: true, ExportRec: true },
+    { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Billing', Status: true, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: true, ExportRec: true },
+    { MenuID: 'inventory', MenuName: 'Stock & Inventory Control', Status: true, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: true, ExportRec: true },
     { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
     { MenuID: 'reports', MenuName: 'Financial & Executive Reports', Status: true, AddRec: true, PostRec: true, CancelPosted: false, PrintRec: true, ExportRec: true },
     { MenuID: 'uploads', MenuName: 'CSV Imports & Uploads', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },

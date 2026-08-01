@@ -86,6 +86,7 @@
   #printable-statement-sheet,
   #printable-grid-audit-sheet,
   #printable-daily-collection-sheet,
+  #printable-invoices-sheet,
   #printable-patient-doc {
     box-sizing: border-box !important;
     overflow: visible !important;

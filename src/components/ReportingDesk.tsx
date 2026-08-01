@@ -18,7 +18,9 @@ import {
   Activity,
   Award,
   Grid,
-  ExternalLink
+  ExternalLink,
+  ChevronDown,
+  Coins
 } from 'lucide-react';
 import { InvoiceHeader, InvoiceDetail, ACLedger, TLAccount, Patient, SRInvHeader, Appointment, Visit, VisitMedicine, Item, User, UserRight } from '../types';
 
@@ -68,10 +70,9 @@ export default function ReportingDesk({
   };
 
   // Filter duration state
-  const [datePreset, setDatePreset] = useState<'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom'>('monthly');
+  const [datePreset, setDatePreset] = useState<'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom'>('daily');
   const [startDate, setStartDate] = useState(() => {
-    const d = new Date();
-    return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0];
+    return new Date().toISOString().split('T')[0];
   });
   const [endDate, setEndDate] = useState(() => {
     return new Date().toISOString().split('T')[0];
@@ -137,6 +138,12 @@ export default function ReportingDesk({
       }
     });
 
+    invoices.forEach(inv => {
+      if (checkDateInRange(inv.InvoiceDate)) {
+        datesSet.add(inv.InvoiceDate);
+      }
+    });
+
     // Sort dates in ascending order
     const sortedDates = Array.from(datesSet).sort();
 
@@ -162,24 +169,27 @@ export default function ReportingDesk({
       return { clin, file, card };
     };
 
-    // Calculate collections per date (Clinical Medicine, File, Card, Appointment/OPD Fee ONLY)
+    // Calculate collections per date (Clinical Medicine, File, Card, Store Payment, Appointment/OPD Fee)
     const reportRows = sortedDates.map(date => {
       const appsForDate = appointments.filter(app => app.AppointmentDate === date && app.Status !== 3);
       const visitsForDate = visits.filter(vis => vis.VisitDate === date);
+      const invoicesForDate = (invoices || []).filter(inv => inv.InvoiceDate === date && (inv.Status as number) !== 3);
 
       // --- MORNING ---
       const mApp = appsForDate.filter(a => a.Shift === 1).reduce((sum, a) => sum + (a.FeeCharged || 0), 0);
       const mCmed = visitsForDate.filter(v => getVisShift(v) === 1).reduce((sum, v) => sum + getVisFees(v).clin, 0);
       const mCards = visitsForDate.filter(v => getVisShift(v) === 1).reduce((sum, v) => sum + getVisFees(v).card, 0);
       const mFile = visitsForDate.filter(v => getVisShift(v) === 1).reduce((sum, v) => sum + getVisFees(v).file, 0);
-      const mTotal = mApp + mCmed + mCards + mFile;
+      const mStore = invoicesForDate.filter(inv => (inv.shift || (inv as any).Shift || 1) === 1).reduce((sum, inv) => sum + (inv.NetAmount || 0), 0);
+      const mTotal = mApp + mCmed + mCards + mFile + mStore;
 
       // --- EVENING ---
       const eApp = appsForDate.filter(a => a.Shift === 2).reduce((sum, a) => sum + (a.FeeCharged || 0), 0);
       const eCmed = visitsForDate.filter(v => getVisShift(v) === 2).reduce((sum, v) => sum + getVisFees(v).clin, 0);
       const eCards = visitsForDate.filter(v => getVisShift(v) === 2).reduce((sum, v) => sum + getVisFees(v).card, 0);
       const eFile = visitsForDate.filter(v => getVisShift(v) === 2).reduce((sum, v) => sum + getVisFees(v).file, 0);
-      const eTotal = eApp + eCmed + eCards + eFile;
+      const eStore = invoicesForDate.filter(inv => (inv.shift || (inv as any).Shift || 1) === 2).reduce((sum, inv) => sum + (inv.NetAmount || 0), 0);
+      const eTotal = eApp + eCmed + eCards + eFile + eStore;
 
       const dayTotal = mTotal + eTotal;
 
@@ -190,6 +200,7 @@ export default function ReportingDesk({
           cmed: mCmed,
           cards: mCards,
           file: mFile,
+          store: mStore,
           total: mTotal
         },
         evening: {
@@ -197,6 +208,7 @@ export default function ReportingDesk({
           cmed: eCmed,
           cards: eCards,
           file: eFile,
+          store: eStore,
           total: eTotal
         },
         dayTotal
@@ -208,6 +220,7 @@ export default function ReportingDesk({
       cmed: reportRows.reduce((sum, r) => sum + r.morning.cmed, 0),
       cards: reportRows.reduce((sum, r) => sum + r.morning.cards, 0),
       file: reportRows.reduce((sum, r) => sum + r.morning.file, 0),
+      store: reportRows.reduce((sum, r) => sum + r.morning.store, 0),
       total: reportRows.reduce((sum, r) => sum + r.morning.total, 0)
     };
 
@@ -216,6 +229,7 @@ export default function ReportingDesk({
       cmed: reportRows.reduce((sum, r) => sum + r.evening.cmed, 0),
       cards: reportRows.reduce((sum, r) => sum + r.evening.cards, 0),
       file: reportRows.reduce((sum, r) => sum + r.evening.file, 0),
+      store: reportRows.reduce((sum, r) => sum + r.evening.store, 0),
       total: reportRows.reduce((sum, r) => sum + r.evening.total, 0)
     };
 
@@ -224,6 +238,7 @@ export default function ReportingDesk({
       cmed: morningSummaryTotals.cmed + eveningSummaryTotals.cmed,
       cards: morningSummaryTotals.cards + eveningSummaryTotals.cards,
       file: morningSummaryTotals.file + eveningSummaryTotals.file,
+      store: morningSummaryTotals.store + eveningSummaryTotals.store,
       total: morningSummaryTotals.total + eveningSummaryTotals.total
     };
 
@@ -242,6 +257,7 @@ export default function ReportingDesk({
 
       const appsForDate = appointments.filter(app => app.AppointmentDate === date && app.Status !== 3);
       const visitsForDate = visits.filter(vis => vis.VisitDate === date);
+      const invoicesForDate = (invoices || []).filter(inv => inv.InvoiceDate === date && (inv.Status as number) !== 3);
 
       // Shifts in order: Evening (2) then Morning (1) matching report layout
       const shiftOrder = [
@@ -255,6 +271,7 @@ export default function ReportingDesk({
       shiftOrder.forEach(({ shiftNum, label }) => {
         const apps = appsForDate.filter(a => a.Shift === shiftNum);
         const vis = visitsForDate.filter(v => getVisShift(v) === shiftNum);
+        const invs = invoicesForDate.filter(i => (i.shift || (i as any).Shift || 1) === shiftNum);
 
         const visitedCount = Math.max(vis.length, apps.length);
 
@@ -281,14 +298,22 @@ export default function ReportingDesk({
           items.push({ count: fileVisits.length, description: 'Registration File', amount: fileAmt });
         }
 
-        // 4. Appointment Charges
+        // 4. Store Collection
+        if (invs.length > 0) {
+          const storeAmt = invs.reduce((sum, i) => sum + (i.NetAmount || 0), 0);
+          if (storeAmt > 0) {
+            items.push({ count: invs.length, description: 'Store Collection', amount: storeAmt });
+          }
+        }
+
+        // 5. Appointment Charges
         const appCharges = apps.filter(a => Number(a.FeeCharged || 0) > 0);
         if (appCharges.length > 0) {
           const appAmt = appCharges.reduce((sum, a) => sum + Number(a.FeeCharged || 0), 0);
           items.push({ count: appCharges.length, description: 'Appointment Charges', amount: appAmt });
         }
 
-        // 5. Free of Charge
+        // 6. Free of Charge
         const freeVisits = vis.filter(v => {
           const fees = getVisFees(v);
           return fees.clin === 0 && fees.card === 0 && fees.file === 0;
@@ -894,6 +919,123 @@ export default function ReportingDesk({
     }
   };
 
+  const handleCleanPrintInvoicesReport = () => {
+    const invoiceRowsHtml = filteredInvoices.map((inv) => `
+      <tr style="border-bottom: 1px solid #e2e8f0;">
+        <td style="padding: 6px 8px; font-family: monospace; font-weight: bold; color: #0f172a;">${inv.InvoiceNo}</td>
+        <td style="padding: 6px 8px; color: #475569;">${inv.InvoiceDate}</td>
+        <td style="padding: 6px 8px; color: #0f172a;">${getPatientName(inv.PatientID)} (${inv.PatientID})</td>
+        <td style="padding: 6px 8px; font-weight: bold; text-transform: uppercase; font-size: 10px;">${inv.shift === 2 ? 'Evening' : 'Morning'}</td>
+        <td style="padding: 6px 8px; text-align: right; font-family: monospace;">Rs. ${inv.GAmount.toLocaleString()}</td>
+        <td style="padding: 6px 8px; text-align: right; font-family: monospace; color: #d97706;">-Rs. ${inv.Discount.toLocaleString()}</td>
+        <td style="padding: 6px 8px; text-align: right; font-family: monospace; font-weight: bold; color: #0f172a;">Rs. ${inv.NetAmount.toLocaleString()}</td>
+      </tr>
+    `).join('');
+
+    const htmlContent = `<!DOCTYPE html>
+<html>
+<head>
+  <title>Processed Retail Invoices Statement - Punjab Homeopathic Clinic</title>
+  <style>
+    @page { size: A4 portrait; margin: 10mm; }
+    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #0f172a; margin: 0; padding: 15px; background: #ffffff; }
+    h1, h2, h3, p { margin: 0; }
+    .header { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 16px; }
+    .header h1 { font-size: 15px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; color: #020617; }
+    .header h2 { font-size: 13px; font-weight: 800; text-transform: uppercase; margin-top: 4px; color: #0f172a; }
+    .meta { font-size: 11px; font-weight: 600; color: #475569; margin-top: 6px; }
+    .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; text-align: center; }
+    .summary-card { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 12px; }
+    .summary-card label { font-size: 9px; font-weight: 800; text-transform: uppercase; color: #64748b; display: block; margin-bottom: 2px; }
+    .summary-card .val { font-size: 15px; font-weight: 900; font-family: monospace; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 24px; }
+    th { background: #f1f5f9; text-transform: uppercase; font-size: 10px; font-weight: 800; padding: 8px; text-align: left; border-bottom: 2px solid #0f172a; }
+    .total-row { background: #f8fafc; font-weight: 900; border-top: 2px solid #0f172a; border-bottom: 2px solid #0f172a; }
+    .total-row td { padding: 8px; }
+    .signatures { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; text-align: center; margin-top: 40px; font-size: 9px; font-weight: 800; color: #64748b; text-transform: uppercase; }
+    .sig-box { border-top: 1px solid #94a3b8; padding-top: 6px; }
+    @media print {
+      body { padding: 0; }
+      .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div style="text-align: right; margin-bottom: 12px;" class="no-print">
+    <button onclick="window.print()" style="padding: 8px 18px; background: #0f172a; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 12px;">Print Document</button>
+  </div>
+  <div class="header">
+    <h1>PUNJAB HOMEOPATHIC CLINIC & EMR SYSTEM</h1>
+    <h2>PROCESSED RETAIL INVOICES STATEMENT</h2>
+    <div class="meta">
+      Period: <strong>${startDate}</strong> to <strong>${endDate}</strong> &nbsp;•&nbsp;
+      Preset: <strong style="text-transform: uppercase;">${datePreset}</strong> &nbsp;•&nbsp;
+      Printed: <strong>${new Date().toLocaleString()}</strong>
+    </div>
+  </div>
+
+  <div class="summary-grid">
+    <div class="summary-card">
+      <label>Total Invoices</label>
+      <div class="val">${filteredInvoices.length}</div>
+    </div>
+    <div class="summary-card">
+      <label>Total Discounts</label>
+      <div class="val" style="color: #b45309;">Rs. ${totalDiscounts.toLocaleString()}</div>
+    </div>
+    <div class="summary-card" style="background: #ecfdf5; border-color: #a7f3d0;">
+      <label style="color: #047857;">Net Revenue Mapped</label>
+      <div class="val" style="color: #064e3b;">Rs. ${totalNetSales.toLocaleString()}</div>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Invoice No</th>
+        <th>Billing Date</th>
+        <th>Patient Account</th>
+        <th>OPD Shift</th>
+        <th style="text-align: right;">Gross Amount</th>
+        <th style="text-align: right;">Discount</th>
+        <th style="text-align: right;">Net Paid</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${invoiceRowsHtml}
+      <tr class="total-row">
+        <td colspan="4" style="text-align: right; text-transform: uppercase;">Total Cumulative Revenue:</td>
+        <td style="text-align: right; font-family: monospace;">Rs. ${totalGrossSales.toLocaleString()}</td>
+        <td style="text-align: right; font-family: monospace; color: #b45309;">-Rs. ${totalDiscounts.toLocaleString()}</td>
+        <td style="text-align: right; font-family: monospace; font-size: 13px; color: #047857;">Rs. ${totalNetSales.toLocaleString()}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="signatures">
+    <div class="sig-box">PREPARED BY (ACCOUNTANT)</div>
+    <div class="sig-box">AUDITED BY</div>
+    <div class="sig-box">APPROVED BY</div>
+  </div>
+
+  <script>
+    window.onload = function() {
+      setTimeout(function() { window.print(); }, 300);
+    };
+  </script>
+</body>
+</html>`;
+
+    const printWin = window.open('', '_blank');
+    if (printWin) {
+      printWin.document.write(htmlContent);
+      printWin.document.close();
+      printWin.focus();
+    } else {
+      window.print();
+    }
+  };
+
   const handleCleanPrintGridViewReport = () => {
     const storeSubtotal = filteredGridItems.filter(i => i.type === 'Store Sale').reduce((s, i) => s + i.amount, 0);
     const appSubtotal = filteredGridItems.filter(i => i.type === 'Appointment').reduce((s, i) => s + i.amount, 0);
@@ -1297,21 +1439,7 @@ export default function ReportingDesk({
     <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50 text-slate-800" id="reporting-desk-root">
       
       {/* Upper banner controls */}
-      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-        <div>
-          <div className="flex items-center space-x-2">
-            <div className="p-1.5 bg-emerald-100 text-emerald-700 rounded-lg">
-              <Activity className="w-5 h-5" />
-            </div>
-            <h2 className="text-lg font-bold text-slate-900 tracking-tight">
-              Comprehensive Financial Audit & Reporting Suite
-            </h2>
-          </div>
-          <p className="text-xs text-slate-500 mt-1">
-            Reconcile shift collections, audit double entry general journals, and produce professional Profit & Loss statements.
-          </p>
-        </div>
-
+      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col lg:flex-row lg:items-center lg:justify-end gap-4">
         {/* Tab switcher */}
         <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 self-start lg:self-auto">
           <button
@@ -1360,18 +1488,19 @@ export default function ReportingDesk({
           <span className="font-extrabold uppercase tracking-widest text-[9px] text-slate-400">Duration Preset:</span>
         </div>
 
-        <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800">
-          {(['daily', 'weekly', 'monthly', 'yearly', 'custom'] as const).map((preset) => (
-            <button
-              key={preset}
-              onClick={() => setDatePreset(preset)}
-              className={`px-3 py-1 rounded font-black uppercase text-[9px] tracking-wider transition ${
-                datePreset === preset ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              {preset}
-            </button>
-          ))}
+        <div className="relative inline-block text-left">
+          <select
+            value={datePreset}
+            onChange={(e) => setDatePreset(e.target.value as any)}
+            className="bg-slate-950 text-emerald-400 font-extrabold uppercase text-xs rounded-xl px-3.5 py-1.5 border border-slate-800 shadow-sm focus:outline-none focus:border-emerald-500 cursor-pointer appearance-none pr-8 tracking-wider"
+          >
+            <option value="daily" className="bg-slate-900 text-white font-bold">Today (Daily)</option>
+            <option value="weekly" className="bg-slate-900 text-white font-bold">Last 7 Days (Weekly)</option>
+            <option value="monthly" className="bg-slate-900 text-white font-bold">Last 30 Days (Monthly)</option>
+            <option value="yearly" className="bg-slate-900 text-white font-bold">Last 365 Days (Yearly)</option>
+            <option value="custom" className="bg-slate-900 text-white font-bold">Custom Range...</option>
+          </select>
+          <ChevronDown className="w-3.5 h-3.5 text-emerald-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
         </div>
 
         {datePreset === 'custom' && (
@@ -1458,7 +1587,7 @@ export default function ReportingDesk({
                 <div className="border-b border-slate-100 pb-3 flex justify-between items-center">
                   <div>
                     <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center">
-                      <DollarSign className="w-4.5 h-4.5 text-emerald-500 mr-1.5 shrink-0" />
+                      <Coins className="w-4.5 h-4.5 text-emerald-500 mr-1.5 shrink-0" />
                       Clinic Shift collections reconciliation
                     </h3>
                     <p className="text-[10px] text-slate-400 mt-0.5">Reconciliation of clinical & pharmacy collections split by core product streams.</p>
@@ -2770,13 +2899,10 @@ export default function ReportingDesk({
                 {/* Clinic Header */}
                 <div className="text-center space-y-0.5">
                   <h1 className="text-base font-black tracking-wide uppercase text-slate-950">
-                    National Homoeopathic Clinic
+                    Punjab Homoeopathic Clinic
                   </h1>
                   <p className="text-[11px] font-semibold text-slate-700">
                     39-Shalimar Road, Garhi Shahu, Lahore-39
-                  </p>
-                  <p className="text-[11px] font-semibold text-slate-700">
-                    Ph. 6302873
                   </p>
                 </div>
 
@@ -2911,10 +3037,10 @@ export default function ReportingDesk({
                         <th rowSpan={2} className="border border-slate-400 px-2 py-1.5 text-center font-bold text-slate-900 bg-slate-50">
                           Date
                         </th>
-                        <th colSpan={5} className="border border-blue-500 px-2 py-1 text-center font-black text-blue-700 uppercase tracking-wide">
+                        <th colSpan={6} className="border border-blue-500 px-2 py-1 text-center font-black text-blue-700 uppercase tracking-wide">
                           Morning
                         </th>
-                        <th colSpan={5} className="border border-blue-500 px-2 py-1 text-center font-black text-blue-700 uppercase tracking-wide">
+                        <th colSpan={6} className="border border-blue-500 px-2 py-1 text-center font-black text-blue-700 uppercase tracking-wide">
                           Evening
                         </th>
                         <th rowSpan={2} className="border border-slate-400 px-2 py-1.5 text-center font-bold text-slate-900 bg-slate-50">
@@ -2928,19 +3054,21 @@ export default function ReportingDesk({
                         <th className="border border-slate-400 px-1.5 py-1 text-center">C.med</th>
                         <th className="border border-slate-400 px-1.5 py-1 text-center">Cards</th>
                         <th className="border border-slate-400 px-1.5 py-1 text-center">File</th>
+                        <th className="border border-slate-400 px-1.5 py-1 text-center">Store</th>
                         <th className="border border-slate-400 px-1.5 py-1 text-center bg-blue-50 text-blue-900">Total</th>
                         {/* Evening cols */}
                         <th className="border border-slate-400 px-1.5 py-1 text-center">App</th>
                         <th className="border border-slate-400 px-1.5 py-1 text-center">C.med</th>
                         <th className="border border-slate-400 px-1.5 py-1 text-center">Cards</th>
                         <th className="border border-slate-400 px-1.5 py-1 text-center">File</th>
+                        <th className="border border-slate-400 px-1.5 py-1 text-center">Store</th>
                         <th className="border border-slate-400 px-1.5 py-1 text-center bg-blue-50 text-blue-900">Total</th>
                       </tr>
                     </thead>
                     <tbody>
                       {dailyCollectionReportData.rows.length === 0 ? (
                         <tr>
-                          <td colSpan={12} className="border border-slate-400 px-4 py-8 text-center text-slate-400 font-bold italic">
+                          <td colSpan={14} className="border border-slate-400 px-4 py-8 text-center text-slate-400 font-bold italic">
                             No transaction records found for the selected custom period.
                           </td>
                         </tr>
@@ -2960,11 +3088,13 @@ export default function ReportingDesk({
                             <td className="border border-slate-400 px-1.5 py-1 text-right">{row.morning.cmed || '-'}</td>
                             <td className="border border-slate-400 px-1.5 py-1 text-right">{row.morning.cards || '-'}</td>
                             <td className="border border-slate-400 px-1.5 py-1 text-right">{row.morning.file || '-'}</td>
+                            <td className="border border-slate-400 px-1.5 py-1 text-right">{row.morning.store || '-'}</td>
                             <td className="border border-slate-400 px-1.5 py-1 text-right bg-blue-50/40 font-bold text-slate-950">{row.morning.total || '-'}</td>
                             <td className="border border-slate-400 px-1.5 py-1 text-right">{row.evening.app || '-'}</td>
                             <td className="border border-slate-400 px-1.5 py-1 text-right">{row.evening.cmed || '-'}</td>
                             <td className="border border-slate-400 px-1.5 py-1 text-right">{row.evening.cards || '-'}</td>
                             <td className="border border-slate-400 px-1.5 py-1 text-right">{row.evening.file || '-'}</td>
+                            <td className="border border-slate-400 px-1.5 py-1 text-right">{row.evening.store || '-'}</td>
                             <td className="border border-slate-400 px-1.5 py-1 text-right bg-blue-50/40 font-bold text-slate-950">{row.evening.total || '-'}</td>
                             <td className="border border-slate-400 px-2 py-1 text-right font-sans font-black bg-slate-50 text-slate-950">
                               {row.dayTotal.toLocaleString()}
@@ -2983,11 +3113,13 @@ export default function ReportingDesk({
                           <td className="border border-slate-400 px-1.5 py-1.5 text-right font-mono text-[9px]">{dailyCollectionReportData.morningTotals.cmed || '-'}</td>
                           <td className="border border-slate-400 px-1.5 py-1.5 text-right font-mono text-[9px]">{dailyCollectionReportData.morningTotals.cards || '-'}</td>
                           <td className="border border-slate-400 px-1.5 py-1.5 text-right font-mono text-[9px]">{dailyCollectionReportData.morningTotals.file || '-'}</td>
+                          <td className="border border-slate-400 px-1.5 py-1.5 text-right font-mono text-[9px]">{dailyCollectionReportData.morningTotals.store || '-'}</td>
                           <td className="border border-slate-400 px-1.5 py-1.5 text-right font-mono text-[9px] bg-blue-50 text-blue-900">{dailyCollectionReportData.morningTotals.total || '-'}</td>
                           <td className="border border-slate-400 px-1.5 py-1.5 text-right font-mono text-[9px]">{dailyCollectionReportData.eveningTotals.app || '-'}</td>
                           <td className="border border-slate-400 px-1.5 py-1.5 text-right font-mono text-[9px]">{dailyCollectionReportData.eveningTotals.cmed || '-'}</td>
                           <td className="border border-slate-400 px-1.5 py-1.5 text-right font-mono text-[9px]">{dailyCollectionReportData.eveningTotals.cards || '-'}</td>
                           <td className="border border-slate-400 px-1.5 py-1.5 text-right font-mono text-[9px]">{dailyCollectionReportData.eveningTotals.file || '-'}</td>
+                          <td className="border border-slate-400 px-1.5 py-1.5 text-right font-mono text-[9px]">{dailyCollectionReportData.eveningTotals.store || '-'}</td>
                           <td className="border border-slate-400 px-1.5 py-1.5 text-right font-mono text-[9px] bg-blue-50 text-blue-900">{dailyCollectionReportData.eveningTotals.total || '-'}</td>
                           <td className="border border-slate-400 px-2 py-1.5 text-right font-sans font-black bg-blue-100 text-blue-950 text-[9.5px]">
                             {dailyCollectionReportData.grandTotals.total.toLocaleString()}
@@ -3036,6 +3168,12 @@ export default function ReportingDesk({
                           <td className="border border-slate-400 px-3 py-1.5 text-right">{dailyCollectionReportData.eveningTotals.file || '-'}</td>
                           <td className="border border-slate-400 px-3 py-1.5 text-right font-sans font-extrabold bg-slate-50">{dailyCollectionReportData.grandTotals.file || '-'}</td>
                         </tr>
+                        <tr>
+                          <td className="border border-slate-400 px-3 py-1.5 font-sans font-bold">Store</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right">{dailyCollectionReportData.morningTotals.store || '-'}</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right">{dailyCollectionReportData.eveningTotals.store || '-'}</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right font-sans font-extrabold bg-slate-50">{dailyCollectionReportData.grandTotals.store || '-'}</td>
+                        </tr>
                         <tr className="bg-slate-50 font-sans font-black border-t border-slate-900 text-slate-950">
                           <td className="border border-slate-400 px-3 py-1.5 uppercase">Total</td>
                           <td className="border border-slate-400 px-3 py-1.5 text-right font-mono">{dailyCollectionReportData.morningTotals.total || '-'}</td>
@@ -3069,6 +3207,12 @@ export default function ReportingDesk({
                           <td className="border border-slate-400 px-3 py-1.5 text-right">{(dailyCollectionReportData.morningTotals.cards + dailyCollectionReportData.morningTotals.file) || '-'}</td>
                           <td className="border border-slate-400 px-3 py-1.5 text-right">{(dailyCollectionReportData.eveningTotals.cards + dailyCollectionReportData.eveningTotals.file) || '-'}</td>
                           <td className="border border-slate-400 px-3 py-1.5 text-right font-sans font-extrabold bg-slate-50">{(dailyCollectionReportData.grandTotals.cards + dailyCollectionReportData.grandTotals.file) || '-'}</td>
+                        </tr>
+                        <tr>
+                          <td className="border border-slate-400 px-3 py-1.5 font-sans font-bold">Store</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right">{dailyCollectionReportData.morningTotals.store || '-'}</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right">{dailyCollectionReportData.eveningTotals.store || '-'}</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right font-sans font-extrabold bg-slate-50">{dailyCollectionReportData.grandTotals.store || '-'}</td>
                         </tr>
                         <tr className="bg-slate-50 font-sans font-black border-t border-slate-900 text-slate-950">
                           <td className="border border-slate-400 px-3 py-1.5 uppercase">Total</td>
@@ -3118,7 +3262,7 @@ export default function ReportingDesk({
               </div>
               <div className="flex items-center space-x-2">
                 <button
-                  onClick={handleTriggerPrint}
+                  onClick={handleCleanPrintInvoicesReport}
                   className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs uppercase rounded-xl shadow-xs flex items-center transition cursor-pointer"
                 >
                   <Printer className="w-4 h-4 mr-1.5" />

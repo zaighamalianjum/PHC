@@ -67,12 +67,6 @@ export default function InstantTokenIssueView({
             <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
               <Ticket className="w-5 h-5" />
             </div>
-            <div>
-              <h3 className="text-sm font-bold text-slate-950 flex items-center">
-                Token Issue & Patient Search
-              </h3>
-              <p className="text-xs text-slate-500 font-medium">Search patient database by name, ID, or mobile number to issue token</p>
-            </div>
           </div>
 
           <div className="flex items-center space-x-2">

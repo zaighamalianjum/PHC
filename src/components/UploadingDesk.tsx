@@ -919,17 +919,7 @@ NHC-1003\tZainab Khan\tIrfan\t12\tFemale\t03451122334\t2026-07-12\tSore Throat\t
     <div className="flex-1 overflow-y-auto p-6 space-y-6" id="uploading-desk-root">
       
       {/* Tab bar header */}
-      <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-        <div>
-          <h2 className="text-lg font-bold text-slate-800 flex items-center">
-            <FileSpreadsheet className="w-5 h-5 text-indigo-500 mr-2" />
-            Excel Bulk Uploader & Barcode Inventory Deck
-          </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            Seamless Excel copy-paste importing of medicines & tests. Record regular stock updates via Barcode reader simulation.
-          </p>
-        </div>
-        
+      <div className="flex justify-end items-center bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
         {/* Navigation subtabs */}
         <div className="flex space-x-1.5 bg-slate-100 p-1 rounded-lg border border-slate-200">
           <button

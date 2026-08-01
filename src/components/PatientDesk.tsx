@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { TopProgressBar, GlobalLoadingOverlay } from './LoadingIndicator';
 import {
   UserPlus,
   CalendarPlus,
@@ -143,14 +144,16 @@ export default function PatientDesk({
   // Access Control Permissions for Patient Intake & Queue Desk
   const perms = currentUser?.Permissions || {};
   const isAdministrator = currentUser?.Role === 'Administrator';
+  const isReceptionist = currentUser?.Role === 'Receptionist';
 
-  const canAccessQueue = isAdministrator || perms.canAccessWaitingQueue !== false;
-  const canAccessRegister = isAdministrator || perms.canAccessPatientRegistration !== false;
-  const canAccessTokenIssue = isAdministrator || perms.canAccessTokenIssue !== false;
-  const canAccessPatientVisit = isAdministrator || perms.canAccessPatientVisitDesk !== false;
-  const canAccessGridView = isAdministrator || perms.canAccessGridView !== false;
-  const canAccessAppointments = isAdministrator || perms.canAccessAppointmentsDesk !== false;
-  const canAccessLargeScreen = isAdministrator || perms.canAccessLargeScreenDisplay !== false;
+  const canAccessQueue = isAdministrator || (perms.canAccessWaitingQueue !== undefined ? perms.canAccessWaitingQueue : true);
+  const canAccessTokenIssue = isAdministrator || (perms.canAccessTokenIssue !== undefined ? perms.canAccessTokenIssue : true);
+  const canAccessAppointments = isAdministrator || (perms.canAccessAppointmentsDesk !== undefined ? perms.canAccessAppointmentsDesk : true);
+
+  const canAccessRegister = isAdministrator || (perms.canAccessPatientRegistration !== undefined ? perms.canAccessPatientRegistration : !isReceptionist);
+  const canAccessPatientVisit = isAdministrator || (perms.canAccessPatientVisitDesk !== undefined ? perms.canAccessPatientVisitDesk : !isReceptionist);
+  const canAccessGridView = isAdministrator || (perms.canAccessGridView !== undefined ? perms.canAccessGridView : !isReceptionist);
+  const canAccessLargeScreen = isAdministrator || (perms.canAccessLargeScreenDisplay !== undefined ? perms.canAccessLargeScreenDisplay : !isReceptionist);
 
   const currentRight = userRights.find((r) => r.MenuID === 'patients');
   const rawCanAdd = currentRight ? currentRight.AddRec : false;
@@ -165,6 +168,27 @@ export default function PatientDesk({
 
   // Sub-tabs state initialized to queue
   const [activeSubTab, setActiveSubTab] = useState<'register' | 'token_issue' | 'book' | 'queue' | 'patient_visit' | 'grid_view' | 'status'>('queue');
+  const [isSubTabLoading, setIsSubTabLoading] = useState(false);
+  const [subTabLoadingText, setSubTabLoadingText] = useState('Loading Sub-module...');
+
+  const handleSubTabChange = (tab: any) => {
+    if (tab === activeSubTab) return;
+    const labels: Record<string, string> = {
+      queue: 'Waiting Queue',
+      register: 'Registration Form',
+      token_issue: 'Token Issue',
+      patient_visit: 'Patient Visit & Prescriptions',
+      grid_view: 'Grid-View',
+      book: 'Appointments',
+      status: 'Large Screen Display',
+    };
+    setSubTabLoadingText(`Opening ${labels[tab] || 'Patient Sub-desk'}...`);
+    setIsSubTabLoading(true);
+    setActiveSubTab(tab);
+    setTimeout(() => {
+      setIsSubTabLoading(false);
+    }, 280);
+  };
   const [fullscreenShift, setFullscreenShift] = useState<'both' | 'morning' | 'evening'>('both');
   const [isFullScreenMode, setIsFullScreenMode] = useState(false);
 
@@ -3396,20 +3420,15 @@ export default function PatientDesk({
   };
 
   return (
-    <div className="p-2.5 sm:p-3 space-y-2.5 overflow-y-auto flex-1 bg-slate-50 text-slate-800" id="patients-desk">
-      {/* Top Section */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 border-b border-slate-200/80 pb-2">
-        <div className="flex items-center space-x-2">
-          <Users className="w-4 h-4 text-blue-600 shrink-0" />
-          <h2 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight flex items-center">
-            Patient - Desk
-          </h2>
-        </div>
+    <div className="p-2.5 sm:p-3 space-y-2.5 overflow-y-auto flex-1 bg-slate-50 text-slate-800 relative" id="patients-desk">
+      <TopProgressBar active={isSubTabLoading} />
 
+      {/* Top Section */}
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-end gap-2 border-b border-slate-200/80 pb-2">
         {/* Sub Navigation */}
         <PatientDeskSubNav
           activeSubTab={activeSubTab}
-          setActiveSubTab={setActiveSubTab}
+          setActiveSubTab={handleSubTabChange}
           canAccessQueue={canAccessQueue}
           canAccessRegister={canAccessRegister}
           canAccessTokenIssue={canAccessTokenIssue}
@@ -3427,7 +3446,7 @@ export default function PatientDesk({
           <div>
             <h3 className="text-base font-extrabold text-rose-950">Sub-Desk Access Restricted</h3>
             <p className="text-xs text-rose-800 mt-1 max-w-md mx-auto">
-              Your account <strong>({currentUser?.FullName || currentUser?.LoginName})</strong> does not have permission to access any sub-modules inside Patient - Desk.
+              Your account <strong>({currentUser?.FullName || currentUser?.LoginName})</strong> does not have permission to access any sub-modules inside Patient Desk.
             </p>
           </div>
           <p className="text-[11px] text-rose-600 font-semibold italic">
@@ -3541,12 +3560,6 @@ export default function PatientDesk({
               <div className="flex items-center space-x-2">
                 <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
                   <Ticket className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-950 flex items-center">
-                    Token Issue & Patient Search
-                  </h3>
-                  <p className="text-xs text-slate-500 font-medium">Search patient database by name, ID, or mobile number to issue token</p>
                 </div>
               </div>
 
@@ -3915,8 +3928,8 @@ export default function PatientDesk({
                   className="text-[11px] bg-slate-50 text-slate-800 border border-slate-200 rounded-md px-2 py-1 font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-500 max-w-[180px] sm:max-w-xs truncate"
                 >
                   <option value="">-- Select Patient or Token --</option>
-                  {pvPatientDropdownOptions.map((p) => (
-                    <option key={p.PatientID} value={p.PatientID} className="bg-white text-slate-800">
+                  {pvPatientDropdownOptions.map((p, idx) => (
+                    <option key={`pv-drop-${p.PatientID}-${idx}`} value={p.PatientID} className="bg-white text-slate-800">
                       {p.tokenNo ? `[Token #${p.tokenNo}] ` : ''}{p.PatientName} ({p.PatientID}) {p.PhoneMobile ? `- ${p.PhoneMobile}` : ''} {p.isNhc ? '[PHC Archive]' : ''}
                     </option>
                   ))}
@@ -4157,8 +4170,8 @@ export default function PatientDesk({
                       )}
 
                       <div className="space-y-3">
-                        {groupedRxByDate.map((group) => (
-                          <div key={group.date} className="border border-slate-300 rounded-xl bg-white p-2.5 space-y-2 shadow-2xs">
+                        {groupedRxByDate.map((group, groupIdx) => (
+                          <div key={`grp-rx-${group.date}-${groupIdx}`} className="border border-slate-300 rounded-xl bg-white p-2.5 space-y-2 shadow-2xs">
                             {/* Top Row: Date & Item Count Badge + Copy Date Rx Button */}
                             <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
                               <span className="font-bold text-slate-900 text-xs font-mono flex items-center gap-1.5">
@@ -4533,7 +4546,7 @@ export default function PatientDesk({
                       </thead>
                       <tbody className="divide-y divide-emerald-100 text-xs font-sans">
                         {pvClinicalItems.map((item, index) => (
-                          <tr key={item.id} className="hover:bg-emerald-50/50 transition">
+                          <tr key={`clin-${item.id || index}-${index}`} className="hover:bg-emerald-50/50 transition">
                             <td className="py-1 px-1.5 text-center font-bold text-slate-400 text-[10px] border-r border-emerald-100 bg-slate-50/50">
                               {index + 1}
                             </td>
@@ -4678,7 +4691,7 @@ export default function PatientDesk({
                       </thead>
                       <tbody className="divide-y divide-blue-100 text-xs font-sans">
                         {pvPatientItems.map((item, index) => (
-                          <tr key={item.id} className="hover:bg-blue-50/50 transition">
+                          <tr key={`pat-itm-${item.id || index}-${index}`} className="hover:bg-blue-50/50 transition">
                             <td className="py-1 px-1.5 text-center font-bold text-slate-400 text-[10px] border-r border-blue-100 bg-slate-50/50">
                               {index + 1}
                             </td>
@@ -5276,9 +5289,6 @@ export default function PatientDesk({
 
                         {/* Main Clinic Title */}
                         <div className="text-center flex-1 px-2">
-                          <div className="text-left text-[11px] font-bold italic font-serif text-red-900 leading-tight">
-                            Dr. Amanullah Bismil <span className="font-sans not-italic font-black text-red-900 ml-1">(زیرِ نگرانی)</span>
-                          </div>
                           <h1 className="font-serif uppercase tracking-tight flex flex-col items-center justify-center">
                             <span className="text-2xl sm:text-3xl font-serif text-red-900 font-black tracking-tight">{clinicSettings?.ClinicName || 'PUNJAB HOMEOPATHIC CLINIC'}</span>
                           </h1>
@@ -5526,28 +5536,24 @@ export default function PatientDesk({
                       </div>
                     </div>
 
-                    {/* Bottom Footer Section with 2 Doctors & Sunday Closed Banner */}
+                    {/* Bottom Footer Section with Doctor Details, Stamp & Signature, & Sunday Closed Banner */}
                     <div className="space-y-2 pt-2 border-t-2 border-slate-900 mt-auto">
-                      <div className="grid grid-cols-2 gap-4 text-xs pb-1 border-b border-slate-200">
-                        
-                        {/* Doctor Details 1 */}
-                        <div className="space-y-0.5 text-[10px] text-center sm:text-left text-red-900">
+                      <div className="flex justify-between items-end text-xs pb-1 border-b border-slate-200">
+                        {/* Doctor Details */}
+                        <div className="space-y-0.5 text-[10px] text-center sm:text-left text-red-900 pr-2">
                           <h5 className="font-black text-red-900 text-sm sm:text-base italic font-serif">Dr. Ejaz Ahmad <span className="text-xs font-sans not-italic font-bold text-red-900">(PUNJAB HOMEOPATHIC)</span></h5>
                           <p className="text-red-900 font-bold text-xs">Consultant Homeopathic Medical Practitioner</p>
                           <p className="text-red-900 font-semibold text-xs">D.H.M.S (Pak)</p>
                           <p className="text-[10px] text-red-900 font-medium">Registered Homeopathic Medical Practitioner No: <strong className="text-red-900 font-bold">48776</strong></p>
                         </div>
 
-                        {/* Doctor Details 2 */}
-                        <div className="space-y-0.5 text-[10px] text-center sm:text-left text-red-900 border-l border-slate-200 pl-4">
-                          <h5 className="font-black text-red-900 text-sm sm:text-base italic font-serif">
-                            Dr. Amanullah Bismil <span className="text-xs font-sans not-italic font-black text-red-900 ml-1">(زیرِ نگرانی)</span>
-                          </h5>
-                          <p className="text-red-900 font-bold text-xs">Consultant Homeopathic Medical Practitioner</p>
-                          <p className="text-red-900 font-semibold text-xs">D.H.M.S (Pak)</p>
-                          <p className="text-[10px] text-red-900 font-medium">Registered Homeopathic Medical Practitioner No: <strong className="text-red-900 font-bold">28497</strong></p>
+                        {/* Signature Line */}
+                        <div className="text-center w-44 space-y-1 shrink-0">
+                          <div className="h-10 border-b border-slate-800 flex items-end justify-center pb-1 font-serif italic text-slate-400 text-xs">
+                            Doctor's Stamp & Signature
+                          </div>
+                          <span className="text-[10px] font-bold text-slate-700 block uppercase">Consultant Signature</span>
                         </div>
-
                       </div>
 
                       {/* Footer Banner */}
@@ -5576,9 +5582,6 @@ export default function PatientDesk({
                           <img src={clinicSettings?.ClinicLogoImage || "/nhc_logo.svg"} alt="PHC Logo" className="w-20 h-20 object-contain" />
                         </div>
                         <div className="text-center flex-1 px-2">
-                          <div className="text-left text-[11px] font-bold italic font-serif text-red-900 leading-tight">
-                            Dr. Amanullah Bismil <span className="font-sans not-italic font-black text-red-900 ml-1">(زیرِ نگرانی)</span>
-                          </div>
                           <h1 className="font-serif uppercase tracking-tight flex flex-col items-center justify-center">
                             <span className="text-2xl sm:text-3xl font-serif text-red-900 font-black tracking-tight">{clinicSettings?.ClinicName || 'PUNJAB HOMEOPATHIC CLINIC'}</span>
                           </h1>
@@ -5691,20 +5694,12 @@ export default function PatientDesk({
                     {/* Bottom Footer Section with Doctor Signature & Stamp */}
                     <div className="space-y-3 pt-4 border-t-2 border-slate-900 mt-auto">
                       <div className="flex justify-between items-end text-xs">
-                        <div className="grid grid-cols-2 gap-4 text-[10px] text-red-900 pr-2">
+                        <div className="text-[10px] text-red-900 pr-2">
                           <div className="space-y-0.5">
                             <h5 className="font-black text-red-900 text-sm italic font-serif">Dr. Ejaz Ahmad <span className="text-xs font-sans not-italic font-bold text-red-900">(PUNJAB HOMEOPATHIC)</span></h5>
                             <p className="text-red-900 font-bold text-xs">Consultant Homeopathic Medical Practitioner</p>
                             <p className="text-red-900 font-semibold text-xs">D.H.M.S (Pak)</p>
                             <p className="text-[10px] text-red-900 font-medium">Registered Homeopathic Medical Practitioner No: <strong className="text-red-900 font-bold">48776</strong></p>
-                          </div>
-                          <div className="space-y-0.5 border-l border-slate-200 pl-3">
-                            <h5 className="font-black text-red-900 text-sm italic font-serif">
-                              Dr. Amanullah Bismil <span className="text-xs font-sans not-italic font-black text-red-900 ml-1">(زیرِ نگرانی)</span>
-                            </h5>
-                            <p className="text-red-900 font-bold text-xs">Consultant Homeopathic Medical Practitioner</p>
-                            <p className="text-red-900 font-semibold text-xs">D.H.M.S (Pak)</p>
-                            <p className="text-[10px] text-red-900 font-medium">Registered Homeopathic Medical Practitioner No: <strong className="text-red-900 font-bold">28497</strong></p>
                           </div>
                         </div>
 
@@ -6482,17 +6477,6 @@ export default function PatientDesk({
               <div className="p-2.5 bg-emerald-100 text-emerald-800 rounded-xl border border-emerald-200">
                 <CalendarPlus className="w-5 h-5 text-emerald-700" />
               </div>
-              <div>
-                <h3 className="text-sm font-extrabold text-slate-950 flex items-center space-x-2">
-                  <span>Booking Appointments Desk</span>
-                  <span className="text-[10px] font-mono bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded-full border border-emerald-200">
-                    Excel Sheet Grid View
-                  </span>
-                </h3>
-                <p className="text-xs text-slate-500 font-medium mt-0.5">
-                  Spreadsheet-wise appointment register showing Patient Name, Mobile Number, and Appointment Fees.
-                </p>
-              </div>
             </div>
 
             {/* Search, Date Period & Shift Controls */}
@@ -6754,14 +6738,6 @@ export default function PatientDesk({
                               <td className="py-2.5 px-3 text-center space-x-1" onClick={(e) => e.stopPropagation()}>
                                 <button
                                   type="button"
-                                  onClick={() => handlePrintAppointmentReceipt(app)}
-                                  title="Print Appointment Receipt"
-                                  className="p-1.5 text-indigo-700 hover:bg-indigo-100 rounded transition cursor-pointer"
-                                >
-                                  <Printer className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  type="button"
                                   onClick={() => handleOpenEditModal(app)}
                                   title="Edit Appointment"
                                   className="p-1.5 text-blue-600 hover:bg-blue-100 rounded transition cursor-pointer"
@@ -6799,21 +6775,6 @@ export default function PatientDesk({
                   </div>
 
                   <div className="flex items-center space-x-2">
-                    {/* PRINT RECEIPT BUTTON */}
-                    <button
-                      type="button"
-                      disabled={!selectedAppId}
-                      onClick={() => {
-                        const target = appointments.find((a) => a.AppointmentID === selectedAppId);
-                        if (target) handlePrintAppointmentReceipt(target);
-                      }}
-                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold rounded-lg shadow-xs transition flex items-center space-x-1.5 cursor-pointer"
-                      title="Print receipt for selected appointment"
-                    >
-                      <Printer className="w-4 h-4" />
-                      <span>Print Receipt</span>
-                    </button>
-
                     {/* ADD BUTTON */}
                     <button
                       type="button"
@@ -7193,14 +7154,6 @@ export default function PatientDesk({
                       Cancel
                     </button>
                     <button
-                      type="button"
-                      onClick={(e) => handleSaveAddAppointment(e, true)}
-                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition cursor-pointer shadow-xs flex items-center space-x-1"
-                    >
-                      <Printer className="w-3.5 h-3.5 mr-1" />
-                      <span>Save & Print Receipt</span>
-                    </button>
-                    <button
                       type="submit"
                       className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition cursor-pointer shadow-xs"
                     >
@@ -7308,17 +7261,6 @@ export default function PatientDesk({
                     <div className="flex items-center space-x-2">
                       <button
                         type="button"
-                        onClick={() => {
-                          if (editingApp) handlePrintAppointmentReceipt(editingApp);
-                        }}
-                        className="px-3 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-bold rounded-lg transition cursor-pointer flex items-center space-x-1"
-                        title="Print appointment receipt"
-                      >
-                        <Printer className="w-3.5 h-3.5" />
-                        <span>Print Receipt</span>
-                      </button>
-                      <button
-                        type="button"
                         onClick={() => setEditingApp(null)}
                         className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
                       >
@@ -7353,17 +7295,25 @@ export default function PatientDesk({
           return hasVisit || isAppCompleted;
         };
 
+        const userShift = currentUser?.AssignedShift;
+        const showMorningQueue = userShift === 1 || userShift === 'Both' || !userShift;
+        const showEveningQueue = userShift === 2 || userShift === 'Both' || !userShift;
+
         const morningWaiting = tokens.filter((t) => t.Shift === 1 && t.Status === 1 && !isTokenCompleted(t));
         const eveningWaiting = tokens.filter((t) => t.Shift === 2 && t.Status === 1 && !isTokenCompleted(t));
         const completedList = tokens.filter((t) => isTokenCompleted(t) || t.Status === 2);
+
+        const visibleBoxesCount = (showMorningQueue ? 1 : 0) + (showEveningQueue ? 1 : 0) + 1;
+        const gridColsClass = visibleBoxesCount === 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 lg:grid-cols-3';
 
         return (
           <div className="space-y-6 animate-fadeIn" id="patients-view-queue">
             
             {/* Waiting List Visual Dashboard */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className={`grid ${gridColsClass} gap-6`}>
               
               {/* Morning Waitlist */}
+              {showMorningQueue && (
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                 <div className="p-4 border-b border-slate-100 bg-emerald-50/50 flex items-center justify-between">
                   <div className="flex items-center space-x-2">
@@ -7449,8 +7399,10 @@ export default function PatientDesk({
                   )}
                 </div>
               </div>
+              )}
 
               {/* Evening Shift */}
+              {showEveningQueue && (
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                 <div className="p-4 border-b border-slate-100 bg-indigo-50/50 flex items-center justify-between">
                   <div className="flex items-center space-x-2">
@@ -7536,114 +7488,104 @@ export default function PatientDesk({
                   )}
                 </div>
               </div>
+              )}
 
-            </div>
-
-            {/* Dedicated Section: Completed Visits & Checked Patients */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mt-6">
-              <div className="p-4 border-b border-slate-100 bg-emerald-50/70 flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                  <div>
-                    <h4 className="font-bold text-slate-900 text-sm">Completed Visits & Doctor Consultations</h4>
-                    <p className="text-xxs text-slate-500 font-medium">Patients checked by doctor & issued prescriptions</p>
+              {/* Dedicated Section: Completed Visits & Checked Patients */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="p-4 border-b border-slate-100 bg-emerald-50/70 flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                    <div>
+                      <h4 className="font-bold text-slate-900 text-sm">Completed Visits & Doctor Consultations</h4>
+                      <p className="text-xxs text-slate-500 font-medium">Patients checked by doctor & issued prescriptions</p>
+                    </div>
                   </div>
+                  <span className="text-xs font-extrabold bg-emerald-600 text-white px-3 py-1 rounded-full shadow-xs">
+                    {completedList.length} Completed Visit{completedList.length === 1 ? '' : 's'}
+                  </span>
                 </div>
-                <span className="text-xs font-extrabold bg-emerald-600 text-white px-3 py-1 rounded-full shadow-xs">
-                  {completedList.length} Completed Visit{completedList.length === 1 ? '' : 's'}
-                </span>
-              </div>
 
-              <div className="divide-y divide-slate-100 min-h-[120px]">
-                {completedList.length === 0 ? (
-                  <div className="p-8 text-center">
-                    <Stethoscope className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                    <p className="text-xs text-slate-400 font-semibold">No completed visits recorded yet for today.</p>
-                    <p className="text-xxs text-slate-400 mt-0.5">When doctor saves a visit assessment or prescription in EMR, patients automatically move to this completed list.</p>
-                  </div>
-                ) : (
-                  completedList.map((tok, idx) => {
-                    const matchedApp = appointments.find(
-                      (a) => a.PatientID === tok.PatientID && a.AppointmentDate === tok.Date
-                    );
-                    const matchedVisit = (visits || []).find(
-                      (v) => v.PatientID === tok.PatientID && (v.VisitDate ? v.VisitDate.split('T')[0] === tok.Date : false)
-                    );
+                <div className="divide-y divide-slate-100 min-h-[200px]">
+                  {completedList.length === 0 ? (
+                    <div className="p-12 text-center">
+                      <Stethoscope className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                      <p className="text-xs text-slate-400 font-semibold">No completed visits recorded yet for today.</p>
+                      <p className="text-xxs text-slate-400 mt-0.5">When doctor saves a visit assessment or prescription in EMR, patients automatically move to this completed list.</p>
+                    </div>
+                  ) : (
+                    completedList.map((tok, idx) => {
+                      const matchedApp = appointments.find(
+                        (a) => a.PatientID === tok.PatientID && a.AppointmentDate === tok.Date
+                      );
+                      const matchedVisit = (visits || []).find(
+                        (v) => v.PatientID === tok.PatientID && (v.VisitDate ? v.VisitDate.split('T')[0] === tok.Date : false)
+                      );
 
-                    return (
-                      <div key={`tok-comp-${tok.TokenNo}-${idx}`} className="p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-3 sm:space-y-0 hover:bg-slate-50/50 transition">
-                        <div className="flex items-center space-x-3.5">
-                          <div className="w-10 h-10 rounded-full bg-emerald-100 border border-emerald-300 text-emerald-800 font-bold font-mono flex items-center justify-center shrink-0 shadow-xs">
-                            #{tok.TokenNo}
-                          </div>
-                          <div className="min-w-0">
-                            <div className="flex items-center space-x-2">
-                              <p className="text-xs font-bold text-slate-900 truncate">{getPatientName(tok.PatientID)}</p>
-                              <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.2 rounded-full border border-emerald-200 uppercase tracking-wider flex items-center space-x-1">
-                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                <span>Checked & Prescribed</span>
-                              </span>
+                      return (
+                        <div key={`tok-comp-${tok.TokenNo}-${idx}`} className="p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-3 sm:space-y-0 hover:bg-slate-50/50 transition">
+                          <div className="flex items-center space-x-3.5">
+                            <div className="w-10 h-10 rounded-full bg-emerald-100 border border-emerald-300 text-emerald-800 font-bold font-mono flex items-center justify-center shrink-0 shadow-xs">
+                              #{tok.TokenNo}
                             </div>
-                            <p className="text-xxs text-slate-400 font-mono mt-0.5">
-                              ID: {tok.PatientID} | Mob: {getPatientPhone(tok.PatientID)} | Shift {tok.Shift === 1 ? 'Morning' : 'Evening'}
-                            </p>
-                            {matchedVisit && (
-                              <p className="text-xxs font-medium text-slate-600 mt-1 truncate max-w-md bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                                <span className="font-bold text-emerald-700">Rx/Consultation: </span>
-                                {matchedVisit.SymptomsDiagnosis || 'Prescription recorded'}
+                            <div className="min-w-0">
+                              <div className="flex items-center space-x-2">
+                                <p className="text-xs font-bold text-slate-900 truncate">{getPatientName(tok.PatientID)}</p>
+                                <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.2 rounded-full border border-emerald-200 uppercase tracking-wider flex items-center space-x-1">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                  <span>Checked & Prescribed</span>
+                                </span>
+                              </div>
+                              <p className="text-xxs text-slate-400 font-mono mt-0.5">
+                                ID: {tok.PatientID} | Mob: {getPatientPhone(tok.PatientID)} | Shift {tok.Shift === 1 ? 'Morning' : 'Evening'}
                               </p>
-                            )}
+                              {matchedVisit && (
+                                <p className="text-xxs font-medium text-slate-600 mt-1 truncate max-w-md bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                                  <span className="font-bold text-emerald-700">Rx/Consultation: </span>
+                                  {matchedVisit.SymptomsDiagnosis || 'Prescription recorded'}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Actions */}
+                          <div className="flex items-center space-x-1.5 justify-end">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const pat = patients.find(p => p.PatientID === tok.PatientID);
+                                setThermalPrintData({
+                                  tokenNo: tok.TokenNo,
+                                  patientName: pat ? pat.PatientName : 'Unknown',
+                                  patientId: tok.PatientID,
+                                  shiftName: tok.Shift === 1 ? 'MORNING SHIFT (08:00 - 14:00)' : 'EVENING SHIFT (14:00 - 20:00)',
+                                  date: tok.Date,
+                                  fee: matchedApp?.FeeCharged !== undefined ? matchedApp.FeeCharged : (clinicSettings?.OPDFee || 1500),
+                                  appId: matchedApp?.AppointmentID || 'N/A',
+                                  patientType: getPatientType(tok.PatientID)
+                                });
+                                setThermalPrintOpen(true);
+                              }}
+                              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xxs font-bold rounded flex items-center transition border border-slate-200"
+                            >
+                              <Clock className="w-3 h-3 mr-1" />
+                              <span>Print Ticket</span>
+                            </button>
+                            <button
+                              onClick={() => speakVoice(tok)}
+                              className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xxs font-bold rounded flex items-center transition border border-blue-200"
+                              title="Repeat the calling voice announcement"
+                            >
+                              <Volume2 className="w-3 h-3 mr-1" />
+                              <span>Repeat Voice</span>
+                            </button>
                           </div>
                         </div>
-
-                        {/* Actions */}
-                        <div className="flex items-center space-x-1.5 justify-end">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActiveSubTab('patient_visit');
-                              setPvPatientSearch(tok.PatientID);
-                            }}
-                            className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xxs font-bold rounded flex items-center transition border border-emerald-200"
-                          >
-                            <FileText className="w-3 h-3 mr-1" />
-                            <span>View Visit Record</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const pat = patients.find(p => p.PatientID === tok.PatientID);
-                              setThermalPrintData({
-                                tokenNo: tok.TokenNo,
-                                patientName: pat ? pat.PatientName : 'Unknown',
-                                patientId: tok.PatientID,
-                                shiftName: tok.Shift === 1 ? 'MORNING SHIFT (08:00 - 14:00)' : 'EVENING SHIFT (14:00 - 20:00)',
-                                date: tok.Date,
-                                fee: matchedApp?.FeeCharged !== undefined ? matchedApp.FeeCharged : (clinicSettings?.OPDFee || 1500),
-                                appId: matchedApp?.AppointmentID || 'N/A',
-                                patientType: getPatientType(tok.PatientID)
-                              });
-                              setThermalPrintOpen(true);
-                            }}
-                            className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xxs font-bold rounded flex items-center transition border border-slate-200"
-                          >
-                            <Clock className="w-3 h-3 mr-1" />
-                            <span>Print Ticket</span>
-                          </button>
-                          <button
-                            onClick={() => speakVoice(tok)}
-                            className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xxs font-bold rounded flex items-center transition border border-blue-200"
-                            title="Repeat the calling voice announcement"
-                          >
-                            <Volume2 className="w-3 h-3 mr-1" />
-                            <span>Repeat Voice</span>
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
+                      );
+                    })
+                  )}
+                </div>
               </div>
+
             </div>
 
           </div>
@@ -8237,8 +8179,8 @@ export default function PatientDesk({
                   </h4>
 
                   <div className="space-y-3">
-                    {groupedRxByDate.slice(0, 1).map((group) => (
-                      <div key={group.date} className="border border-slate-900 rounded-xl bg-white p-3 space-y-2.5 shadow-2xs">
+                    {groupedRxByDate.slice(0, 1).map((group, groupIdx) => (
+                      <div key={`grp-print-${group.date}-${groupIdx}`} className="border border-slate-900 rounded-xl bg-white p-3 space-y-2.5 shadow-2xs">
                         {/* Top Row: Date & Item Count Badge + Copy & Print Rx Buttons */}
                         <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                           <span className="font-bold text-slate-800 text-xs font-mono">Recent Visit Date: {formatDisplayDate(group.date)}</span>
@@ -8595,27 +8537,6 @@ export default function PatientDesk({
             <div className="flex justify-end space-x-2 pt-2">
               <button
                 type="button"
-                onClick={() => {
-                  setThermalPrintData({
-                    tokenNo: 1,
-                    patientName: futureBookingModal.patientName,
-                    patientId: futureBookingModal.patientId,
-                    shiftName: futureBookingModal.shift === 1 ? 'MORNING SHIFT (08:00 - 14:00)' : 'EVENING SHIFT (14:00 - 20:00)',
-                    date: futureBookingModal.date,
-                    fee: clinicSettings?.OPDFee || 1500,
-                    appId: 'FUTURE_APP',
-                    patientType: getPatientType(futureBookingModal.patientId),
-                    remarks: 'Future Appointment Booking Slip'
-                  });
-                  setThermalPrintOpen(true);
-                }}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2.5 px-4 rounded-xl transition shadow-md cursor-pointer flex items-center space-x-1"
-              >
-                <Printer className="w-4 h-4 mr-1" />
-                <span>Print Booking Receipt</span>
-              </button>
-              <button
-                type="button"
                 onClick={() => setFutureBookingModal(null)}
                 className="bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-xs py-2.5 px-4 rounded-xl transition shadow-md cursor-pointer"
               >
@@ -8906,11 +8827,11 @@ export default function PatientDesk({
                         );
                       }
 
-                      return filtered.map((t) => {
+                      return filtered.map((t, idx) => {
                         const isSelected = getLabTestList(pvLabTestAdvice).map(s => s.toLowerCase()).includes(String(t.TestName || '').toLowerCase());
                         return (
                           <button
-                            key={t.TID || t.TestName}
+                            key={`lab-${t.TID || t.TestName}-${idx}`}
                             type="button"
                             onClick={() => handleToggleLabTestAdvice(t.TestName)}
                             className={`w-full text-left p-2 hover:bg-purple-100/60 transition flex items-center justify-between cursor-pointer ${
@@ -9207,8 +9128,8 @@ export default function PatientDesk({
                           }}
                           className="w-full text-xs border border-slate-300 rounded-lg p-2 font-bold text-slate-800 bg-white focus:ring-2 focus:ring-amber-500"
                         >
-                          {patients.map(p => (
-                            <option key={p.PatientID} value={p.PatientID}>
+                          {patients.map((p, idx) => (
+                            <option key={`m-pat-opt-${p.PatientID}-${idx}`} value={p.PatientID}>
                               {p.PatientName} ({p.PatientID})
                             </option>
                           ))}
@@ -9346,7 +9267,7 @@ export default function PatientDesk({
 
                       <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
                         {modalClinicalItems.map((item, idx) => (
-                          <div key={item.id || idx} className="flex items-center space-x-1.5">
+                          <div key={`m-clin-row-${item.id || idx}-${idx}`} className="flex items-center space-x-1.5">
                             <input
                               type="text"
                               placeholder="Clinical Medicine Name..."
@@ -9400,7 +9321,7 @@ export default function PatientDesk({
 
                       <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
                         {modalPatentItems.map((item, idx) => (
-                          <div key={item.id || idx} className="flex items-center space-x-1.5">
+                          <div key={`m-pat-row-${item.id || idx}-${idx}`} className="flex items-center space-x-1.5">
                             <input
                               type="text"
                               placeholder="Patent Medicine Name..."

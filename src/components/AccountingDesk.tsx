@@ -4,6 +4,7 @@
  */
 
 import React, { useState } from 'react';
+import { TopProgressBar, GlobalLoadingOverlay } from './LoadingIndicator';
 import {
   BookOpen,
   Plus,
@@ -91,6 +92,18 @@ export default function AccountingDesk({
   };
   // Navigation tabs
   const [activeSubTab, setActiveSubTab] = useState<'coa' | 'voucher' | 'pl_expenses' | 'commerce'>('coa');
+  const [isSubTabLoading, setIsSubTabLoading] = useState(false);
+  const [subTabLoadingText, setSubTabLoadingText] = useState('Loading Accounting Module...');
+
+  const handleSubTabSwitch = (tab: typeof activeSubTab, label: string) => {
+    if (tab === activeSubTab) return;
+    setSubTabLoadingText(`Opening ${label}...`);
+    setIsSubTabLoading(true);
+    setActiveSubTab(tab);
+    setTimeout(() => {
+      setIsSubTabLoading(false);
+    }, 280);
+  };
 
   // Rights verification
   const currentRight = userRights.find((r) => r.MenuID === 'accounts');
@@ -362,29 +375,16 @@ export default function AccountingDesk({
   const totalSalesNet = invoices.reduce((sum, inv) => sum + inv.NetAmount, 0);
 
   return (
-    <div className="p-6 space-y-6 overflow-y-auto flex-1 bg-slate-50 text-slate-800" id="accounts-desk">
+    <div className="p-6 space-y-6 overflow-y-auto flex-1 bg-slate-50 text-slate-800 relative" id="accounts-desk">
+      <TopProgressBar active={isSubTabLoading} />
       
       {/* Top Professional Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
-        <div>
-          <div className="flex items-center space-x-2">
-            <div className="p-1.5 bg-blue-100 text-blue-700 rounded-lg">
-              <BookOpen className="w-5 h-5" />
-            </div>
-            <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-              General Double-Entry Accounting Cockpit
-            </h2>
-          </div>
-          <p className="text-xs text-slate-500 mt-1">
-            Real-time unified Chart of Accounts tree, double-entry voucher journals, operational expenses logger, and inventory asset mapping.
-          </p>
-        </div>
-
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-end space-y-4 lg:space-y-0">
         {/* Cohesive Sub Tab Navigator */}
         <div className="flex flex-wrap gap-1 bg-slate-200/70 p-1 rounded-xl border border-slate-300">
           <button
-            onClick={() => setActiveSubTab('coa')}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xxs font-bold uppercase tracking-wider transition-all duration-200 ${
+            onClick={() => handleSubTabSwitch('coa', 'Chart of Accounts')}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xxs font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer ${
               activeSubTab === 'coa' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-950'
             }`}
           >
@@ -392,8 +392,8 @@ export default function AccountingDesk({
             <span>Chart of Accounts</span>
           </button>
           <button
-            onClick={() => setActiveSubTab('voucher')}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xxs font-bold uppercase tracking-wider transition-all duration-200 ${
+            onClick={() => handleSubTabSwitch('voucher', 'Voucher Journal')}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xxs font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer ${
               activeSubTab === 'voucher' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-950'
             }`}
           >
@@ -401,8 +401,8 @@ export default function AccountingDesk({
             <span>Voucher Journal</span>
           </button>
           <button
-            onClick={() => setActiveSubTab('pl_expenses')}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xxs font-bold uppercase tracking-wider transition-all duration-200 ${
+            onClick={() => handleSubTabSwitch('pl_expenses', 'P&L & Expenses')}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xxs font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer ${
               activeSubTab === 'pl_expenses' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-600 hover:text-slate-950'
             }`}
           >
@@ -410,8 +410,8 @@ export default function AccountingDesk({
             <span>P&L & Expenses</span>
           </button>
           <button
-            onClick={() => setActiveSubTab('commerce')}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xxs font-bold uppercase tracking-wider transition-all duration-200 ${
+            onClick={() => handleSubTabSwitch('commerce', 'Inventory & Sales Link')}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xxs font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer ${
               activeSubTab === 'commerce' ? 'bg-white text-orange-700 shadow-sm' : 'text-slate-600 hover:text-slate-950'
             }`}
           >

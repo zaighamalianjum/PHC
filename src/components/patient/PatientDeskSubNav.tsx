@@ -56,14 +56,7 @@ export default function PatientDeskSubNav({
 
   return (
     <>
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 border-b border-slate-200/80 pb-2">
-        <div className="flex items-center space-x-2">
-          <Users className="w-4 h-4 text-blue-600 shrink-0" />
-          <h2 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight flex items-center">
-            Patient - Desk
-          </h2>
-        </div>
-
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-end gap-2 border-b border-slate-200/80 pb-2">
         {/* Sub Navigation */}
         <div className="flex flex-wrap items-center gap-1 bg-slate-200/60 p-1 rounded-lg border border-slate-200 print:hidden shrink-0">
           {canAccessQueue && (
@@ -158,7 +151,7 @@ export default function PatientDeskSubNav({
           <div>
             <h3 className="text-base font-extrabold text-rose-950">Sub-Desk Access Restricted</h3>
             <p className="text-xs text-rose-800 mt-1 max-w-md mx-auto">
-              Your account <strong>({currentUser?.FullName || currentUser?.LoginName})</strong> does not have permission to access any sub-modules inside Patient - Desk.
+              Your account <strong>({currentUser?.FullName || currentUser?.LoginName})</strong> does not have permission to access any sub-modules inside Patient Desk.
             </p>
           </div>
         </div>

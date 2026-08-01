@@ -47,7 +47,8 @@ import {
   Edit3,
   Calendar,
   Ban,
-  Zap
+  Zap,
+  Boxes
 } from 'lucide-react';
 import { User, ClinicSettings, SmsSettings, MongoDbSettings, UserRight } from '../types';
 import { ROLE_RIGHTS } from '../data/initialData';
@@ -109,6 +110,7 @@ export default function SettingsDesk({
     canBookAppointment: true,
     canCancelAppointment: true,
     canCallServeToken: true,
+    canEditStockLevel: true,
 
     canPrintPrescription: true,
     canPrintLabAdvice: true,
@@ -206,6 +208,7 @@ export default function SettingsDesk({
         canBookAppointment: true,
         canCancelAppointment: true,
         canCallServeToken: true,
+        canEditStockLevel: true,
         canPrintPrescription: true,
         canPrintLabAdvice: true,
         canPrintVisitSlip: true,
@@ -241,6 +244,7 @@ export default function SettingsDesk({
         canBookAppointment: true,
         canCancelAppointment: false,
         canCallServeToken: true,
+        canEditStockLevel: false,
         canPrintPrescription: true,
         canPrintLabAdvice: true,
         canPrintVisitSlip: true,
@@ -262,20 +266,21 @@ export default function SettingsDesk({
         canViewUploadingDesk: false,
         canViewSettingsDesk: false,
         canViewQueryHandlerDesk: false,
-        canViewNhcHistoryDesk: true,
+        canViewNhcHistoryDesk: false,
         canAccessWaitingQueue: true,
-        canAccessPatientRegistration: true,
+        canAccessPatientRegistration: false,
         canAccessTokenIssue: true,
         canAccessPatientVisitDesk: false,
-        canAccessGridView: true,
+        canAccessGridView: false,
         canAccessAppointmentsDesk: true,
-        canAccessLargeScreenDisplay: true,
+        canAccessLargeScreenDisplay: false,
         canAddPatient: true,
         canEditPatient: true,
         canIssueToken: true,
         canBookAppointment: true,
         canCancelAppointment: false,
         canCallServeToken: true,
+        canEditStockLevel: false,
         canPrintPrescription: false,
         canPrintLabAdvice: false,
         canPrintVisitSlip: true,
@@ -311,6 +316,7 @@ export default function SettingsDesk({
         canBookAppointment: false,
         canCancelAppointment: false,
         canCallServeToken: false,
+        canEditStockLevel: false,
         canPrintPrescription: false,
         canPrintLabAdvice: false,
         canPrintVisitSlip: false,
@@ -332,7 +338,8 @@ export default function SettingsDesk({
         canViewUploadingDesk: false,
         canViewSettingsDesk: false,
         canViewQueryHandlerDesk: false,
-        canViewNhcHistoryDesk: false
+        canViewNhcHistoryDesk: false,
+        canEditStockLevel: false
       });
       setAccessAllowedUserIDs([selectedAccessUserId]);
     }
@@ -849,17 +856,7 @@ export default function SettingsDesk({
     <div className="flex-1 overflow-y-auto p-6 space-y-6" id="settings-desk-root">
       
       {/* Banner Title */}
-      <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-        <div>
-          <h2 className="text-lg font-bold text-slate-800 flex items-center">
-            <Settings className="w-5 h-5 text-blue-600 mr-2" />
-            Clinic Setup & User Control Center
-          </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            Customize clinic profiles, printing layouts, default pricing, and configure staff shift access controls.
-          </p>
-        </div>
-
+      <div className="flex justify-end items-center bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
         {/* Tab Selector */}
         <div className="flex space-x-1.5 bg-slate-100 p-1 rounded-lg border border-slate-200">
           <button
@@ -2239,7 +2236,8 @@ export default function SettingsDesk({
                   { key: 'canIssueToken', label: 'Issue / Generate Token', icon: Ticket, desc: 'Print & issue queue token tickets' },
                   { key: 'canCallServeToken', label: 'Call / Serve / Cancel Token', icon: CheckCircle2, desc: 'Update token status in waiting queue' },
                   { key: 'canBookAppointment', label: 'Book / Reschedule Appointment', icon: Calendar, desc: 'Schedule future appointments' },
-                  { key: 'canCancelAppointment', label: 'Cancel / Delete Appointment', icon: Ban, desc: 'Remove appointments from system' }
+                  { key: 'canCancelAppointment', label: 'Cancel / Delete Appointment', icon: Ban, desc: 'Remove appointments from system' },
+                  { key: 'canEditStockLevel', label: 'Edit Current Stock Level', icon: Boxes, desc: 'Allow editing current medicine stock quantities & thresholds in Inventory' }
                 ].map((item) => {
                   const isEnabled = accessPermissions[item.key as keyof typeof accessPermissions] !== false;
                   return (

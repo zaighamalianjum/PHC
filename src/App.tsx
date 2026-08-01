@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import {
   INITIAL_CITIES,
   INITIAL_ITEMS,
@@ -66,7 +66,9 @@ import {
   Code,
   RefreshCw,
   CheckCircle,
-  Lock
+  Lock,
+  ChevronDown,
+  User as UserIcon
 } from 'lucide-react';
 import UnauthorizedModal from './components/UnauthorizedModal';
 
@@ -82,17 +84,31 @@ const MENU_ITEMS = [
   { id: 'settings', label: 'Clinic Setup & Users', icon: Settings, restricted: true }
 ];
 
-import Dashboard from './components/Dashboard';
-import PatientDesk from './components/PatientDesk';
-import EMRDesk from './components/EMRDesk';
-import PharmacyPOS from './components/PharmacyPOS';
-import AccountingDesk from './components/AccountingDesk';
-import UploadingDesk from './components/UploadingDesk';
-import SettingsDesk from './components/SettingsDesk';
-import ReportingDesk from './components/ReportingDesk';
+// Lazy-loaded Major Modules for React Suspense
+const Dashboard = lazy(() => import('./components/Dashboard'));
+const PatientDesk = lazy(() => import('./components/PatientDesk'));
+const PharmacyPOS = lazy(() => import('./components/PharmacyPOS'));
+const AccountingDesk = lazy(() => import('./components/AccountingDesk'));
+const UploadingDesk = lazy(() => import('./components/UploadingDesk'));
+const SettingsDesk = lazy(() => import('./components/SettingsDesk'));
+const ReportingDesk = lazy(() => import('./components/ReportingDesk'));
+const NhcPatientHistoryDesk = lazy(() => import('./components/NhcPatientHistoryDesk'));
+const QueryHandlerDesk = lazy(() => import('./components/QueryHandlerDesk'));
+
 import LoginDesk from './components/LoginDesk';
-import NhcPatientHistoryDesk from './components/NhcPatientHistoryDesk';
-import QueryHandlerDesk from './components/QueryHandlerDesk';
+import { TopProgressBar, GlobalLoadingOverlay } from './components/LoadingIndicator';
+import {
+  DashboardSkeleton,
+  PatientDeskSkeleton,
+  PharmacyPOSSkeleton,
+  AccountingDeskSkeleton,
+  UploadingDeskSkeleton,
+  ReportingDeskSkeleton,
+  SettingsDeskSkeleton,
+  NhcPatientHistoryDeskSkeleton,
+  QueryHandlerDeskSkeleton,
+  GenericModuleSkeleton
+} from './components/ModuleSkeletons';
 import { ClinicSettings, SmsSettings, MongoDbSettings } from './types';
 
 export default function App() {
@@ -104,7 +120,11 @@ export default function App() {
     const cachedUser = localStorage.getItem('cms_current_user');
     if (cachedUser) {
       try {
-        return JSON.parse(cachedUser);
+        const parsed = JSON.parse(cachedUser);
+        if (parsed.UserID === 'USR-04' && parsed.FullName === 'Sana Fatima (R.Ph)') {
+          parsed.FullName = 'Store User';
+        }
+        return parsed;
       } catch (e) {}
     }
     return INITIAL_USERS[0]; // Default: Admin
@@ -123,6 +143,14 @@ export default function App() {
   }, [usersList, currentUser.UserID]);
 
   const [activeTab, setActiveTab] = useState<string>('dashboard');
+
+  const handleTabChange = (tabId: string) => {
+    if (tabId === activeTab) return;
+    setActiveTab(tabId);
+  };
+
+  // User Profile Popover Modal State
+  const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
 
   // Global Unauthorized Modal State
   const [unauthorizedModalState, setUnauthorizedModalState] = useState<{
@@ -212,6 +240,7 @@ export default function App() {
 
 
   // Master Database States
+  const [isDoctorFocusMode, setIsDoctorFocusMode] = useState<boolean>(false);
   const [patients, setPatients] = useState<Patient[]>(INITIAL_PATIENTS);
   const [appointments, setAppointments] = useState<Appointment[]>(INITIAL_APPOINTMENTS);
   const [tokens, setTokens] = useState<Token[]>(INITIAL_TOKENS);
@@ -1976,7 +2005,8 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-slate-100 overflow-hidden font-sans antialiased" id="punjab-cms-app">
+    <div className="flex h-screen bg-slate-100 overflow-hidden font-sans antialiased relative" id="punjab-cms-app">
+      <TopProgressBar active={isRefreshing} />
       {/* Main workspace container with Bento theme layout */}
       <main className="flex-1 flex flex-col min-w-0 bg-slate-100 relative overflow-hidden h-screen" id="main-workspace">
         
@@ -1988,7 +2018,7 @@ export default function App() {
               {clinicSettings.ClinicName || 'Punjab Homeopathic Clinic'}
             </h1>
           </div>
-          <div className="flex items-center space-x-3 lg:space-x-5 text-sm">
+          <div className="flex items-center space-x-3 lg:space-x-4 text-sm">
             <button
               onClick={refreshAllData}
               disabled={isRefreshing}
@@ -2006,17 +2036,149 @@ export default function App() {
                 {currentUser.AssignedShift === 1 ? 'Morning (08:00 - 14:00)' : currentUser.AssignedShift === 2 ? 'Evening (17:00 - 21:00)' : 'Both Shifts'}
               </span>
             </div>
+            
             <div className="hidden md:block h-8 w-[1px] bg-blue-700"></div>
-            <div className="flex items-center space-x-2 bg-blue-800 px-3 py-1.5 rounded-full text-xs border border-blue-700">
-              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-              <span className="font-medium italic text-xxs">Terminal: T-01</span>
-            </div>
-            <div className="flex items-center space-x-2 border-l border-blue-700 pl-4 lg:pl-6">
-              <div className="w-8 h-8 rounded-full bg-slate-700 border border-white flex items-center justify-center font-bold text-xs text-blue-300 uppercase">
-                {currentUser.FullName.charAt(0)}
+
+            {/* Role Swap dropdown inside Top Header */}
+            {currentUser.Role === 'Administrator' && (
+              <div className="flex items-center space-x-1.5 bg-blue-800/90 px-2.5 py-1.5 rounded-lg border border-blue-700 shadow-sm">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span className="hidden xl:inline text-[10px] font-extrabold text-blue-200 uppercase tracking-wider">Role Swap:</span>
+                <select
+                  value={currentUser.UserID}
+                  onChange={(e) => {
+                    const selected = usersList.find((u) => u.UserID === e.target.value);
+                    if (selected) {
+                      setCurrentUser(selected);
+                      
+                      // Validate authorizations for new switched user
+                      const isAdmin = selected.Role === 'Administrator';
+                      const isAccountant = selected.Role === 'Accountant';
+                      const canAccessReports = isAdmin || isAccountant;
+                      
+                      const fallbackDesk = selected.Role === 'Pharmacist' ? 'pharmacy' : selected.Role === 'Accountant' ? 'accounts' : 'patients';
+                      if (activeTab === 'dashboard' && !isAdmin) {
+                        handleTabChange(fallbackDesk);
+                      } else if (activeTab === 'settings' && !isAdmin) {
+                        handleTabChange(fallbackDesk);
+                      } else if (activeTab === 'uploads' && !isAdmin) {
+                        handleTabChange(fallbackDesk);
+                      } else if (activeTab === 'reports' && !canAccessReports) {
+                        handleTabChange(fallbackDesk);
+                      } else if (selected.Role === 'Doctor' && activeTab === 'accounts') {
+                        handleTabChange('patients');
+                      } else if (selected.Role === 'Pharmacist' && activeTab === 'accounts') {
+                        handleTabChange('pharmacy');
+                      } else if (selected.Role === 'Accountant' && activeTab === 'patients') {
+                        handleTabChange('accounts');
+                      } else if (selected.Role === 'Receptionist' && activeTab === 'accounts') {
+                        handleTabChange('patients');
+                      }
+                    }
+                  }}
+                  className="bg-blue-950 text-white font-bold text-xs rounded px-2 py-1 border border-blue-600 focus:outline-none focus:ring-1 focus:ring-emerald-400 cursor-pointer"
+                  id="top-role-selector"
+                >
+                  {usersList
+                    .filter((usr) => canUserAccessTargetUser(usr))
+                    .map((usr) => (
+                      <option key={usr.UserID} value={usr.UserID} className="bg-slate-900 text-white">
+                        {usr.FullName} ({usr.Role})
+                      </option>
+                    ))}
+                </select>
               </div>
-              <span className="font-medium text-xs hidden sm:inline">{currentUser.FullName}</span>
+            )}
+
+            {/* Interactive User Profile Pill & Profile Details Card */}
+            <div className="relative">
+              <button
+                onClick={() => setShowProfileModal(!showProfileModal)}
+                className="flex items-center space-x-2 bg-blue-800/90 hover:bg-blue-700/90 active:bg-blue-800 border border-blue-700 px-3 py-1.5 rounded-lg text-xs transition cursor-pointer shadow-sm"
+                title="Click to view User Profile & Account Details"
+                id="top-user-profile-btn"
+              >
+                <div className="w-7 h-7 rounded-full bg-emerald-600 border border-white flex items-center justify-center font-black text-xs text-white uppercase shadow-xs">
+                  {currentUser.FullName.charAt(0)}
+                </div>
+                <div className="text-left hidden sm:block">
+                  <div className="font-bold text-xs text-white leading-tight">{currentUser.FullName}</div>
+                  <div className="text-[9px] font-bold text-emerald-300 leading-none uppercase tracking-wider">{currentUser.Role}</div>
+                </div>
+                <ChevronDown className={`w-3.5 h-3.5 text-blue-200 transition-transform duration-150 ${showProfileModal ? 'rotate-180' : ''}`} />
+              </button>
+
+              {/* User Profile Details Dropdown Card */}
+              {showProfileModal && (
+                <div className="absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 text-slate-800 p-5 z-50 animate-fadeIn">
+                  <div className="flex items-center space-x-3.5 pb-4 border-b border-slate-100">
+                    <div className="w-12 h-12 rounded-full bg-blue-900 text-emerald-400 border-2 border-emerald-400 flex items-center justify-center font-black text-xl uppercase shadow-md shrink-0">
+                      {currentUser.FullName.charAt(0)}
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="font-bold text-sm text-slate-900 truncate">{currentUser.FullName}</h4>
+                      <span className="inline-block bg-blue-100 text-blue-800 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-wider mt-0.5">
+                        {currentUser.Role}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="py-3 space-y-2.5 text-xs">
+                    <div className="flex justify-between items-center py-1 border-b border-slate-50">
+                      <span className="text-slate-500 font-medium">User ID:</span>
+                      <span className="font-mono font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded">{currentUser.UserID}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-50">
+                      <span className="text-slate-500 font-medium">Username:</span>
+                      <span className="font-mono font-bold text-slate-800">{currentUser.LoginName}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-50">
+                      <span className="text-slate-500 font-medium">Assigned Shift:</span>
+                      <span className="font-bold text-emerald-700">
+                        {currentUser.AssignedShift === 1 ? 'Morning (08:00 - 14:00)' : currentUser.AssignedShift === 2 ? 'Evening (17:00 - 21:00)' : 'Both Shifts'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-slate-50">
+                      <span className="text-slate-500 font-medium">Access Status:</span>
+                      <span className="inline-flex items-center text-xs font-bold text-emerald-600">
+                        <span className="w-2 h-2 bg-emerald-500 rounded-full mr-1.5 animate-pulse"></span> Active Session
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                    <button
+                      onClick={() => setShowProfileModal(false)}
+                      className="text-xs font-bold text-slate-500 hover:text-slate-800 px-3 py-1.5 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+                    >
+                      Close
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowProfileModal(false);
+                        handleLogout();
+                      }}
+                      className="flex items-center space-x-1.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-extrabold text-xs px-3.5 py-1.5 rounded-lg transition shadow-sm cursor-pointer"
+                      id="profile-card-logout-btn"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>Exit System</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
+
+            {/* Direct Exit Button inside Top Header */}
+            <button
+              onClick={handleLogout}
+              className="bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white font-extrabold text-xs px-3.5 py-1.5 rounded-lg border border-rose-400/40 shadow-sm flex items-center space-x-1.5 transition cursor-pointer shrink-0"
+              title="Exit system and log out"
+              id="top-exit-btn"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="uppercase tracking-wider text-[11px]">Exit</span>
+            </button>
           </div>
         </header>
 
@@ -2032,8 +2194,8 @@ export default function App() {
         )}
 
         {/* Upper Navigation Tabs Row */}
-        <div className="bg-white border-b border-slate-200 px-6 py-2 flex flex-col lg:flex-row lg:items-center justify-between shadow-sm shrink-0 gap-3">
-          <div className="flex-1 min-w-0 flex items-center space-x-1.5 overflow-x-auto pb-1 lg:pb-0 scrollbar-none pr-4">
+        <div className="bg-white border-b border-slate-200 px-3.5 py-1 flex flex-col lg:flex-row lg:items-center justify-between shadow-xs shrink-0 gap-1.5">
+          <div className="flex-1 min-w-0 flex items-center space-x-1 overflow-x-auto py-0.5 scrollbar-none pr-1">
             {MENU_ITEMS.filter((item) => {
               if (currentUser.Role !== 'Administrator' && item.id === 'dashboard') {
                 return false;
@@ -2044,245 +2206,209 @@ export default function App() {
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveTab(item.id)}
-                  className={`flex items-center space-x-2 px-3.5 py-2 rounded-lg text-xxs font-bold uppercase tracking-wider transition-all duration-150 shrink-0 cursor-pointer ${
+                  onClick={() => handleTabChange(item.id)}
+                  className={`flex items-center space-x-1 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-tight transition-all duration-150 shrink-0 cursor-pointer ${
                     active
-                      ? 'bg-blue-600 text-white shadow-md shadow-blue-500/10'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
                   }`}
                   id={`nav-btn-${item.id}`}
                 >
-                  <item.icon className={`w-3.5 h-3.5 shrink-0 ${active ? 'text-white' : 'text-slate-400'}`} />
-                  <span>{item.label}</span>
+                  <item.icon className={`w-3 h-3 shrink-0 ${active ? 'text-white' : 'text-slate-400'}`} />
+                  <span className="whitespace-nowrap">{item.label}</span>
                 </button>
               );
             })}
           </div>
 
-          {/* Swapper Dropdown inside Tab Bar (Shown ONLY to Administrator) */}
-          <div className="flex items-center space-x-3 shrink-0 ml-0 lg:ml-4 border-t lg:border-t-0 lg:border-l border-slate-200 pt-2 lg:pt-0 pl-0 lg:pl-4">
-            {currentUser.Role === 'Administrator' && (
-              <div className="flex items-center space-x-2">
-                <div className="flex items-center space-x-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                  <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
-                  <span className="hidden lg:inline">Role Swap:</span>
-                </div>
-                
-                <select
-                  value={currentUser.UserID}
-                  onChange={(e) => {
-                    const selected = usersList.find((u) => u.UserID === e.target.value);
-                    if (selected) {
-                      setCurrentUser(selected);
-                      
-                      // Validate authorizations for new switched user
-                      const isAdmin = selected.Role === 'Administrator';
-                      const isAccountant = selected.Role === 'Accountant';
-                      const canAccessReports = isAdmin || isAccountant;
-                      
-                      const fallbackDesk = selected.Role === 'Pharmacist' ? 'pharmacy' : selected.Role === 'Accountant' ? 'accounts' : 'patients';
-                      if (activeTab === 'dashboard' && !isAdmin) {
-                        setActiveTab(fallbackDesk);
-                      } else if (activeTab === 'settings' && !isAdmin) {
-                        setActiveTab(fallbackDesk);
-                      } else if (activeTab === 'uploads' && !isAdmin) {
-                        setActiveTab(fallbackDesk);
-                      } else if (activeTab === 'reports' && !canAccessReports) {
-                        setActiveTab(fallbackDesk);
-                      } else if (selected.Role === 'Doctor' && activeTab === 'accounts') {
-                        setActiveTab('patients');
-                      } else if (selected.Role === 'Pharmacist' && activeTab === 'accounts') {
-                        setActiveTab('pharmacy');
-                      } else if (selected.Role === 'Accountant' && activeTab === 'patients') {
-                        setActiveTab('accounts');
-                      } else if (selected.Role === 'Receptionist' && activeTab === 'accounts') {
-                        setActiveTab('patients');
-                      }
-                    }
-                  }}
-                  className="bg-slate-50 border border-slate-200 text-slate-700 font-bold text-xxs rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500 focus:outline-none cursor-pointer"
-                  id="upper-role-selector"
-                >
-                  {usersList
-                    .filter((usr) => canUserAccessTargetUser(usr))
-                    .map((usr) => (
-                      <option key={usr.UserID} value={usr.UserID}>
-                        {usr.FullName} ({usr.Role})
-                      </option>
-                    ))}
-                </select>
-              </div>
-            )}
-
+          <div className="flex items-center space-x-1.5 shrink-0">
             <button
               onClick={refreshAllData}
               disabled={isRefreshing}
-              className="bg-slate-50 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200 hover:border-emerald-300 text-slate-700 text-xxs font-extrabold px-3 py-1.5 rounded-lg flex items-center space-x-1.5 transition cursor-pointer disabled:opacity-50"
+              className="bg-slate-50 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200 hover:border-emerald-300 text-slate-700 text-[10px] font-extrabold px-2.5 py-1 rounded-md flex items-center space-x-1 transition cursor-pointer disabled:opacity-50 shrink-0"
               title="Click to fetch latest updates and refresh records across all modules"
             >
               <RefreshCw className={`w-3 h-3 text-emerald-600 ${isRefreshing ? 'animate-spin' : ''}`} />
-              <span className="uppercase tracking-wider text-[10px]">{isRefreshing ? 'Syncing...' : 'Refresh'}</span>
-            </button>
-
-            <button
-              onClick={handleLogout}
-              className="bg-slate-50 hover:bg-rose-50 hover:text-rose-600 border border-slate-200 hover:border-rose-200 text-slate-500 text-xxs font-bold px-3 py-1.5 rounded-lg flex items-center space-x-1 transition cursor-pointer"
-            >
-              <LogOut className="w-3 h-3" />
-              <span className="uppercase tracking-wider text-[10px]">Exit</span>
+              <span className="uppercase tracking-tight text-[9.5px]">{isRefreshing ? 'Syncing...' : 'Refresh'}</span>
             </button>
           </div>
         </div>
 
         {/* Viewport for Active Tabs */}
         <div className="flex-1 overflow-hidden relative flex flex-col bg-slate-100">
+          <GlobalLoadingOverlay
+            isLoading={isRefreshing}
+            message="Synchronizing Data with Server..."
+            subMessage="Fetching latest updates across database collections"
+          />
           {activeTab === 'dashboard' && (
-            <Dashboard
-              patients={patients}
-              appointments={filteredAppointments}
-              tokens={filteredTokens}
-              items={items}
-              accounts={tlAccounts}
-              config={INITIAL_CONFIG}
-              vouchers={vouchers}
-            />
+            <Suspense fallback={<DashboardSkeleton />}>
+              <Dashboard
+                patients={patients}
+                appointments={filteredAppointments}
+                tokens={filteredTokens}
+                items={items}
+                accounts={tlAccounts}
+                config={INITIAL_CONFIG}
+                vouchers={vouchers}
+                invoices={invoices}
+                salesReturns={salesReturns}
+                visits={visits}
+              />
+            </Suspense>
           )}
 
           {activeTab === 'nhc_history' && (
-            <NhcPatientHistoryDesk
-              mongoDbSettings={mongoDbSettings}
-              setNhcPatients={setNhcPatients}
-            />
+            <Suspense fallback={<NhcPatientHistoryDeskSkeleton />}>
+              <NhcPatientHistoryDesk
+                mongoDbSettings={mongoDbSettings}
+                setNhcPatients={setNhcPatients}
+              />
+            </Suspense>
           )}
 
           {activeTab === 'patients' && currentUserRights.find(r => r.MenuID === 'patients')?.Status && (
-            <PatientDesk
-              patients={patients}
-              onAddPatient={handleAddPatient}
-              appointments={filteredAppointments}
-              onAddAppointment={handleAddAppointment}
-              onUpdateAppointment={handleUpdateAppointment}
-              onDeleteAppointment={handleDeleteAppointment}
-              onUpdateAppointmentStatus={handleUpdateAppointmentStatus}
-              tokens={filteredTokens}
-              onAddToken={handleAddToken}
-              onUpdateTokenStatus={handleUpdateTokenStatus}
-              cities={INITIAL_CITIES}
-              userRights={currentUserRights}
-              smsSettings={smsSettings}
-              nhcPatients={nhcPatients}
-              clinicSettings={clinicSettings}
-              visits={visits}
-              visitMedicines={visitMedicines}
-              onAddVisit={handleAddVisit}
-              onUpdatePatient={handleUpdatePatient}
-              items={items}
-              currentUser={currentUser}
-              labTests={labTests}
-              smartLocatorMedicines={smartLocatorMedicines}
-              invoices={invoices}
-              onUnauthorized={triggerGlobalUnauthorized}
-            />
+            <Suspense fallback={<PatientDeskSkeleton />}>
+              <PatientDesk
+                patients={patients}
+                onAddPatient={handleAddPatient}
+                appointments={filteredAppointments}
+                onAddAppointment={handleAddAppointment}
+                onUpdateAppointment={handleUpdateAppointment}
+                onDeleteAppointment={handleDeleteAppointment}
+                onUpdateAppointmentStatus={handleUpdateAppointmentStatus}
+                tokens={filteredTokens}
+                onAddToken={handleAddToken}
+                onUpdateTokenStatus={handleUpdateTokenStatus}
+                cities={INITIAL_CITIES}
+                userRights={currentUserRights}
+                smsSettings={smsSettings}
+                nhcPatients={nhcPatients}
+                clinicSettings={clinicSettings}
+                visits={visits}
+                visitMedicines={visitMedicines}
+                onAddVisit={handleAddVisit}
+                onUpdatePatient={handleUpdatePatient}
+                items={items}
+                currentUser={currentUser}
+                labTests={labTests}
+                smartLocatorMedicines={smartLocatorMedicines}
+                invoices={invoices}
+                onUnauthorized={triggerGlobalUnauthorized}
+              />
+            </Suspense>
           )}
 
           {activeTab === 'pharmacy' && currentUserRights.find(r => r.MenuID === 'pharmacy')?.Status && (
-            <PharmacyPOS
-              patients={patients}
-              items={items}
-              onUpdateItemStock={handleUpdateItemStock}
-              setItems={setItems}
-              suppliers={suppliers}
-              setSuppliers={setSuppliers}
-              invoices={filteredInvoices}
-              invoiceDetails={invoiceDetails}
-              onAddInvoice={handleAddInvoice}
-              onAddSalesReturn={handleAddSalesReturn}
-              grns={grns}
-              grnDetails={grnDetails}
-              onAddGRN={handleAddGRN}
-              onUpdateGRN={handleUpdateGRN}
-              onVoidGRN={handleVoidGRN}
-              userRights={currentUserRights}
-              visits={visits}
-              visitMedicines={visitMedicines}
-              appointments={appointments}
-              tokens={tokens}
-              clinicSettings={clinicSettings}
-              currentUser={currentUser}
-              onUnauthorized={triggerGlobalUnauthorized}
-            />
+            <Suspense fallback={<PharmacyPOSSkeleton />}>
+              <PharmacyPOS
+                patients={patients}
+                items={items}
+                onUpdateItemStock={handleUpdateItemStock}
+                setItems={setItems}
+                suppliers={suppliers}
+                setSuppliers={setSuppliers}
+                invoices={filteredInvoices}
+                invoiceDetails={invoiceDetails}
+                onAddInvoice={handleAddInvoice}
+                onAddSalesReturn={handleAddSalesReturn}
+                grns={grns}
+                grnDetails={grnDetails}
+                onAddGRN={handleAddGRN}
+                onUpdateGRN={handleUpdateGRN}
+                onVoidGRN={handleVoidGRN}
+                userRights={currentUserRights}
+                visits={visits}
+                visitMedicines={visitMedicines}
+                appointments={appointments}
+                tokens={tokens}
+                clinicSettings={clinicSettings}
+                currentUser={currentUser}
+                onUnauthorized={triggerGlobalUnauthorized}
+              />
+            </Suspense>
           )}
 
           {activeTab === 'accounts' && currentUserRights.find(r => r.MenuID === 'accounts')?.Status && (
-            <AccountingDesk
-              flAccounts={flAccounts}
-              slAccounts={slAccounts}
-              tlAccounts={tlAccounts}
-              onUpdateAccountBalance={handleUpdateAccountBalance}
-              vouchers={vouchers}
-              voucherDetails={voucherDetails}
-              onAddVoucher={handleAddVoucher}
-              acLedger={acLedger}
-              userRights={currentUserRights}
-              onAddAccount={handleAddAccount}
-              onDeleteAccount={handleDeleteAccount}
-              items={items}
-              grns={grns}
-              grnDetails={grnDetails}
-              invoices={invoices}
-              invoiceDetails={invoiceDetails}
-              currentUser={currentUser}
-              onUnauthorized={triggerGlobalUnauthorized}
-            />
+            <Suspense fallback={<AccountingDeskSkeleton />}>
+              <AccountingDesk
+                flAccounts={flAccounts}
+                slAccounts={slAccounts}
+                tlAccounts={tlAccounts}
+                onUpdateAccountBalance={handleUpdateAccountBalance}
+                vouchers={vouchers}
+                voucherDetails={voucherDetails}
+                onAddVoucher={handleAddVoucher}
+                acLedger={acLedger}
+                userRights={currentUserRights}
+                onAddAccount={handleAddAccount}
+                onDeleteAccount={handleDeleteAccount}
+                items={items}
+                grns={grns}
+                grnDetails={grnDetails}
+                invoices={invoices}
+                invoiceDetails={invoiceDetails}
+                currentUser={currentUser}
+                onUnauthorized={triggerGlobalUnauthorized}
+              />
+            </Suspense>
           )}
 
           {activeTab === 'uploads' && isAccessible('uploads') && (
-            <UploadingDesk
-              items={items}
-              setItems={setItems}
-              labTests={labTests}
-              setLabTests={setLabTests}
-              mongoDbSettings={mongoDbSettings}
-              nhcPatients={nhcPatients}
-              setNhcPatients={setNhcPatients}
-              smartLocatorMedicines={smartLocatorMedicines}
-              setSmartLocatorMedicines={setSmartLocatorMedicines}
-            />
+            <Suspense fallback={<UploadingDeskSkeleton />}>
+              <UploadingDesk
+                items={items}
+                setItems={setItems}
+                labTests={labTests}
+                setLabTests={setLabTests}
+                mongoDbSettings={mongoDbSettings}
+                nhcPatients={nhcPatients}
+                setNhcPatients={setNhcPatients}
+                smartLocatorMedicines={smartLocatorMedicines}
+                setSmartLocatorMedicines={setSmartLocatorMedicines}
+              />
+            </Suspense>
           )}
 
           {activeTab === 'reports' && isAccessible('reports') && (
-            <ReportingDesk
-              invoices={invoices}
-              invoiceDetails={invoiceDetails}
-              salesReturns={salesReturns}
-              acLedger={acLedger}
-              tlAccounts={tlAccounts}
-              patients={patients}
-              appointments={appointments}
-              visits={visits}
-              visitMedicines={visitMedicines}
-              items={items}
-              currentUser={currentUser}
-              onUnauthorized={triggerGlobalUnauthorized}
-            />
+            <Suspense fallback={<ReportingDeskSkeleton />}>
+              <ReportingDesk
+                invoices={invoices}
+                invoiceDetails={invoiceDetails}
+                salesReturns={salesReturns}
+                acLedger={acLedger}
+                tlAccounts={tlAccounts}
+                patients={patients}
+                appointments={appointments}
+                visits={visits}
+                visitMedicines={visitMedicines}
+                items={items}
+                currentUser={currentUser}
+                onUnauthorized={triggerGlobalUnauthorized}
+              />
+            </Suspense>
           )}
 
           {activeTab === 'settings' && isAccessible('settings') && (
-            <SettingsDesk
-              clinicSettings={clinicSettings}
-              setClinicSettings={setClinicSettings}
-              usersList={usersList}
-              setUsersList={setUsersList}
-              currentUser={currentUser}
-              smsSettings={smsSettings}
-              setSmsSettings={setSmsSettings}
-              mongoDbSettings={mongoDbSettings}
-              setMongoDbSettings={setMongoDbSettings}
-            />
+            <Suspense fallback={<SettingsDeskSkeleton />}>
+              <SettingsDesk
+                clinicSettings={clinicSettings}
+                setClinicSettings={setClinicSettings}
+                usersList={usersList}
+                setUsersList={setUsersList}
+                currentUser={currentUser}
+                smsSettings={smsSettings}
+                setSmsSettings={setSmsSettings}
+                mongoDbSettings={mongoDbSettings}
+                setMongoDbSettings={setMongoDbSettings}
+              />
+            </Suspense>
           )}
 
           {activeTab === 'query_handler' && isAccessible('query_handler') && (
-            <QueryHandlerDesk bridgeUrl={mongoDbSettings.BridgeUrl || 'http://localhost:5000'} />
+            <Suspense fallback={<QueryHandlerDeskSkeleton />}>
+              <QueryHandlerDesk bridgeUrl={mongoDbSettings.BridgeUrl || 'http://localhost:5000'} />
+            </Suspense>
           )}
         </div>
 
