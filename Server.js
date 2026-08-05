@@ -378,7 +378,9 @@ async function runAutoSeeder() {
       'invoice_headers', 'invoice_details', 'sales_returns', 'grns',
       'grn_details', 'accounts', 'vouchers', 'voucher_details', 'config',
       'clinic', 'sms', 'ac_ledger', 'nhc_patient_history', 'financial_grid_reports',
-      'suppliers', 'smart_locator_medicines'
+      'suppliers', 'smart_locator_medicines', 'medicine_barcode_mappings',
+      'erp_vendors', 'erp_purchase_orders', 'erp_transactions', 'erp_employees',
+      'erp_payroll', 'erp_expenses', 'erp_assets', 'erp_grn'
     ];
 
     // Explicitly create any missing collections and add search indexes
@@ -709,6 +711,90 @@ async function runAutoSeeder() {
       console.log('🌱 Seeded default smart locator medicines.');
     }
 
+    // 14. Mini ERP Vendors Seed
+    if ((await db.collection('erp_vendors').countDocuments()) === 0) {
+      await db.collection('erp_vendors').insertMany([
+        { VendorID: 'VND-001', VendorName: 'High-Tech Pharma Distributors Ltd', ContactPerson: 'Mr. Tariq Mahmood', Phone: '0300-1112223', Email: 'sales@hitechpharma.pk', Address: 'Brandreth Road, Lahore', TaxID: 'NTN-8912301', Balance: 45000, Status: 'Active' },
+        { VendorID: 'VND-002', VendorName: 'MedCare Global Supplies', ContactPerson: 'Sheikh Usman Ali', Phone: '0312-4445556', Email: 'info@medcare.pk', Address: 'Nishtar Road, Multan', TaxID: 'NTN-7612344', Balance: 18500, Status: 'Active' },
+        { VendorID: 'VND-003', VendorName: 'Homeo Care Labs Pakistan', ContactPerson: 'Dr. Salman Akram', Phone: '0333-7778889', Email: 'orders@homeocare.pk', Address: 'Circular Road, Rawalpindi', TaxID: 'NTN-5544332', Balance: 0, Status: 'Active' }
+      ]);
+      console.log('🌱 Seeded Mini ERP vendors table.');
+    }
+
+    // 15. Mini ERP Purchase Orders Seed
+    if ((await db.collection('erp_purchase_orders').countDocuments()) === 0) {
+      await db.collection('erp_purchase_orders').insertMany([
+        {
+          POID: 'PO-1001', VendorID: 'VND-001', VendorName: 'High-Tech Pharma Distributors Ltd', OrderDate: '2026-07-28', ExpectedDeliveryDate: '2026-08-05', TotalAmount: 85000, PaidAmount: 40000, Status: 'Sent', Notes: 'Urgent stock for dispensary antibiotics',
+          Items: [
+            { ItemID: 'ITM-001', ItemName: 'Panadol Extra 500mg', Qty: 200, UnitPrice: 120, LineTotal: 24000 },
+            { ItemID: 'ITM-002', ItemName: 'Augmentin 625mg', Qty: 100, UnitPrice: 610, LineTotal: 61000 }
+          ]
+        },
+        {
+          POID: 'PO-1002', VendorID: 'VND-002', VendorName: 'MedCare Global Supplies', OrderDate: '2026-07-30', ExpectedDeliveryDate: '2026-08-02', TotalAmount: 32000, PaidAmount: 32000, Status: 'Received', Notes: 'Syrup stock replenishment',
+          Items: [
+            { ItemID: 'ITM-003', ItemName: 'Syp Brufen 120ml', Qty: 150, UnitPrice: 140, LineTotal: 21000 },
+            { ItemID: 'ITM-004', ItemName: 'Flygyl 400mg Tab', Qty: 110, UnitPrice: 100, LineTotal: 11000 }
+          ]
+        }
+      ]);
+      console.log('🌱 Seeded Mini ERP purchase orders table.');
+    }
+
+    // 16. Mini ERP Transactions Ledger Seed
+    if ((await db.collection('erp_transactions').countDocuments()) === 0) {
+      await db.collection('erp_transactions').insertMany([
+        { TransactionID: 'TXN-8001', Type: 'Income', Category: 'Patient Consultation & Medicine Sales', Description: 'Daily Dispensary POS Cash Inflow', Amount: 145000, PaymentMethod: 'Cash', ReferenceNo: 'POS-BATCH-20260801', Date: '2026-08-01', CreatedBy: 'Admin' },
+        { TransactionID: 'TXN-8002', Type: 'Expense', Category: 'Pharmacy Electricity Utility Bill', Description: 'LESCO Electricity Bill for July 2026', Amount: 38500, PaymentMethod: 'Bank', ReferenceNo: 'LESCO-99214', Date: '2026-08-01', CreatedBy: 'Accountant' },
+        { TransactionID: 'TXN-8003', Type: 'VendorPayment', Category: 'Vendor Balance Settlement', Description: 'Partial payment to High-Tech Pharma', Amount: 40000, PaymentMethod: 'Bank', ReferenceNo: 'CHQ-448102', Date: '2026-07-29', CreatedBy: 'Accountant' },
+        { TransactionID: 'TXN-8004', Type: 'PayrollPayment', Category: 'Monthly Staff Salary Disbursement', Description: 'Staff Payroll Disbursement for July 2026', Amount: 180000, PaymentMethod: 'Bank', ReferenceNo: 'PAY-JUL26', Date: '2026-08-01', CreatedBy: 'Admin' }
+      ]);
+      console.log('🌱 Seeded Mini ERP transactions table.');
+    }
+
+    // 17. Mini ERP Employees Seed
+    if ((await db.collection('erp_employees').countDocuments()) === 0) {
+      await db.collection('erp_employees').insertMany([
+        { EmployeeID: 'EMP-101', FullName: 'Dr. Zaigham Ali Anjum', Role: 'Chief Consultant Doctor', Department: 'Medical & EMR', Phone: '0300-8889991', Email: 'doctor@clinic.pk', JoiningDate: '2020-01-15', Salary: 250000, Status: 'Active', CNIC: '35202-1234567-1', BankAccount: 'PK36MEZN000102030405' },
+        { EmployeeID: 'EMP-102', FullName: 'M. Kashif Qadri', Role: 'Chief Pharmacist', Department: 'Pharmacy & Store', Phone: '0321-7776665', Email: 'kashif@pharmacy.pk', JoiningDate: '2021-03-01', Salary: 85000, Status: 'Active', CNIC: '35201-9876543-3', BankAccount: 'PK12HABB000987654321' },
+        { EmployeeID: 'EMP-103', FullName: 'Ayesha Bibi', Role: 'Senior Receptionist', Department: 'Administration', Phone: '0311-2223334', Email: 'ayesha@clinic.pk', JoiningDate: '2022-06-10', Salary: 45000, Status: 'Active', CNIC: '35202-5554443-2', BankAccount: 'PK90MCBB000112233445' },
+        { EmployeeID: 'EMP-104', FullName: 'Muhammad Rizwan', Role: 'Inventory & Store Officer', Department: 'Logistics', Phone: '0345-3332211', Email: 'rizwan@store.pk', JoiningDate: '2023-09-01', Salary: 50000, Status: 'Active', CNIC: '35203-1122334-5', BankAccount: 'PK45UBL000223344556' }
+      ]);
+      console.log('🌱 Seeded Mini ERP employees table.');
+    }
+
+    // 18. Mini ERP Payroll Seed
+    if ((await db.collection('erp_payroll').countDocuments()) === 0) {
+      await db.collection('erp_payroll').insertMany([
+        { PayrollID: 'PAY-2026-07-101', EmployeeID: 'EMP-101', EmployeeName: 'Dr. Zaigham Ali Anjum', MonthYear: '2026-07', BasicSalary: 250000, Allowances: 15000, Deductions: 5000, NetSalary: 260000, PaymentStatus: 'Paid', PaymentDate: '2026-08-01', PaymentMethod: 'Bank' },
+        { PayrollID: 'PAY-2026-07-102', EmployeeID: 'EMP-102', EmployeeName: 'M. Kashif Qadri', MonthYear: '2026-07', BasicSalary: 85000, Allowances: 5000, Deductions: 2000, NetSalary: 88000, PaymentStatus: 'Paid', PaymentDate: '2026-08-01', PaymentMethod: 'Bank' },
+        { PayrollID: 'PAY-2026-07-103', EmployeeID: 'EMP-103', EmployeeName: 'Ayesha Bibi', MonthYear: '2026-07', BasicSalary: 45000, Allowances: 2000, Deductions: 1000, NetSalary: 46000, PaymentStatus: 'Paid', PaymentDate: '2026-08-01', PaymentMethod: 'Cash' }
+      ]);
+      console.log('🌱 Seeded Mini ERP payroll table.');
+    }
+
+    // 19. Mini ERP Expenses Seed
+    if ((await db.collection('erp_expenses').countDocuments()) === 0) {
+      await db.collection('erp_expenses').insertMany([
+        { ExpenseID: 'EXP-501', Category: 'Utilities', Description: 'LESCO Electricity Monthly Bill', Amount: 38500, ExpenseDate: '2026-08-01', PaymentMethod: 'Bank', ReceiptRef: 'LESCO-99214' },
+        { ExpenseID: 'EXP-502', Category: 'Rent', Description: 'Clinic & Pharmacy Premises Monthly Rent', Amount: 120000, ExpenseDate: '2026-08-01', PaymentMethod: 'Bank', ReceiptRef: 'RENT-AUG26' },
+        { ExpenseID: 'EXP-503', Category: 'Refreshment', Description: 'Tea, Coffee & Water Refreshments for Patients and Staff', Amount: 6500, ExpenseDate: '2026-07-31', PaymentMethod: 'Cash', ReceiptRef: 'CASH-PETTY-09' },
+        { ExpenseID: 'EXP-504', Category: 'Maintenance', Description: 'Air Conditioner Service & Refrigeration Gas Refill', Amount: 14500, ExpenseDate: '2026-07-25', PaymentMethod: 'Cash', ReceiptRef: 'INV-AC-88' }
+      ]);
+      console.log('🌱 Seeded Mini ERP expenses table.');
+    }
+
+    // 20. Mini ERP Assets Seed
+    if ((await db.collection('erp_assets').countDocuments()) === 0) {
+      await db.collection('erp_assets').insertMany([
+        { AssetID: 'AST-101', AssetName: 'Haier Medical Refrigerator (Insulin & Cold Storage)', Category: 'Equipment', PurchaseDate: '2023-05-10', PurchaseCost: 185000, CurrentValue: 150000, DepreciationRate: 10, Status: 'Active' },
+        { AssetID: 'AST-102', AssetName: 'Thermal Receipt Printer & Barcode Scanner System', Category: 'IT Hardware', PurchaseDate: '2024-01-20', PurchaseCost: 65000, CurrentValue: 52000, DepreciationRate: 15, Status: 'Active' },
+        { AssetID: 'AST-103', AssetName: 'Doctor Consultation Desk & Ergonomic Executive Chairs', Category: 'Furniture', PurchaseDate: '2022-11-15', PurchaseCost: 120000, CurrentValue: 90000, DepreciationRate: 10, Status: 'Active' }
+      ]);
+      console.log('🌱 Seeded Mini ERP assets table.');
+    }
+
     console.log('⭐ Seeding verified. MongoDB structures are fully populated!');
     seederStatus = "Completed Successfully";
 
@@ -975,6 +1061,90 @@ app.delete('/api/items/:id', async (req, res) => {
     const { id } = req.params;
     await db.collection('items').deleteOne({ ItemID: id });
     res.json({ success: true, message: 'Medicine removed from database.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ------------------------------------------------------------------------------------------
+// 🏷️ MEDICINE BARCODE & QR CODE MAPPER MODULE
+// ------------------------------------------------------------------------------------------
+
+// Fetch all barcode mappings
+app.get('/api/barcode-mappings', async (req, res) => {
+  try {
+    const mappings = await db.collection('medicine_barcode_mappings').find({}).toArray();
+    res.json(mappings);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Fetch single mapping by barcode / raw text
+app.get('/api/barcode-mappings/:barcode', async (req, res) => {
+  try {
+    const { barcode } = req.params;
+    const mapping = await db.collection('medicine_barcode_mappings').findOne({ 
+      $or: [
+        { Barcode: barcode.trim() },
+        { Barcode: barcode.trim().toLowerCase() }
+      ]
+    });
+    if (!mapping) return res.status(404).json({ error: 'Barcode mapping not found.' });
+    res.json(mapping);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Save / Upsert Barcode Association
+app.post('/api/barcode-mappings', async (req, res) => {
+  try {
+    const { Barcode, ItemID, ItemName, VendorName, Notes, CreatedBy } = req.body;
+    if (!Barcode || !ItemID) {
+      return res.status(400).json({ error: 'Both Barcode and ItemID are required to map.' });
+    }
+
+    const trimmedBarcode = Barcode.trim();
+    const doc = {
+      Barcode: trimmedBarcode,
+      ItemID: ItemID.trim(),
+      ItemName: ItemName || '',
+      VendorName: VendorName || 'BM Private Limited',
+      Notes: Notes || '',
+      LinkedAt: new Date().toISOString(),
+      CreatedBy: CreatedBy || 'Pharmacist'
+    };
+
+    await db.collection('medicine_barcode_mappings').updateOne(
+      { Barcode: trimmedBarcode },
+      { $set: doc },
+      { upsert: true }
+    );
+
+    // Also update the VendorBarcode field in items collection for direct fast query
+    await db.collection('items').updateOne(
+      { ItemID: ItemID.trim() },
+      { $set: { VendorBarcode: trimmedBarcode } }
+    );
+
+    res.json({
+      success: true,
+      message: `Barcode "${trimmedBarcode}" successfully mapped to Item "${ItemID}" in MongoDB!`,
+      data: doc
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete Barcode Mapping
+app.delete('/api/barcode-mappings/:barcode', async (req, res) => {
+  try {
+    const { barcode } = req.params;
+    const trimmed = decodeURIComponent(barcode).trim();
+    await db.collection('medicine_barcode_mappings').deleteOne({ Barcode: trimmed });
+    res.json({ success: true, message: `Barcode mapping "${trimmed}" removed.` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2496,6 +2666,113 @@ app.post('/api/purchases', async (req, res) => {
   }
 });
 
+// Mini ERP Goods Received Note (GRN) Approval & Automatic Inventory Stock Sync
+app.post('/api/erp/grn/approve', async (req, res) => {
+  try {
+    const grn = req.body;
+    if (!grn || !grn.POID) {
+      return res.status(400).json({ error: 'Valid Purchase Order ID (POID) is required for GRN.' });
+    }
+
+    if (!grn.GRNID) grn.GRNID = `GRN-${Date.now().toString().slice(-4)}`;
+    if (!grn.ReceivedDate) grn.ReceivedDate = new Date().toISOString().split('T')[0];
+    grn.Status = 'Approved';
+
+    // 1. Save or update GRN in erp_grn
+    await db.collection('erp_grn').updateOne(
+      { GRNID: grn.GRNID },
+      { $set: grn },
+      { upsert: true }
+    );
+
+    // 2. Mark Purchase Order status as 'Received'
+    await db.collection('erp_purchase_orders').updateOne(
+      { POID: grn.POID },
+      { $set: { Status: 'Received' } }
+    );
+
+    // 3. Increment stock levels in items collection
+    if (Array.isArray(grn.Items)) {
+      for (const item of grn.Items) {
+        const qtyReceived = parseInt(item.ReceivedQty) || parseInt(item.Qty) || 0;
+        if (qtyReceived > 0) {
+          // Match item by ItemID or ItemName
+          const filter = item.ItemID ? { ItemID: item.ItemID } : { ItemName: item.ItemName };
+          await db.collection('items').updateOne(
+            filter,
+            { $inc: { CStock: qtyReceived } }
+          );
+        }
+      }
+    }
+
+    // 4. Record automated ERP Financial Ledger Transaction
+    const totalAmount = parseFloat(grn.TotalAmount) || 0;
+    const txn = {
+      TransactionID: `TXN-GRN-${Date.now().toString().slice(-4)}`,
+      Type: 'VendorInvoice',
+      Category: 'Inventory Inward Stock Replenishment',
+      Description: `Goods Received Note (${grn.GRNID}) for Purchase Order (${grn.POID}) from ${grn.VendorName || 'Supplier'}`,
+      Amount: totalAmount,
+      PaymentMethod: 'Online',
+      ReferenceNo: grn.ChallanNo || grn.GRNID,
+      Date: grn.ReceivedDate,
+      CreatedBy: grn.CreatedBy || 'System GRN Auto-Poster',
+      VendorID: grn.VendorID || '',
+      VendorName: grn.VendorName || ''
+    };
+
+    await db.collection('erp_transactions').insertOne(txn);
+
+    // 5. Update Vendor balance if VendorID or VendorName is present
+    if ((grn.VendorID || grn.VendorName) && totalAmount > 0) {
+      await db.collection('erp_vendors').updateOne(
+        grn.VendorID ? { VendorID: grn.VendorID } : { VendorName: grn.VendorName },
+        { $inc: { Balance: totalAmount } }
+      );
+    }
+
+    // 6. Double-Entry Posting to General Ledger (ac_ledger) & Chart of Accounts (accounts)
+    if (totalAmount > 0) {
+      const vchNo = `VCH-GRN-${Date.now().toString().slice(-4)}`;
+      const inventoryPosting = {
+        ACLedgerID: `LG-${vchNo}-1`,
+        VchNo: vchNo,
+        TxDate: grn.ReceivedDate,
+        TLID: 103001, // Inventory / Pharmacy Stock Ledger (Asset)
+        Debit: totalAmount,
+        Credit: 0,
+        Remarks: `GRN Stock Inward ${grn.GRNID} (Vendor Invoice: ${grn.SupplierInvoiceNo || 'N/A'}, DC: ${grn.ChallanNo || 'N/A'}) - Supplier: ${grn.VendorName || 'Vendor'}`
+      };
+      const apPosting = {
+        ACLedgerID: `LG-${vchNo}-2`,
+        VchNo: vchNo,
+        TxDate: grn.ReceivedDate,
+        TLID: 201001, // Accounts Payable (Liability)
+        Debit: 0,
+        Credit: totalAmount,
+        Remarks: `Vendor Bill Payable for GRN ${grn.GRNID} (Inv: ${grn.SupplierInvoiceNo || 'N/A'}) - Supplier: ${grn.VendorName || 'Vendor'}`
+      };
+
+      await Promise.all([
+        db.collection('ac_ledger').insertOne(inventoryPosting),
+        db.collection('ac_ledger').insertOne(apPosting),
+        // Update Chart of Accounts balances: Debit Inventory (+), Credit Accounts Payable (-)
+        db.collection('accounts').updateOne({ TLID: 103001 }, { $inc: { AcBalance: totalAmount } }),
+        db.collection('accounts').updateOne({ TLID: 201001 }, { $inc: { AcBalance: -totalAmount } })
+      ]);
+    }
+
+    res.json({
+      success: true,
+      message: `GRN ${grn.GRNID} approved! Inventory stock replenished and General Ledger updated with Accounts Payable posting.`,
+      GRNID: grn.GRNID
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ------------------------------------------------------------------------------------------
 // 🧪 NHC PATIENT HISTORY IMPORT & RETRIEVAL ROUTES
 // ------------------------------------------------------------------------------------------
@@ -2513,7 +2790,12 @@ app.get('/api/nhc-patient-history', async (req, res) => {
           const escapedTerm = term.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
           const termRegex = new RegExp(escapedTerm, 'i');
           const cleanTerm = term.replace(/[^0-9a-zA-Z]/g, '');
-          const cleanRegex = cleanTerm ? new RegExp(cleanTerm, 'i') : null;
+          const cleanDigits = term.replace(/[^0-9]/g, '');
+          const strippedDigits = cleanDigits.replace(/^0+/, '');
+
+          let normPhone = cleanDigits;
+          if (normPhone.startsWith('92') && normPhone.length >= 11) normPhone = normPhone.slice(2);
+          if (normPhone.startsWith('0') && normPhone.length >= 10) normPhone = normPhone.slice(1);
 
           const termFilters = [
             { PatientName: termRegex },
@@ -2527,9 +2809,39 @@ app.get('/api/nhc-patient-history', async (req, res) => {
             { Symptoms: termRegex }
           ];
 
-          if (cleanRegex) {
-            termFilters.push({ PatientID: cleanRegex });
-            termFilters.push({ PhoneMobile: cleanRegex });
+          if (cleanTerm) {
+            termFilters.push({ PatientID: new RegExp(cleanTerm, 'i') });
+            termFilters.push({ PhoneMobile: new RegExp(cleanTerm, 'i') });
+          }
+
+          if (cleanDigits) {
+            termFilters.push({ PhoneMobile: new RegExp(cleanDigits, 'i') });
+            termFilters.push({ PatientID: new RegExp(cleanDigits, 'i') });
+
+            if (normPhone) {
+              termFilters.push({ PhoneMobile: new RegExp(normPhone, 'i') });
+              termFilters.push({ PhoneMobile: new RegExp('0' + normPhone, 'i') });
+              termFilters.push({ PhoneMobile: new RegExp('92' + normPhone, 'i') });
+              termFilters.push({ PhoneMobile: new RegExp('\\+92' + normPhone, 'i') });
+            }
+
+            if (strippedDigits) {
+              termFilters.push({ PatientID: new RegExp(strippedDigits, 'i') });
+            }
+
+            // Numeric comparisons if PhoneMobile or PatientID stored as BSON Number
+            const numVal = parseInt(cleanDigits, 10);
+            if (!isNaN(numVal)) {
+              termFilters.push({ PatientID: numVal });
+              termFilters.push({ PhoneMobile: numVal });
+            }
+            if (normPhone && normPhone !== cleanDigits) {
+              const normNumVal = parseInt(normPhone, 10);
+              if (!isNaN(normNumVal)) {
+                termFilters.push({ PatientID: normNumVal });
+                termFilters.push({ PhoneMobile: normNumVal });
+              }
+            }
           }
 
           return { $or: termFilters };

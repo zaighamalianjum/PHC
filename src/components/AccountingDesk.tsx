@@ -25,7 +25,8 @@ import {
   Coins,
   ArrowRight,
   X,
-  PlusIcon
+  PlusIcon,
+  RotateCcw
 } from 'lucide-react';
 import {
   FLAccount,
@@ -339,6 +340,17 @@ export default function AccountingDesk({
     }
   };
 
+  // Reset all General Ledger account balances to zero
+  const handleResetAllBalancesToZero = () => {
+    if (window.confirm('Are you sure you want to reset all General Ledger account balances to Rs. 0?')) {
+      tlAccounts.forEach(acc => {
+        if (acc.AcBalance !== 0) {
+          onUpdateAccountBalance(acc.TLID, 0);
+        }
+      });
+    }
+  };
+
   // Details helper for selected account ledger logs
   const selectedAccountDetails = tlAccounts.find((t) => t.TLID === selectedTlid);
   const accountLedgerPostings = acLedger.filter((l) => l.TLID === selectedTlid);
@@ -489,16 +501,26 @@ export default function AccountingDesk({
                 <p className="text-[10px] text-slate-400 mt-0.5 font-medium">Click Level-1/Level-2 items to expand, select Level-3 to audit statements.</p>
               </div>
 
-              {/* COA Search filter */}
-              <div className="relative">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-                <input
-                  type="text"
-                  placeholder="Search ledger accounts..."
-                  value={coaSearch}
-                  onChange={(e) => setCoaSearch(e.target.value)}
-                  className="pl-8 pr-3 py-1.5 text-xxs font-medium border border-slate-200 rounded-lg w-44 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                />
+              {/* COA Controls & Search filter */}
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={handleResetAllBalancesToZero}
+                  title="Reset all General Ledger account balances to Rs. 0"
+                  className="px-2.5 py-1.5 text-[10px] font-extrabold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition flex items-center space-x-1 cursor-pointer shrink-0"
+                >
+                  <RotateCcw className="w-3 h-3 text-rose-600" />
+                  <span>Reset Balances to 0</span>
+                </button>
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                  <input
+                    type="text"
+                    placeholder="Search ledger accounts..."
+                    value={coaSearch}
+                    onChange={(e) => setCoaSearch(e.target.value)}
+                    className="pl-8 pr-3 py-1.5 text-xxs font-medium border border-slate-200 rounded-lg w-36 xs:w-44 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  />
+                </div>
               </div>
             </div>
 
@@ -647,9 +669,20 @@ export default function AccountingDesk({
                     <h4 className="font-extrabold text-sm tracking-tight text-white mt-1">{selectedAccountDetails.TLName}</h4>
                     <p className="text-[9px] text-slate-400 font-bold font-mono">Account ID Code: [ {selectedAccountDetails.TLID} ]</p>
                     
-                    <div className="pt-2.5 border-t border-slate-800/80 flex justify-between items-baseline">
+                    <div className="pt-2.5 border-t border-slate-800/80 flex justify-between items-center">
                       <span className="text-[10px] text-slate-400 font-medium">Running Trial Balance:</span>
-                      <strong className="text-base font-bold font-mono text-emerald-400">Rs. {selectedAccountDetails.AcBalance.toLocaleString()}</strong>
+                      <div className="flex items-center space-x-2">
+                        <strong className="text-base font-bold font-mono text-emerald-400">Rs. {selectedAccountDetails.AcBalance.toLocaleString()}</strong>
+                        {selectedAccountDetails.AcBalance !== 0 && (
+                          <button
+                            onClick={() => onUpdateAccountBalance(selectedAccountDetails.TLID, 0)}
+                            className="text-[9.5px] font-extrabold text-rose-300 hover:text-white bg-rose-950/80 hover:bg-rose-900 border border-rose-800/80 px-2 py-0.5 rounded transition cursor-pointer"
+                            title="Set this account balance to zero (Rs. 0)"
+                          >
+                            Set Zero
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
 

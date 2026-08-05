@@ -47,13 +47,29 @@ export interface Token {
 export interface Item {
   ItemID: string;
   ItemName: string;
-  Price: number; // Retail price
+  Price: number; // Retail price / MRP
   PurchasePrice: number; // Purchase price
   CStock: number; // Current stock
   MinStock: number; // Minimum threshold
   Unit: string; // e.g., Tab, Syrup, Amp, Cap
   MedicineType?: 'C' | 'P';
+  Category?: string;
   ReorderQty?: number; // Buy or reorder QTY
+  VendorBarcode?: string; // Optional vendor/manufacturer barcode or QR code mapping (e.g. BM Private Limited QR code)
+  BatchNo?: string; // e.g. B# 115
+  MfgDate?: string; // e.g. Mfg: 05-26
+  ExpDate?: string; // e.g. Exp: 05-31
+}
+
+export interface BarcodeMapping {
+  _id?: string;
+  Barcode: string;      // Scanned raw barcode / QR code text
+  ItemID: string;       // Inventory medicine ItemID
+  ItemName?: string;    // Inventory medicine name cache
+  VendorName?: string;  // e.g., "BM Private Limited"
+  Notes?: string;
+  LinkedAt?: string;
+  CreatedBy?: string;
 }
 
 export interface Supplier {
@@ -267,6 +283,9 @@ export interface User {
   Role: 'Administrator' | 'Doctor' | 'Receptionist' | 'Pharmacist' | 'Accountant';
   AssignedShift?: 1 | 2 | 'Both'; // 1 = Morning, 2 = Evening, 'Both' = Unrestricted
   Status?: 'Active' | 'Inactive';
+  MobileNumber?: string;
+  CNIC?: string;
+  NickName?: string;
   Permissions?: {
     canViewDashboard?: boolean;
     canViewPatientDesk?: boolean;
@@ -294,6 +313,7 @@ export interface User {
     canIssueToken?: boolean;
     canBookAppointment?: boolean;
     canCancelAppointment?: boolean;
+    canDeleteToken?: boolean;
     canCallServeToken?: boolean;
     canEditStockLevel?: boolean;
 
@@ -400,6 +420,143 @@ export interface SmartLocatorMedicine {
   MedicineName: string;
   Dosage: string;
   Composition: string;
+}
+
+// ============================================================================
+// MINI ERP SYSTEM INTERFACES
+// ============================================================================
+
+export interface ErpVendor {
+  _id?: string;
+  VendorID: string;
+  VendorName: string;
+  ContactPerson: string;
+  Phone: string;
+  Email?: string;
+  Address: string;
+  TaxID?: string;
+  Balance: number;
+  Status: 'Active' | 'Inactive';
+}
+
+export interface ErpPurchaseOrderItem {
+  ItemID: string;
+  ItemName: string;
+  Category?: string;
+  Qty: number;
+  UnitPrice: number;
+  LineTotal: number;
+  BatchNo?: string;
+  ExpiryDate?: string;
+}
+
+export interface ErpPurchaseOrder {
+  _id?: string;
+  POID: string;
+  VendorID: string;
+  VendorName: string;
+  OrderDate: string;
+  ExpectedDeliveryDate: string;
+  TotalAmount: number;
+  PaidAmount: number;
+  Status: 'Draft' | 'Sent' | 'Received' | 'Paid' | 'Cancelled';
+  Items: ErpPurchaseOrderItem[];
+  Notes?: string;
+}
+
+export interface ErpGrnItem {
+  ItemID: string;
+  ItemName: string;
+  OrderedQty: number;
+  ReceivedQty: number;
+  UnitPrice: number;
+  LineTotal: number;
+  BatchNo?: string;
+  ExpiryDate?: string;
+}
+
+export interface ErpGrn {
+  _id?: string;
+  GRNID: string;
+  POID: string;
+  VendorID: string;
+  VendorName: string;
+  ReceivedDate: string;
+  ChallanNo?: string;
+  SupplierInvoiceNo?: string;
+  TotalAmount: number;
+  Items: ErpGrnItem[];
+  Status: 'Draft' | 'Approved' | 'Cancelled';
+  Remarks?: string;
+  CreatedBy?: string;
+}
+
+export interface ErpTransaction {
+  _id?: string;
+  TransactionID: string;
+  Type: 'Income' | 'Expense' | 'VendorPayment' | 'CustomerReceipt' | 'PayrollPayment';
+  Category: string;
+  Description: string;
+  Amount: number;
+  PaymentMethod: 'Cash' | 'Bank' | 'Cheque' | 'Online';
+  ReferenceNo?: string;
+  Date: string;
+  CreatedBy: string;
+  VendorID?: string;
+  VendorName?: string;
+}
+
+export interface ErpEmployee {
+  _id?: string;
+  EmployeeID: string;
+  FullName: string;
+  Role: string;
+  Department: string;
+  Phone: string;
+  Email?: string;
+  JoiningDate: string;
+  Salary: number;
+  Status: 'Active' | 'OnLeave' | 'Terminated';
+  CNIC: string;
+  BankAccount?: string;
+}
+
+export interface ErpPayroll {
+  _id?: string;
+  PayrollID: string;
+  EmployeeID: string;
+  EmployeeName: string;
+  MonthYear: string; // e.g. "2026-08"
+  BasicSalary: number;
+  Allowances: number;
+  Deductions: number;
+  NetSalary: number;
+  PaymentStatus: 'Pending' | 'Paid';
+  PaymentDate?: string;
+  PaymentMethod?: 'Cash' | 'Bank' | 'Cheque' | 'Online';
+}
+
+export interface ErpExpense {
+  _id?: string;
+  ExpenseID: string;
+  Category: 'Rent' | 'Utilities' | 'Salaries' | 'Maintenance' | 'Marketing' | 'Supplies' | 'Refreshment' | 'Other';
+  Description: string;
+  Amount: number;
+  ExpenseDate: string;
+  PaymentMethod: 'Cash' | 'Bank' | 'Cheque' | 'Online';
+  ReceiptRef?: string;
+}
+
+export interface ErpAsset {
+  _id?: string;
+  AssetID: string;
+  AssetName: string;
+  Category: 'Equipment' | 'Furniture' | 'IT Hardware' | 'Vehicle' | 'Other';
+  PurchaseDate: string;
+  PurchaseCost: number;
+  CurrentValue: number;
+  DepreciationRate: number; // percentage per year
+  Status: 'Active' | 'Maintenance' | 'Disposed';
 }
 
 

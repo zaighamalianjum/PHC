@@ -7,6 +7,7 @@ import {
   Stethoscope,
   LayoutGrid,
   CalendarPlus,
+  FileText,
   AlertCircle
 } from 'lucide-react';
 import { User } from '../../types';
@@ -15,9 +16,10 @@ export type PatientDeskSubTab =
   | 'queue'
   | 'register'
   | 'token_issue'
-  | 'book'
   | 'patient_visit'
   | 'grid_view'
+  | 'book'
+  | 'certificates'
   | 'status';
 
 interface PatientDeskSubNavProps {
@@ -30,6 +32,7 @@ interface PatientDeskSubNavProps {
   canAccessGridView: boolean;
   canAccessAppointments: boolean;
   canAccessLargeScreen: boolean;
+  canAccessCertificates?: boolean;
   currentUser?: User;
 }
 
@@ -43,6 +46,7 @@ export default function PatientDeskSubNav({
   canAccessGridView,
   canAccessAppointments,
   canAccessLargeScreen,
+  canAccessCertificates,
   currentUser
 }: PatientDeskSubNavProps) {
   const isAllRestricted =
@@ -128,6 +132,18 @@ export default function PatientDeskSubNav({
             >
               <CalendarPlus className="w-3.5 h-3.5" />
               <span>Book Appointment</span>
+            </button>
+          )}
+
+          {canAccessCertificates !== false && (
+            <button
+              onClick={() => setActiveSubTab('certificates')}
+              className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
+                activeSubTab === 'certificates' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Medical Certificates</span>
             </button>
           )}
 

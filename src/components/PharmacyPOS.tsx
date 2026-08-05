@@ -29,8 +29,25 @@ import {
   X,
   Filter,
   Layers,
-  ShieldAlert
+  ShieldAlert,
+  TrendingUp,
+  BarChart3,
+  CheckSquare,
+  Square,
+  PackageCheck,
+  Sparkles,
+  Calendar,
+  ArrowUpDown,
+  RefreshCw,
+  QrCode,
+  CheckCircle2,
+  Zap,
+  Barcode
 } from 'lucide-react';
+import ItemQRScannerModal from './ItemQRScannerModal';
+import ItemQRGeneratorModal from './ItemQRGeneratorModal';
+import MedicineBarcodeMapper from './MedicineBarcodeMapper';
+import { parseScannedItemQR, playBeepSound, ParsedQRResult } from '../utils/qrUtils';
 import {
   Patient,
   Item,
@@ -130,8 +147,59 @@ export default function PharmacyPOS({
       onUnauthorized(msg);
     }
   };
+  // QR Code Modals & Scanner state
+  const [isQRGeneratorOpen, setIsQRGeneratorOpen] = useState(false);
+  const [isQRScannerOpen, setIsQRScannerOpen] = useState(false);
+
+  // Quick Hardware Barcode/QR Scanner Auto-Focus Interceptor state
+  const quickScannerInputRef = React.useRef<HTMLInputElement | null>(null);
+  const [quickScannerInput, setQuickScannerInput] = useState('');
+  const [autoAddOnScan, setAutoAddOnScan] = useState(true);
+  const [scanToastMsg, setScanToastMsg] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [lastMappedScan, setLastMappedScan] = useState<{
+    barcode: string;
+    itemId: string;
+    itemName: string;
+    price: number;
+    stock: number;
+    time: string;
+    matchedBy: string;
+    status: string;
+    batchNo?: string;
+    mfgDate?: string;
+    expDate?: string;
+    mrp?: number;
+  } | null>(null);
+
+  // Auto-dismiss scan toast
+  useEffect(() => {
+    if (!scanToastMsg) return;
+    const t = setTimeout(() => setScanToastMsg(null), 4000);
+    return () => clearTimeout(t);
+  }, [scanToastMsg]);
+
+  // Keep focus on hardware scanner input and register F2 shortcut
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      quickScannerInputRef.current?.focus();
+    }, 400);
+
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'F2') {
+        e.preventDefault();
+        quickScannerInputRef.current?.focus();
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('keydown', handleGlobalKeyDown);
+    };
+  }, []);
+
   // Navigation tabs
-  const [activeSubTab, setActiveSubTab] = useState<'checkout' | 'store_sales' | 'return' | 'grn' | 'inventory_manager' | 'invoice_logs' | 'clinical_labels'>('checkout');
+  const [activeSubTab, setActiveSubTab] = useState<'checkout' | 'store_sales' | 'return' | 'grn' | 'inventory_manager' | 'invoice_logs' | 'clinical_labels' | 'barcode_mapper'>('checkout');
   const [isSubTabLoading, setIsSubTabLoading] = useState(false);
   const [subTabLoadingMsg, setSubTabLoadingMsg] = useState('Loading Sub-module...');
 
@@ -159,6 +227,10 @@ export default function PharmacyPOS({
   const [itemFormReorderQty, setItemFormReorderQty] = useState<number | ''>('');
   const [itemFormUnit, setItemFormUnit] = useState('Tab');
   const [itemFormMedicineType, setItemFormMedicineType] = useState<'C' | 'P'>('P');
+  const [itemFormVendorBarcode, setItemFormVendorBarcode] = useState('');
+  const [itemFormBatchNo, setItemFormBatchNo] = useState('');
+  const [itemFormMfgDate, setItemFormMfgDate] = useState('');
+  const [itemFormExpDate, setItemFormExpDate] = useState('');
   const [invSuccessMsg, setInvSuccessMsg] = useState('');
   const [invErrorMsg, setInvErrorMsg] = useState('');
 
@@ -303,11 +375,14 @@ export default function PharmacyPOS({
     setItemFormReorderQty('');
     setItemFormUnit('Tab');
     setItemFormMedicineType('P');
+    setItemFormVendorBarcode('');
+    setItemFormBatchNo('');
+    setItemFormMfgDate('');
+    setItemFormExpDate('');
     setInvErrorMsg('');
     setIsAddMedicineModalOpen(false);
   };
 
-  // Select Item for editing
   // Select Item for editing
   const handleSelectEditItem = (itm: Item) => {
     setEditingItem(itm);
@@ -320,6 +395,10 @@ export default function PharmacyPOS({
     setItemFormReorderQty(itm.ReorderQty !== undefined ? itm.ReorderQty : '');
     setItemFormUnit(itm.Unit || 'Tab');
     setItemFormMedicineType(itm.MedicineType || 'P');
+    setItemFormVendorBarcode(itm.VendorBarcode || '');
+    setItemFormBatchNo(itm.BatchNo || '');
+    setItemFormMfgDate(itm.MfgDate || '');
+    setItemFormExpDate(itm.ExpDate || '');
     setInvErrorMsg('');
     setIsAddMedicineModalOpen(true);
   };
@@ -351,6 +430,10 @@ export default function PharmacyPOS({
     const stock = (editingItem && !canEditStock) ? editingItem.CStock : (itemFormCStock === '' ? 0 : Number(itemFormCStock));
     const minS = itemFormMinStock === '' ? 0 : Number(itemFormMinStock);
     const reorderQ = itemFormReorderQty === '' ? undefined : Number(itemFormReorderQty);
+    const vendorBarcodeVal = itemFormVendorBarcode.trim() || undefined;
+    const batchNoVal = itemFormBatchNo.trim() || undefined;
+    const mfgDateVal = itemFormMfgDate.trim() || undefined;
+    const expDateVal = itemFormExpDate.trim() || undefined;
 
     if (editingItem) {
       // Update existing item
@@ -366,7 +449,11 @@ export default function PharmacyPOS({
             MinStock: minS,
             ReorderQty: reorderQ,
             Unit: itemFormUnit,
-            MedicineType: itemFormMedicineType
+            MedicineType: itemFormMedicineType,
+            VendorBarcode: vendorBarcodeVal,
+            BatchNo: batchNoVal,
+            MfgDate: mfgDateVal,
+            ExpDate: expDateVal
           };
         }
         return itm;
@@ -391,7 +478,11 @@ export default function PharmacyPOS({
         MinStock: minS,
         ReorderQty: reorderQ,
         Unit: itemFormUnit,
-        MedicineType: itemFormMedicineType
+        MedicineType: itemFormMedicineType,
+        VendorBarcode: vendorBarcodeVal,
+        BatchNo: batchNoVal,
+        MfgDate: mfgDateVal,
+        ExpDate: expDateVal
       };
 
       setItems(prev => [...prev, newItem]);
@@ -584,10 +675,96 @@ export default function PharmacyPOS({
 
   // Low Stock / Minimum Threshold Purchase Order Report States
   const [isPOPrintPreviewOpen, setIsPOPrintPreviewOpen] = useState(false);
+  const [isPOGridModalOpen, setIsPOGridModalOpen] = useState(false);
+  const [poModalTab, setPoModalTab] = useState<'po_builder' | 'sales_velocity'>('po_builder');
+
+  // Grid Builder Selection & Custom Order Quantities
+  const [selectedPoItemIds, setSelectedPoItemIds] = useState<Set<string>>(new Set());
+  const [customOrderQtyMap, setCustomOrderQtyMap] = useState<Record<string, number>>({});
+  const [poGridSearch, setPoGridSearch] = useState<string>('');
+  const [poStockFilterScope, setPoStockFilterScope] = useState<'THRESHOLD' | 'ALL' | 'SELECTED_ONLY' | 'OUT_OF_STOCK'>('THRESHOLD');
   const [poCategoryFilter, setPoCategoryFilter] = useState<string>('ALL');
-  const [poSupplierId, setPoSupplierId] = useState<string>('');
   const [poOnlyLowStock, setPoOnlyLowStock] = useState<boolean>(true);
-  const [poPrintLayout, setPoPrintLayout] = useState<'3col' | 'detail'>('3col');
+  const [poSupplierId, setPoSupplierId] = useState<string>('');
+  const [poPrintLayout, setPoPrintLayout] = useState<'3col' | 'detail'>('detail');
+
+  // Monthly Top-Selling Medicine Sales Velocity States
+  const [poSalesPeriodDays, setPoSalesPeriodDays] = useState<number>(30);
+  const [salesGridSearch, setSalesGridSearch] = useState<string>('');
+  const [salesCategoryFilter, setSalesCategoryFilter] = useState<string>('ALL');
+  const [salesFilterScope, setSalesFilterScope] = useState<'ALL' | 'HIGH_DEMAND' | 'TOP_20' | 'LOW_STOCK_ONLY'>('ALL');
+  const [salesSortBy, setSalesSortBy] = useState<'units_sold' | 'revenue' | 'stock_deficit'>('units_sold');
+
+  // Open PO Grid Modal & Pre-select low stock items
+  const handleOpenPOGridModal = (initialTab: 'po_builder' | 'sales_velocity' = 'po_builder') => {
+    setPoModalTab(initialTab);
+    
+    // Auto-populate low stock items into selection if set is empty
+    const lowStockSet = new Set<string>();
+    const qtyMap: Record<string, number> = { ...customOrderQtyMap };
+
+    items.forEach(itm => {
+      const minStock = (itm.MinStock !== undefined && itm.MinStock !== null) ? itm.MinStock : 10;
+      if (itm.CStock <= minStock) {
+        lowStockSet.add(itm.ItemID);
+      }
+      if (!qtyMap[itm.ItemID]) {
+        const calcQty = (itm.ReorderQty && itm.ReorderQty > 0)
+          ? itm.ReorderQty
+          : Math.max((minStock * 2) - itm.CStock, 10);
+        qtyMap[itm.ItemID] = calcQty;
+      }
+    });
+
+    if (selectedPoItemIds.size === 0) {
+      setSelectedPoItemIds(lowStockSet);
+    }
+    setCustomOrderQtyMap(qtyMap);
+    setIsPOGridModalOpen(true);
+  };
+
+  const handleTogglePoItem = (itemId: string) => {
+    setSelectedPoItemIds(prev => {
+      const next = new Set(prev);
+      if (next.has(itemId)) {
+        next.delete(itemId);
+      } else {
+        next.add(itemId);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllLowStock = () => {
+    const lowStockSet = new Set<string>();
+    items.forEach(itm => {
+      const minStock = (itm.MinStock !== undefined && itm.MinStock !== null) ? itm.MinStock : 10;
+      if (itm.CStock <= minStock) {
+        lowStockSet.add(itm.ItemID);
+      }
+    });
+    setSelectedPoItemIds(lowStockSet);
+  };
+
+  const handleSelectAllVisible = (visibleItems: Item[]) => {
+    setSelectedPoItemIds(prev => {
+      const next = new Set(prev);
+      visibleItems.forEach(i => next.add(i.ItemID));
+      return next;
+    });
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedPoItemIds(new Set());
+  };
+
+  const handleOrderQtyChange = (itemId: string, qty: number) => {
+    const validQty = Math.max(1, isNaN(qty) ? 1 : qty);
+    setCustomOrderQtyMap(prev => ({
+      ...prev,
+      [itemId]: validQty
+    }));
+  };
 
   // Unified Category Options for PO Filter
   const categoryDropdownOptions = useMemo(() => {
@@ -642,6 +819,423 @@ export default function PharmacyPOS({
       return false;
     });
   }, []);
+
+  // Real-Time Calculation of Monthly Sales & Demand Velocity across Store Invoices & EMR Prescriptions
+  const salesVelocityData = useMemo(() => {
+    const cutoffDate = new Date();
+    if (poSalesPeriodDays > 0) {
+      cutoffDate.setDate(cutoffDate.getDate() - poSalesPeriodDays);
+    } else {
+      cutoffDate.setFullYear(2000); // All-time
+    }
+
+    const salesMap: Record<string, { totalQty: number; totalRevenue: number }> = {};
+
+    // 1. Process Pharmacy POS Store Invoices
+    if (Array.isArray(invoices) && Array.isArray(invoiceDetails)) {
+      const validInvoiceNos = new Set(
+        invoices
+          .filter(inv => {
+            if (!inv.InvoiceDate) return true;
+            const d = new Date(inv.InvoiceDate);
+            return isNaN(d.getTime()) || d >= cutoffDate;
+          })
+          .map(inv => inv.InvoiceNo)
+      );
+
+      invoiceDetails.forEach(det => {
+        if (!det.ItemID) return;
+        if (validInvoiceNos.has(det.InvoiceNo)) {
+          if (!salesMap[det.ItemID]) {
+            salesMap[det.ItemID] = { totalQty: 0, totalRevenue: 0 };
+          }
+          const qty = det.Qty || 0;
+          const rev = det.LineTotal || (qty * (det.Price || 0));
+          salesMap[det.ItemID].totalQty += qty;
+          salesMap[det.ItemID].totalRevenue += rev;
+        }
+      });
+    }
+
+    // 2. Process EMR Visit Medicines (Clinical prescriptions)
+    if (Array.isArray(visits) && Array.isArray(visitMedicines)) {
+      const validVisitIDs = new Set(
+        visits
+          .filter(v => {
+            if (!v.VisitDate) return true;
+            const d = new Date(v.VisitDate);
+            return isNaN(d.getTime()) || d >= cutoffDate;
+          })
+          .map(v => v.VisitID)
+      );
+
+      visitMedicines.forEach(vm => {
+        if (!vm.ItemID) return;
+        if (validVisitIDs.has(vm.VisitID)) {
+          if (!salesMap[vm.ItemID]) {
+            salesMap[vm.ItemID] = { totalQty: 0, totalRevenue: 0 };
+          }
+          const qty = vm.Qty || 1;
+          const matchedItem = items.find(i => i.ItemID === vm.ItemID);
+          const price = vm.Price || matchedItem?.Price || 0;
+          salesMap[vm.ItemID].totalQty += qty;
+          salesMap[vm.ItemID].totalRevenue += (qty * price);
+        }
+      });
+    }
+
+    // Build item sales list with urgency metrics
+    const result = items.map(itm => {
+      const sales = salesMap[itm.ItemID] || { totalQty: 0, totalRevenue: 0 };
+      const minStock = (itm.MinStock !== undefined && itm.MinStock !== null) ? itm.MinStock : 10;
+      const isLowStock = itm.CStock <= minStock;
+      const stockDeficit = Math.max(0, minStock - itm.CStock);
+
+      let urgency: 'CRITICAL' | 'HIGH' | 'MODERATE' | 'SUFFICIENT' = 'SUFFICIENT';
+      if (sales.totalQty > 0 && isLowStock) {
+        urgency = 'CRITICAL';
+      } else if (isLowStock) {
+        urgency = 'HIGH';
+      } else if (sales.totalQty >= 10) {
+        urgency = 'MODERATE';
+      }
+
+      return {
+        item: itm,
+        totalQtySold: sales.totalQty,
+        totalRevenue: sales.totalRevenue,
+        isLowStock,
+        minStock,
+        stockDeficit,
+        urgency
+      };
+    });
+
+    // Sort according to user preference
+    if (salesSortBy === 'revenue') {
+      result.sort((a, b) => b.totalRevenue - a.totalRevenue || b.totalQtySold - a.totalQtySold);
+    } else if (salesSortBy === 'stock_deficit') {
+      result.sort((a, b) => b.stockDeficit - a.stockDeficit || b.totalQtySold - a.totalQtySold);
+    } else {
+      result.sort((a, b) => b.totalQtySold - a.totalQtySold || b.totalRevenue - a.totalRevenue);
+    }
+
+    return result.map((entry, idx) => ({
+      ...entry,
+      rank: idx + 1
+    }));
+  }, [items, invoices, invoiceDetails, visits, visitMedicines, poSalesPeriodDays, salesSortBy]);
+
+  // Open Pop-Up Window specifically for Custom Selected Purchase Order
+  const handleOpenSelectedPoPrintWindow = (mode: 'with_stock' | 'clean_po' = 'clean_po') => {
+    const selectedItemsList = items.filter(itm => selectedPoItemIds.has(itm.ItemID));
+    if (selectedItemsList.length === 0) {
+      alert("Please select at least one medicine item to generate a Purchase Order.");
+      return;
+    }
+
+    const clinicName = clinicSettings?.ClinicName || "Punjab Homeopathic Clinic";
+    const printDate = new Date().toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    }) + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    let totalQtySum = 0;
+    let totalCostSum = 0;
+
+    const getCustomQty = (itm: Item) => {
+      return customOrderQtyMap[itm.ItemID] || (itm.ReorderQty && itm.ReorderQty > 0 ? itm.ReorderQty : Math.max((itm.MinStock || 10) * 2 - itm.CStock, 10));
+    };
+
+    selectedItemsList.forEach(itm => {
+      const q = getCustomQty(itm);
+      totalQtySum += q;
+      totalCostSum += q * (itm.PurchasePrice || 0);
+    });
+
+    let tableHtml = '';
+
+    if (poPrintLayout === '3col') {
+      const poRows = [];
+      for (let i = 0; i < selectedItemsList.length; i += 3) {
+        poRows.push([
+          selectedItemsList[i],
+          selectedItemsList[i + 1] || null,
+          selectedItemsList[i + 2] || null
+        ]);
+      }
+
+      tableHtml = `
+        <table class="po-table">
+          <thead>
+            <tr>
+              <th colspan="6" class="table-title">
+                ${mode === 'clean_po' ? 'OFFICIAL PURCHASE ORDER & REQUISITION' : 'INVENTORY STOCK & PURCHASE REQUISITION REPORT'} (${selectedItemsList.length} SELECTED ITEMS)
+              </th>
+            </tr>
+            <tr class="header-row">
+              <th style="width: 23%;">MEDICINE NAME</th>
+              <th style="width: 10.33%; text-align: center;">ORDER QTY</th>
+              <th style="width: 23%;">MEDICINE NAME</th>
+              <th style="width: 10.33%; text-align: center;">ORDER QTY</th>
+              <th style="width: 23%;">MEDICINE NAME</th>
+              <th style="width: 10.33%; text-align: center;">ORDER QTY</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${poRows.map((row) => `
+              <tr>
+                <td class="col-name">${row[0]?.ItemName || ''}</td>
+                <td class="col-qty">${row[0] ? `${getCustomQty(row[0])} ${row[0].Unit || ''}` : ''}</td>
+                <td class="col-name">${row[1]?.ItemName || ''}</td>
+                <td class="col-qty">${row[1] ? `${getCustomQty(row[1])} ${row[1].Unit || ''}` : ''}</td>
+                <td class="col-name">${row[2]?.ItemName || ''}</td>
+                <td class="col-qty">${row[2] ? `${getCustomQty(row[2])} ${row[2].Unit || ''}` : ''}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    } else if (mode === 'clean_po') {
+      // Clean Purchase Order with Medicine Names and Required Quantity ONLY
+      tableHtml = `
+        <table class="po-table">
+          <thead>
+            <tr class="header-row">
+              <th style="width: 8%; text-align: center;">S.No</th>
+              <th style="width: 17%; text-align: center;">Item ID</th>
+              <th style="width: 50%;">Medicine Name</th>
+              <th style="width: 25%; text-align: center;">Required Quantity</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${selectedItemsList.map((itm, idx) => {
+              const reqQty = getCustomQty(itm);
+              return `
+                <tr>
+                  <td style="text-align: center; font-weight: bold; color: #555;">${idx + 1}</td>
+                  <td style="text-align: center; font-family: monospace; font-weight: bold;">${itm.ItemID}</td>
+                  <td class="col-name" style="font-weight: bold; font-size: 12px;">${itm.ItemName}</td>
+                  <td class="col-qty" style="font-weight: 900; text-align: center; font-size: 12px; color: #1e1b4b;">${reqQty} ${itm.Unit || 'Tab'}s</td>
+                </tr>
+              `;
+            }).join('')}
+            <tr style="background: #f8fafc; font-weight: bold;">
+              <td colspan="3" style="text-align: right; font-weight: 900; font-size: 11px;">TOTAL REQUIRED PURCHASE REQUISITION:</td>
+              <td style="text-align: center; font-weight: 900; font-size: 12px; color: #1e1b4b;">${totalQtySum} Units</td>
+            </tr>
+          </tbody>
+        </table>
+      `;
+    } else {
+      // Detailed Report with Current Stock & Estimated Cost
+      tableHtml = `
+        <table class="po-table">
+          <thead>
+            <tr class="header-row">
+              <th style="width: 5%; text-align: center;">S.No</th>
+              <th style="width: 12%; text-align: center;">Item ID</th>
+              <th style="width: 35%;">Medicine Name</th>
+              <th style="width: 12%; text-align: center;">Category</th>
+              <th style="width: 12%; text-align: center;">Current Stock</th>
+              <th style="width: 12%; text-align: center;">Order Qty</th>
+              <th style="width: 12%; text-align: right;">Est. Cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${selectedItemsList.map((itm, idx) => {
+              const reqQty = getCustomQty(itm);
+              const lineCost = reqQty * (itm.PurchasePrice || 0);
+              return `
+                <tr>
+                  <td style="text-align: center; font-weight: bold; color: #555;">${idx + 1}</td>
+                  <td style="text-align: center; font-family: monospace; font-weight: bold;">${itm.ItemID}</td>
+                  <td class="col-name" style="font-weight: bold;">${itm.ItemName}</td>
+                  <td style="text-align: center;">${itm.Unit || 'Tab'}</td>
+                  <td style="text-align: center; font-family: monospace; font-weight: bold; color: ${itm.CStock <= (itm.MinStock || 10) ? '#b91c1c' : '#15803d'};">${itm.CStock}</td>
+                  <td class="col-qty" style="font-weight: 900; text-align: center;">${reqQty} ${itm.Unit || 'Tab'}s</td>
+                  <td style="text-align: right; font-family: monospace; font-weight: bold;">Rs. ${lineCost.toLocaleString()}</td>
+                </tr>
+              `;
+            }).join('')}
+            <tr style="background: #f8fafc; font-weight: bold;">
+              <td colspan="5" style="text-align: right; font-weight: 900; font-size: 11px;">TOTAL PURCHASE REQUISITION:</td>
+              <td style="text-align: center; font-weight: 900; color: #1e1b4b;">${totalQtySum} Units</td>
+              <td style="text-align: right; font-weight: 900; color: #047857;">Rs. ${totalCostSum.toLocaleString()}</td>
+            </tr>
+          </tbody>
+        </table>
+      `;
+    }
+
+    const win = window.open('', '_blank', 'width=1000,height=900');
+    if (!win) {
+      alert("Pop-up blocker prevented opening print window. Please allow pop-ups for this site or use Direct Print.");
+      return;
+    }
+
+    win.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>${mode === 'clean_po' ? 'Purchase Order' : 'Inventory Stock Report'} - ${clinicName}</title>
+          <style>
+            @page { size: A4 portrait; margin: 10mm; }
+            body { font-family: Arial, sans-serif; margin: 0; padding: 15px; color: #000; font-size: 12px; }
+            .header { text-align: center; margin-bottom: 15px; border-bottom: 2px solid #000; padding-bottom: 8px; }
+            .clinic-name { font-size: 18px; font-weight: 900; text-transform: uppercase; margin: 0; }
+            .sub-title { font-size: 11px; margin: 3px 0; color: #444; font-weight: bold; }
+            .meta-info { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 10px; font-weight: bold; }
+            .po-table { width: 100%; border-collapse: collapse; margin-top: 5px; }
+            .po-table th, .po-table td { border: 1px solid #333; padding: 5px 8px; font-size: 11px; }
+            .table-title { background: #1e1b4b; color: #fff; text-align: center; font-size: 12px; font-weight: 900; padding: 6px; }
+            .header-row th { background: #f1f5f9; font-weight: 900; text-transform: uppercase; font-size: 10px; }
+            .col-name { font-weight: bold; }
+            .col-qty { text-align: center; font-weight: bold; }
+            .footer { margin-top: 25px; display: flex; justify-content: space-between; font-size: 10px; padding-top: 15px; }
+            .sig-line { border-top: 1px solid #000; width: 180px; text-align: center; padding-top: 4px; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1 class="clinic-name">${clinicName}</h1>
+            <p class="sub-title">${mode === 'clean_po' ? 'OFFICIAL MEDICINE PURCHASE REQUISITION ORDER' : 'PHARMACY INVENTORY STOCK & REQUISITION REPORT'}</p>
+          </div>
+          <div class="meta-info">
+            <span>Date: ${printDate}</span>
+            <span>Order Scope: Custom Selected (${selectedItemsList.length} Items)</span>
+            <span>${mode === 'clean_po' ? `Total Units: ${totalQtySum} Units` : `Est. Total: Rs. ${totalCostSum.toLocaleString()}`}</span>
+          </div>
+          ${tableHtml}
+          <div class="footer">
+            <div class="sig-line">Prepared By (Store Incharge)</div>
+            <div class="sig-line">Authorized Signatory</div>
+          </div>
+          <script>
+            window.onload = function() {
+              setTimeout(function() {
+                window.print();
+              }, 300);
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    win.document.close();
+  };
+
+  // Open Pop-Up Window specifically for Monthly Sales Velocity Report
+  const handleOpenSalesReportPrintWindow = () => {
+    const topSellingList = salesVelocityData;
+    const clinicName = clinicSettings?.ClinicName || "Punjab Homeopathic Clinic";
+    const printDate = new Date().toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    }) + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    const totalUnitsSoldSum = topSellingList.reduce((acc, cur) => acc + cur.totalQtySold, 0);
+    const totalRevenueSum = topSellingList.reduce((acc, cur) => acc + cur.totalRevenue, 0);
+
+    const win = window.open('', '_blank', 'width=1000,height=900');
+    if (!win) {
+      alert("Pop-up blocker prevented opening print window. Please allow pop-ups for this site.");
+      return;
+    }
+
+    win.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Monthly Medicine Sales Velocity & Demand Report - ${clinicName}</title>
+          <style>
+            @page { size: A4 portrait; margin: 10mm; }
+            body { font-family: Arial, sans-serif; margin: 0; padding: 15px; color: #000; font-size: 11px; }
+            .header { text-align: center; margin-bottom: 12px; border-bottom: 2px solid #000; padding-bottom: 6px; }
+            .clinic-name { font-size: 18px; font-weight: 900; text-transform: uppercase; margin: 0; }
+            .sub-title { font-size: 12px; font-weight: bold; margin: 3px 0; color: #333; }
+            .meta-info { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 10px; font-weight: bold; }
+            .report-table { width: 100%; border-collapse: collapse; margin-top: 5px; }
+            .report-table th, .report-table td { border: 1px solid #333; padding: 5px 7px; font-size: 10.5px; }
+            .header-row th { background: #0f172a; color: #fff; font-weight: 900; text-transform: uppercase; font-size: 10px; }
+            .col-rank { text-align: center; font-weight: 900; }
+            .col-name { font-weight: bold; }
+            .col-num { text-align: center; font-family: monospace; font-weight: bold; }
+            .col-rev { text-align: right; font-family: monospace; font-weight: bold; }
+            .urgency-critical { background: #fef2f2; color: #991b1b; font-weight: bold; text-align: center; }
+            .urgency-high { background: #fffbebf; color: #b45309; font-weight: bold; text-align: center; }
+            .urgency-ok { background: #f0fdf4; color: #166534; text-align: center; }
+            .summary-row { background: #f8fafc; font-weight: 900; font-size: 11px; }
+            .footer { margin-top: 25px; display: flex; justify-content: space-between; font-size: 10px; padding-top: 15px; }
+            .sig-line { border-top: 1px solid #000; width: 180px; text-align: center; padding-top: 4px; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1 class="clinic-name">${clinicName}</h1>
+            <p class="sub-title">MONTHLY MEDICINE SALES VELOCITY & DEMAND ANALYTICS REPORT</p>
+            <p style="font-size: 10px; color: #555; margin: 2px 0;">Analysis Period: ${poSalesPeriodDays > 0 ? `${poSalesPeriodDays} Days` : 'All Time'} | Generated: ${printDate}</p>
+          </div>
+          <div class="meta-info">
+            <span>Total Medicines Analyzed: ${topSellingList.length}</span>
+            <span>Total Units Sold: ${totalUnitsSoldSum.toLocaleString()}</span>
+            <span>Total Sales Revenue: Rs. ${totalRevenueSum.toLocaleString()}</span>
+          </div>
+          <table class="report-table">
+            <thead>
+              <tr class="header-row">
+                <th style="width: 6%;">Rank</th>
+                <th style="width: 10%;">Item ID</th>
+                <th style="width: 32%;">Medicine Name</th>
+                <th style="width: 12%;">Category</th>
+                <th style="width: 10%;">Units Sold</th>
+                <th style="width: 12%;">Revenue (PKR)</th>
+                <th style="width: 8%;">Stock</th>
+                <th style="width: 10%;">Demand Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${topSellingList.map(row => {
+                const uClass = row.urgency === 'CRITICAL' ? 'urgency-critical' : row.urgency === 'HIGH' ? 'urgency-high' : 'urgency-ok';
+                const statusText = row.urgency === 'CRITICAL' ? '🚨 Reorder Critical' : row.urgency === 'HIGH' ? '⚠️ Low Stock' : row.totalQtySold >= 10 ? '🔥 Fast Mover' : '🟢 Sufficient';
+                return `
+                  <tr>
+                    <td class="col-rank">#${row.rank}</td>
+                    <td class="col-num">${row.item.ItemID}</td>
+                    <td class="col-name">${row.item.ItemName}</td>
+                    <td style="text-align: center;">${row.item.Unit || 'Tab'}</td>
+                    <td class="col-num" style="color: #1e1b4b;">${row.totalQtySold}</td>
+                    <td class="col-rev">Rs. ${row.totalRevenue.toLocaleString()}</td>
+                    <td class="col-num" style="color: ${row.isLowStock ? '#b91c1c' : '#15803d'};">${row.item.CStock}</td>
+                    <td class="${uClass}">${statusText}</td>
+                  </tr>
+                `;
+              }).join('')}
+              <tr class="summary-row">
+                <td colspan="4" style="text-align: right; font-weight: 900;">TOTAL MONTHLY DEMAND METRICS:</td>
+                <td class="col-num" style="font-weight: 900; color: #1e1b4b;">${totalUnitsSoldSum.toLocaleString()}</td>
+                <td class="col-rev" style="font-weight: 900; color: #047857;">Rs. ${totalRevenueSum.toLocaleString()}</td>
+                <td colspan="2"></td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="footer">
+            <div class="sig-line">Pharmacist / Inventory Auditor</div>
+            <div class="sig-line">Managing Director Approval</div>
+          </div>
+          <script>
+            window.onload = function() {
+              setTimeout(function() {
+                window.print();
+              }, 300);
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    win.document.close();
+  };
 
   // Popup Window Print Handler for A4 Purchase Order
   const handleOpenPoPrintWindow = () => {
@@ -982,6 +1576,218 @@ export default function PharmacyPOS({
   const [posSearchQuery, setPosSearchQuery] = useState('');
   const [posSearchDropdownOpen, setPosSearchDropdownOpen] = useState(false);
   const [stockValidationError, setStockValidationError] = useState('');
+
+  const processScannedCode = useCallback(
+    (rawCode: string) => {
+      const trimmed = rawCode.trim();
+      if (!trimmed) return;
+
+      const parsed = parseScannedItemQR(trimmed);
+      const searchId = parsed.itemId.toLowerCase();
+      const searchName = parsed.itemName.toLowerCase();
+
+      // Find item in inventory by VendorBarcode, ItemID, or ItemName
+      const matched = items.find((i) => {
+        const iId = i.ItemID.toLowerCase().trim();
+        const iName = i.ItemName.toLowerCase().trim();
+        const iBarcode = (i.VendorBarcode || '').toLowerCase().trim();
+        const searchCode = trimmed.toLowerCase();
+
+        return (
+          (iBarcode && iBarcode === searchCode) ||
+          iId === searchId ||
+          iId === searchCode ||
+          iName === searchName ||
+          (searchName && iName.includes(searchName))
+        );
+      });
+
+      if (!matched) {
+        playBeepSound('error');
+        setScanToastMsg({
+          text: `No medicine item matched scanned barcode/QR: "${trimmed}"`,
+          type: 'error'
+        });
+        return;
+      }
+
+      // Record visual indicator for successful barcode mapping
+      const matchType = (matched.VendorBarcode && matched.VendorBarcode.toLowerCase().trim() === trimmed.toLowerCase())
+        ? 'Vendor Barcode'
+        : (matched.ItemID.toLowerCase().trim() === trimmed.toLowerCase())
+        ? 'Item ID'
+        : 'Item Name / QR';
+
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      
+      const statusLabel = autoAddOnScan
+        ? (activeSubTab === 'store_sales' || activeSubTab === 'checkout' ? 'Auto-Added to Basket' : 'Selected')
+        : 'Selected in Dropdown';
+
+      setLastMappedScan({
+        barcode: trimmed,
+        itemId: matched.ItemID,
+        itemName: matched.ItemName,
+        price: parsed.mrp || matched.Price || 0,
+        stock: matched.CStock || 0,
+        time: timeStr,
+        matchedBy: matchType,
+        status: statusLabel,
+        batchNo: parsed.batchNo || matched.BatchNo,
+        mfgDate: parsed.mfgDate || matched.MfgDate,
+        expDate: parsed.expDate || matched.ExpDate,
+        mrp: parsed.mrp || matched.Price
+      });
+
+      // Matched Item handling
+      if (autoAddOnScan) {
+        if (activeSubTab === 'store_sales') {
+          if (matched.MedicineType === 'C') {
+            playBeepSound('error');
+            setScanToastMsg({
+              text: `"${matched.ItemName}" is a Clinical Compounding item. Dispense via Clinical Checkout.`,
+              type: 'error'
+            });
+            return;
+          }
+
+          const existingBasketQty = storeBasket.find((b) => b.ItemID === matched.ItemID)?.Qty || 0;
+          if (existingBasketQty + 1 > matched.CStock) {
+            playBeepSound('error');
+            setScanToastMsg({
+              text: `Insufficient stock for ${matched.ItemName} (Current Stock: ${matched.CStock})`,
+              type: 'error'
+            });
+            return;
+          }
+
+          playBeepSound('success');
+          const existsIndex = storeBasket.findIndex((b) => b.ItemID === matched.ItemID);
+          if (existsIndex >= 0) {
+            const updated = [...storeBasket];
+            updated[existsIndex].Qty += 1;
+            setStoreBasket(updated);
+          } else {
+            setStoreBasket([
+              ...storeBasket,
+              { ItemID: matched.ItemID, Qty: 1, Price: matched.Price, MedicineType: 'P' }
+            ]);
+          }
+
+          setScanToastMsg({
+            text: `⚡ Auto-Added 1x "${matched.ItemName}" (Rs. ${matched.Price}) to Store Sales Basket!`,
+            type: 'success'
+          });
+        } else if (activeSubTab === 'checkout') {
+          const existingBasketQty = checkoutBasket.find((b) => b.ItemID === matched.ItemID)?.Qty || 0;
+          if (existingBasketQty + 1 > matched.CStock) {
+            playBeepSound('error');
+            setScanToastMsg({
+              text: `Insufficient stock for ${matched.ItemName} (Current Stock: ${matched.CStock})`,
+              type: 'error'
+            });
+            return;
+          }
+
+          playBeepSound('success');
+          const existsIndex = checkoutBasket.findIndex((b) => b.ItemID === matched.ItemID);
+          const itemPrice = matched.MedicineType === 'C' ? 0 : matched.Price;
+          if (existsIndex >= 0) {
+            const updated = [...checkoutBasket];
+            updated[existsIndex].Qty += 1;
+            updated[existsIndex].Price = itemPrice;
+            setCheckoutBasket(updated);
+          } else {
+            setCheckoutBasket([
+              ...checkoutBasket,
+              { ItemID: matched.ItemID, Qty: 1, Price: itemPrice, MedicineType: matched.MedicineType || 'S' }
+            ]);
+          }
+
+          setScanToastMsg({
+            text: `⚡ Auto-Added 1x "${matched.ItemName}" to Invoice Basket!`,
+            type: 'success'
+          });
+        } else if (activeSubTab === 'inventory_manager') {
+          playBeepSound('success');
+          setInvSearchQuery(matched.ItemID);
+          setScanToastMsg({
+            text: `🔍 Loaded Item: ${matched.ItemName} (ID: ${matched.ItemID})`,
+            type: 'info'
+          });
+        } else if (activeSubTab === 'grn') {
+          playBeepSound('success');
+          setGrnRowItemId(matched.ItemID);
+          setScanToastMsg({
+            text: `📦 Selected for GRN: ${matched.ItemName}`,
+            type: 'info'
+          });
+        }
+      } else {
+        // Search & select mode
+        playBeepSound('success');
+        if (activeSubTab === 'store_sales') {
+          setStoreRowItemId(matched.ItemID);
+          setStoreSearchQuery(matched.ItemName);
+        } else if (activeSubTab === 'checkout') {
+          setRowItemId(matched.ItemID);
+          setPosSearchQuery(matched.ItemName);
+        } else if (activeSubTab === 'inventory_manager') {
+          setInvSearchQuery(matched.ItemID);
+        }
+        setScanToastMsg({
+          text: `🎯 Selected Item: ${matched.ItemName} (ID: ${matched.ItemID})`,
+          type: 'info'
+        });
+      }
+    },
+    [items, activeSubTab, autoAddOnScan, storeBasket, checkoutBasket]
+  );
+
+  const handleQuickScannerKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      processScannedCode(quickScannerInput);
+      setQuickScannerInput('');
+    }
+  };
+
+  const handleQRScanResult = (parsed: ParsedQRResult) => {
+    const scannedCode = parsed.rawText || parsed.itemId;
+    if (isAddMedicineModalOpen) {
+      setItemFormVendorBarcode(scannedCode);
+      if (parsed.batchNo) setItemFormBatchNo(parsed.batchNo);
+      if (parsed.mfgDate) setItemFormMfgDate(parsed.mfgDate);
+      if (parsed.expDate) setItemFormExpDate(parsed.expDate);
+      if (parsed.mrp) setItemFormRetailPrice(parsed.mrp);
+      if (parsed.itemName && !itemFormName) setItemFormName(parsed.itemName);
+
+      playBeepSound('success');
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setLastMappedScan({
+        barcode: scannedCode,
+        itemId: itemFormId || parsed.itemId || 'FORM-FIELD',
+        itemName: itemFormName || parsed.itemName || 'New Medicine Item',
+        price: parsed.mrp || Number(itemFormRetailPrice) || 0,
+        stock: Number(itemFormCStock) || 0,
+        time: timeStr,
+        matchedBy: 'Vendor QR Scanner',
+        status: 'Mapped to Item Form',
+        batchNo: parsed.batchNo,
+        mfgDate: parsed.mfgDate,
+        expDate: parsed.expDate,
+        mrp: parsed.mrp
+      });
+      setScanToastMsg({
+        text: `🔗 Scanned & Mapped QR Metadata (Batch: ${parsed.batchNo || 'N/A'}, Mfg: ${parsed.mfgDate || 'N/A'}, Exp: ${parsed.expDate || 'N/A'}, MRP: ${parsed.mrp ? 'PKR ' + parsed.mrp : 'N/A'}) to form!`,
+        type: 'success'
+      });
+      setIsQRScannerOpen(false);
+      return;
+    }
+    processScannedCode(scannedCode);
+    setIsQRScannerOpen(false);
+  };
 
   // Compounding Formula Wizard State (for Clinical medicine type 'C')
   const [compoundingDose, setCompoundingDose] = useState<number>(1);
@@ -1944,10 +2750,165 @@ export default function PharmacyPOS({
             <Tag className="w-3.5 h-3.5 text-indigo-500" />
             <span>Clinic Medicine Label Printer</span>
           </button>
+          <button
+            onClick={() => handleSubTabSwitch('barcode_mapper', 'Medicine Barcode Mapper (MongoDB)')}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-black transition cursor-pointer ${
+              activeSubTab === 'barcode_mapper' ? 'bg-emerald-600 text-white shadow-sm' : 'text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200'
+            }`}
+            title="Scan & associate manufacturer/vendor QR codes to ItemIDs in MongoDB"
+          >
+            <QrCode className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Barcode Mapper</span>
+          </button>
         </div>
       </div>
 
-      {/* RENDER ACTIVE TAB VIEW */}
+      {/* ⚡ Quick Hardware Barcode & QR Auto-Focus Interceptor Bar */}
+      <div className="bg-slate-900 text-white rounded-2xl p-3.5 shadow-lg border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-3">
+        <div className="flex items-center space-x-3 w-full md:w-auto">
+          <div className="p-2.5 bg-emerald-500/20 text-emerald-400 rounded-xl border border-emerald-500/30 flex items-center justify-center shrink-0">
+            <QrCode className="w-5 h-5 animate-pulse" />
+          </div>
+          <div>
+            <div className="flex items-center space-x-2">
+              <h4 className="text-xs font-black uppercase tracking-wider text-emerald-400">⚡ Hardware Scanner Auto-Focus Interceptor</h4>
+              <span className="text-[10px] bg-emerald-500/20 text-emerald-300 font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">
+                Active & Listening
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              Point barcode / QR scanner & scan label to instantly parse and add medicine to invoice basket.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center space-x-2 w-full md:w-auto">
+          <div className="relative flex-1 md:w-80">
+            <input
+              ref={quickScannerInputRef}
+              type="text"
+              value={quickScannerInput}
+              onChange={(e) => setQuickScannerInput(e.target.value)}
+              onKeyDown={handleQuickScannerKeyDown}
+              placeholder="Point barcode scanner or type code here..."
+              className="w-full pl-9 pr-3 py-2 bg-slate-950 text-emerald-300 placeholder-slate-500 border border-emerald-500/40 rounded-xl text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-emerald-400 shadow-inner"
+            />
+            <Barcode className="w-4 h-4 text-emerald-400 absolute left-3 top-2.5" />
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setAutoAddOnScan(!autoAddOnScan)}
+            className={`px-3 py-2 rounded-xl text-xs font-extrabold flex items-center space-x-1.5 transition cursor-pointer border ${
+              autoAddOnScan
+                ? 'bg-emerald-600 hover:bg-emerald-700 border-emerald-500 text-white shadow-xs'
+                : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300'
+            }`}
+            title="When enabled, scanned items automatically enter the active basket"
+          >
+            <CheckCircle className={`w-3.5 h-3.5 ${autoAddOnScan ? 'text-white' : 'text-slate-500'}`} />
+            <span>Auto-Add {autoAddOnScan ? 'ON' : 'OFF'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => quickScannerInputRef.current?.focus()}
+            className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition cursor-pointer shrink-0"
+            title="Press F2 anywhere to focus hardware scanner"
+          >
+            Focus (F2)
+          </button>
+        </div>
+      </div>
+
+      {/* ⚡ Visual Confirmation Indicator for Last Scanned & Mapped Barcode */}
+      {lastMappedScan && (
+        <div className="bg-emerald-950/95 text-emerald-100 border border-emerald-500/60 rounded-2xl p-3.5 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fadeIn">
+          <div className="flex items-start sm:items-center space-x-3">
+            <div className="p-2 bg-emerald-500/20 text-emerald-300 rounded-xl border border-emerald-500/40 shrink-0 mt-0.5 sm:mt-0">
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-black uppercase tracking-wide text-emerald-300 flex items-center gap-1">
+                  <Zap className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
+                  Barcode Scan Mapped
+                </span>
+                <span className="text-[11px] font-mono font-extrabold bg-emerald-900/90 text-emerald-200 px-2 py-0.5 rounded-md border border-emerald-600/60 flex items-center gap-1">
+                  <Barcode className="w-3.5 h-3.5 text-emerald-400" />
+                  {lastMappedScan.barcode}
+                </span>
+                <span className="text-[10px] font-extrabold bg-emerald-500/20 text-emerald-200 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                  Matched via {lastMappedScan.matchedBy}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 mt-1 text-xs">
+                <span className="font-extrabold text-white text-sm">{lastMappedScan.itemName}</span>
+                <span className="text-emerald-300/80 font-mono text-xs">(ID: {lastMappedScan.itemId})</span>
+                {lastMappedScan.price > 0 && (
+                  <span className="text-emerald-200 font-bold bg-emerald-900/80 px-2 py-0.5 rounded text-[11px] border border-emerald-700/50">
+                    MRP: PKR {lastMappedScan.price}
+                  </span>
+                )}
+                {lastMappedScan.batchNo && (
+                  <span className="text-emerald-100 font-extrabold bg-teal-900/90 px-2 py-0.5 rounded text-[11px] border border-teal-600/60">
+                    Batch: {lastMappedScan.batchNo}
+                  </span>
+                )}
+                {lastMappedScan.mfgDate && (
+                  <span className="text-emerald-100 font-extrabold bg-teal-900/90 px-2 py-0.5 rounded text-[11px] border border-teal-600/60">
+                    Mfg: {lastMappedScan.mfgDate}
+                  </span>
+                )}
+                {lastMappedScan.expDate && (
+                  <span className="text-amber-200 font-extrabold bg-amber-950/90 px-2 py-0.5 rounded text-[11px] border border-amber-600/60">
+                    Exp: {lastMappedScan.expDate}
+                  </span>
+                )}
+                {lastMappedScan.stock > 0 && (
+                  <span className="text-[11px] text-emerald-300 font-semibold">• Stock: {lastMappedScan.stock}</span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between sm:justify-end gap-3 self-stretch sm:self-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-emerald-800/60 shrink-0">
+            <div className="text-[10px] font-mono text-emerald-300/90 bg-emerald-900/80 px-2.5 py-1 rounded-lg border border-emerald-700/60 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+              <span className="font-bold text-emerald-200">{lastMappedScan.status}</span> at {lastMappedScan.time}
+            </div>
+            <button
+              type="button"
+              onClick={() => setLastMappedScan(null)}
+              className="text-emerald-400 hover:text-white p-1 rounded-lg hover:bg-emerald-900/60 transition cursor-pointer"
+              title="Dismiss scan indicator"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Toast Notification Banner for Scanner Feedback */}
+      {scanToastMsg && (
+        <div
+          className={`p-3.5 rounded-xl border font-mono text-xs font-bold flex items-center justify-between shadow-md transition-all animate-fadeIn ${
+            scanToastMsg.type === 'success'
+              ? 'bg-emerald-950 text-emerald-200 border-emerald-500/50'
+              : scanToastMsg.type === 'error'
+              ? 'bg-rose-950 text-rose-200 border-rose-500/50'
+              : 'bg-indigo-950 text-indigo-200 border-indigo-500/50'
+          }`}
+        >
+          <div className="flex items-center space-x-2.5">
+            <span className="text-base">{scanToastMsg.type === 'success' ? '⚡' : scanToastMsg.type === 'error' ? '❌' : '🔍'}</span>
+            <span>{scanToastMsg.text}</span>
+          </div>
+          <button onClick={() => setScanToastMsg(null)} className="text-slate-400 hover:text-white cursor-pointer ml-4">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
       {activeSubTab === 'checkout' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fadeIn" id="pos-billing-tab">
           
@@ -1972,7 +2933,7 @@ export default function PharmacyPOS({
             )}
 
             {/* Patient Selection & Doctor Prescription Lookup */}
-            <div className="bg-emerald-50/70 p-4 rounded-xl border border-emerald-200 space-y-3">
+            <div className="bg-emerald-50/70 p-3.5 sm:p-4 rounded-xl border border-emerald-200 space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
                   <label className="block text-xxs font-bold text-emerald-800 uppercase tracking-wider">
@@ -1990,7 +2951,7 @@ export default function PharmacyPOS({
                       if (latestVisit) setLabelVisitId(latestVisit.VisitID);
                       setActiveSubTab('clinical_labels');
                     }}
-                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg flex items-center space-x-1 transition cursor-pointer self-start sm:self-auto shadow-xs"
+                    className="px-3 py-2 sm:py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg flex items-center justify-center space-x-1 transition cursor-pointer self-stretch sm:self-auto shadow-xs min-h-[38px] sm:min-h-0"
                   >
                     <Tag className="w-3.5 h-3.5 mr-1" />
                     <span>Print Usage Label Stickers</span>
@@ -2001,7 +2962,7 @@ export default function PharmacyPOS({
               <select
                 value={selectedPatientId}
                 onChange={(e) => setSelectedPatientId(e.target.value)}
-                className="w-full text-xs font-bold border border-emerald-300 rounded-lg p-2.5 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                className="w-full text-xs font-bold border border-emerald-300 rounded-xl p-3 sm:p-2.5 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 min-h-[44px]"
               >
                 <option value="">-- Choose Patient / Issued Token --</option>
                 {(() => {
@@ -2094,8 +3055,18 @@ export default function PharmacyPOS({
               
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
                 <div className="sm:col-span-2">
-                  <label className="block text-xxs font-bold text-slate-500 uppercase">Search Clinical Medicine</label>
-                  <div className="relative">
+                  <div className="flex justify-between items-center">
+                    <label className="block text-xxs font-bold text-slate-500 uppercase">Search Clinical Medicine</label>
+                    <button
+                      type="button"
+                      onClick={() => setIsQRScannerOpen(true)}
+                      className="text-[10px] font-bold text-emerald-700 hover:text-emerald-800 flex items-center bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded cursor-pointer transition border border-emerald-200"
+                    >
+                      <QrCode className="w-3 h-3 mr-1" />
+                      <span>Scan QR Code</span>
+                    </button>
+                  </div>
+                  <div className="relative mt-1">
                     <input
                       type="text"
                       placeholder="Type to search clinical medicine (by name or ID)..."
@@ -2642,8 +3613,18 @@ export default function PharmacyPOS({
               
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
                 <div className="sm:col-span-2">
-                  <label className="block text-xxs font-bold text-slate-500 uppercase">Search Patent Medicine</label>
-                  <div className="relative">
+                  <div className="flex justify-between items-center">
+                    <label className="block text-xxs font-bold text-slate-500 uppercase">Search Patent Medicine</label>
+                    <button
+                      type="button"
+                      onClick={() => setIsQRScannerOpen(true)}
+                      className="text-[10px] font-bold text-emerald-700 hover:text-emerald-800 flex items-center bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded cursor-pointer transition border border-emerald-200"
+                    >
+                      <QrCode className="w-3 h-3 mr-1" />
+                      <span>Scan QR Code</span>
+                    </button>
+                  </div>
+                  <div className="relative mt-1">
                     <input
                       type="text"
                       placeholder="Type to search patent medicine (by name or ID)..."
@@ -3510,11 +4491,20 @@ export default function PharmacyPOS({
 
                   <button
                     type="button"
-                    onClick={() => setIsPOPrintPreviewOpen(true)}
+                    onClick={() => handleOpenPOGridModal('po_builder')}
+                    className="w-full py-1.5 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg flex items-center justify-center space-x-1.5 font-bold text-xs transition shadow-sm cursor-pointer"
+                  >
+                    <CheckSquare className="w-3.5 h-3.5 text-amber-300" />
+                    <span>Print PO / Threshold Report (Grid-View)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleOpenPOGridModal('sales_velocity')}
                     className="w-full py-1.5 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg flex items-center justify-center space-x-1.5 font-bold text-xs transition cursor-pointer"
                   >
-                    <Printer className="w-3.5 h-3.5 text-rose-600" />
-                    <span>Print PO / Threshold Report</span>
+                    <TrendingUp className="w-3.5 h-3.5 text-rose-600" />
+                    <span>Monthly Sales Demand Grid</span>
                   </button>
                 </div>
               </div>
@@ -3534,12 +4524,29 @@ export default function PharmacyPOS({
                       {invCategoryFilter === 'ALL' ? 'All Medicine Categories' : invCategoryFilter === 'C' ? 'Clinical Compounding (/C)' : invCategoryFilter === 'P' ? 'Patent Medicine (/P)' : invCategoryFilter}
                     </h3>
                   </div>
-                  <p className="text-xs font-medium text-slate-500 mt-1">
-                    Showing real-time stock levels, reorder quantities & PO requirements for selected category.
-                  </p>
                 </div>
 
-                <div className="flex items-center space-x-2 shrink-0">
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenPOGridModal('po_builder')}
+                    className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg flex items-center transition cursor-pointer font-bold text-xs"
+                    title="Open interactive Grid-View Purchase Order Builder"
+                  >
+                    <CheckSquare className="w-4 h-4 mr-1.5 text-indigo-600" />
+                    <span>PO Requisition Builder</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleOpenPOGridModal('sales_velocity')}
+                    className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg flex items-center transition cursor-pointer font-bold text-xs"
+                    title="View Monthly Top-Selling Medicines Sales Velocity Grid"
+                  >
+                    <TrendingUp className="w-4 h-4 mr-1.5 text-emerald-600" />
+                    <span>Monthly Sales Demand</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => {
@@ -3789,6 +4796,27 @@ export default function PharmacyPOS({
                           <td className="px-3 py-2.5 font-bold text-slate-900">
                             <div className="flex items-center space-x-2">
                               <span>{itm.ItemName}</span>
+                              {itm.BatchNo && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-slate-100 text-slate-800 border border-slate-300 shrink-0" title={`Batch #: ${itm.BatchNo}`}>
+                                  B#: {itm.BatchNo}
+                                </span>
+                              )}
+                              {itm.MfgDate && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-teal-50 text-teal-800 border border-teal-200 shrink-0" title={`Mfg Date: ${itm.MfgDate}`}>
+                                  Mfg: {itm.MfgDate}
+                                </span>
+                              )}
+                              {itm.ExpDate && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-50 text-amber-900 border border-amber-300 shrink-0" title={`Exp Date: ${itm.ExpDate}`}>
+                                  Exp: {itm.ExpDate}
+                                </span>
+                              )}
+                              {itm.VendorBarcode && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-50 text-indigo-800 border border-indigo-200 shrink-0" title={`Vendor QR Code: ${itm.VendorBarcode}`}>
+                                  <QrCode className="w-2.5 h-2.5 mr-0.5 text-indigo-600" />
+                                  QR Mapped
+                                </span>
+                              )}
                               {isLowStock && (
                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-rose-600 text-white shadow-2xs shrink-0 animate-pulse">
                                   <AlertTriangle className="w-2.5 h-2.5 mr-1" />
@@ -4288,6 +5316,22 @@ export default function PharmacyPOS({
 
           </div>
 
+        </div>
+      )}
+
+      {activeSubTab === 'barcode_mapper' && (
+        <div className="animate-fadeIn">
+          <MedicineBarcodeMapper
+            items={items}
+            setItems={setItems}
+            currentUser={currentUser}
+            onMappingAdded={(m) => {
+              setScanToastMsg({
+                text: `Mapped Vendor QR Code "${m.Barcode}" to ${m.ItemName || m.ItemID} in MongoDB!`,
+                type: 'success'
+              });
+            }}
+          />
         </div>
       )}
 
@@ -4948,10 +5992,10 @@ export default function PharmacyPOS({
       {/* Pop-up modal box for Add / Edit Medicine */}
       {isAddMedicineModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[9999] p-4 animate-fadeIn font-sans" id="add-medicine-modal">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full overflow-hidden space-y-0">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full max-h-[85vh] flex flex-col overflow-hidden">
             
             {/* Modal Header */}
-            <div className="p-5 border-b border-slate-150 flex items-center justify-between bg-slate-50">
+            <div className="p-4 border-b border-slate-150 flex items-center justify-between bg-slate-50 shrink-0">
               <div className="flex items-center space-x-2.5">
                 <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
                   <Database className="w-5 h-5" />
@@ -4975,7 +6019,7 @@ export default function PharmacyPOS({
             </div>
 
             {/* Modal Form Body */}
-            <form onSubmit={handleSaveItem} className="p-6 space-y-4 text-xs">
+            <form onSubmit={handleSaveItem} className="p-5 overflow-y-auto flex-1 space-y-3.5 text-xs">
               {invErrorMsg && (
                 <div className="p-3 bg-red-50 text-red-700 text-xs rounded-lg font-semibold border border-red-100 flex items-center">
                   <AlertCircle className="w-4 h-4 mr-2 shrink-0 text-red-500" />
@@ -5034,6 +6078,32 @@ export default function PharmacyPOS({
                 />
               </div>
 
+              {/* Vendor / BM Private Limited QR Code Linker Card */}
+              <div className="p-3 bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border border-emerald-200 rounded-xl space-y-1.5 shadow-2xs">
+                <div className="flex items-center justify-between">
+                  <label className="block text-[10px] font-black text-emerald-900 uppercase tracking-wider flex items-center space-x-1">
+                    <QrCode className="w-3.5 h-3.5 text-emerald-600 mr-1" />
+                    <span>Vendor Barcode / QR Code (BM Private Limited Mapping)</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setIsQRScannerOpen(true)}
+                    className="text-[10px] font-extrabold text-emerald-800 hover:text-emerald-950 flex items-center bg-white px-2.5 py-1 rounded-md border border-emerald-300 hover:bg-emerald-100 transition shadow-2xs cursor-pointer"
+                  >
+                    <QrCode className="w-3 h-3 mr-1 text-emerald-600" />
+                    <span>Scan Box QR</span>
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Scan or enter BM medicine package QR code (e.g. BM-DROP-42 or 890123)..."
+                  value={itemFormVendorBarcode}
+                  onChange={(e) => setItemFormVendorBarcode(e.target.value)}
+                  className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-emerald-500 border-emerald-300 bg-white font-mono font-bold text-slate-900 text-xs shadow-xs"
+                />
+
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">
@@ -5080,6 +6150,42 @@ export default function PharmacyPOS({
                     value={itemFormMinStock}
                     onChange={(e) => setItemFormMinStock(e.target.value === '' ? '' : Number(e.target.value))}
                     className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-indigo-500 border-slate-200 font-mono font-bold text-slate-900"
+                  />
+                </div>
+              </div>
+
+              {/* Batch No, Mfg Date, and Exp Date Fields (Extracted from Box QR / Scanner) */}
+              <div className="grid grid-cols-3 gap-3 p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                <div>
+                  <label className="block text-[10px] font-extrabold text-slate-600 uppercase tracking-wider mb-1">Batch # (B#)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 115"
+                    value={itemFormBatchNo}
+                    onChange={(e) => setItemFormBatchNo(e.target.value)}
+                    className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-indigo-500 border-slate-300 bg-white font-mono font-bold text-xs text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-extrabold text-slate-600 uppercase tracking-wider mb-1">Mfg Date</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 05-26"
+                    value={itemFormMfgDate}
+                    onChange={(e) => setItemFormMfgDate(e.target.value)}
+                    className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-indigo-500 border-slate-300 bg-white font-mono font-bold text-xs text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-extrabold text-slate-600 uppercase tracking-wider mb-1">Exp Date</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 05-31"
+                    value={itemFormExpDate}
+                    onChange={(e) => setItemFormExpDate(e.target.value)}
+                    className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-indigo-500 border-slate-300 bg-white font-mono font-bold text-xs text-slate-900"
                   />
                 </div>
               </div>
@@ -5170,6 +6276,749 @@ export default function PharmacyPOS({
           </div>
         </div>
       )}
+
+      {/* Interactive Grid-View Purchase Order Builder & Monthly Sales Velocity Analytics Modal */}
+      {isPOGridModalOpen && (() => {
+        // Calculations for PO Builder Tab
+        const filteredGridItems = items.filter(itm => {
+          const minStock = (itm.MinStock !== undefined && itm.MinStock !== null) ? itm.MinStock : 10;
+          if (poStockFilterScope === 'THRESHOLD' && itm.CStock > minStock) return false;
+          if (poStockFilterScope === 'OUT_OF_STOCK' && itm.CStock > 0) return false;
+          if (poStockFilterScope === 'SELECTED_ONLY' && !selectedPoItemIds.has(itm.ItemID)) return false;
+
+          if (poCategoryFilter !== 'ALL') {
+            if (poCategoryFilter === 'C' && itm.MedicineType !== 'C') return false;
+            if (poCategoryFilter === 'P' && itm.MedicineType === 'C') return false;
+            if (poCategoryFilter !== 'C' && poCategoryFilter !== 'P') {
+              const u = (itm.Unit || '').toLowerCase();
+              const c = poCategoryFilter.toLowerCase();
+              if (!u.includes(c) && !(itm.ItemName || '').toLowerCase().includes(c)) return false;
+            }
+          }
+
+          if (poGridSearch.trim()) {
+            const q = poGridSearch.toLowerCase().trim();
+            const name = (itm.ItemName || '').toLowerCase();
+            const id = (itm.ItemID || '').toLowerCase();
+            const unit = (itm.Unit || '').toLowerCase();
+            if (!name.includes(q) && !id.includes(q) && !unit.includes(q)) return false;
+          }
+
+          return true;
+        });
+
+        // Summary calculations for PO Builder
+        const lowStockCount = items.filter(i => i.CStock <= ((i.MinStock !== undefined && i.MinStock !== null) ? i.MinStock : 10)).length;
+        const selectedItemsList = items.filter(itm => selectedPoItemIds.has(itm.ItemID));
+        const totalSelectedUnits = selectedItemsList.reduce((acc, itm) => {
+          const qty = customOrderQtyMap[itm.ItemID] || (itm.ReorderQty && itm.ReorderQty > 0 ? itm.ReorderQty : Math.max(((itm.MinStock || 10) * 2) - itm.CStock, 10));
+          return acc + qty;
+        }, 0);
+
+        const totalEstCost = selectedItemsList.reduce((acc, itm) => {
+          const qty = customOrderQtyMap[itm.ItemID] || (itm.ReorderQty && itm.ReorderQty > 0 ? itm.ReorderQty : Math.max(((itm.MinStock || 10) * 2) - itm.CStock, 10));
+          return acc + (qty * (itm.PurchasePrice || 0));
+        }, 0);
+
+        // Calculations for Sales Velocity Tab
+        const filteredSalesGridItems = salesVelocityData.filter(entry => {
+          if (salesFilterScope === 'HIGH_DEMAND' && entry.totalQtySold < 5) return false;
+          if (salesFilterScope === 'TOP_20' && entry.rank > 20) return false;
+          if (salesFilterScope === 'LOW_STOCK_ONLY' && !entry.isLowStock) return false;
+
+          if (salesCategoryFilter !== 'ALL') {
+            if (salesCategoryFilter === 'C' && entry.item.MedicineType !== 'C') return false;
+            if (salesCategoryFilter === 'P' && entry.item.MedicineType === 'C') return false;
+            if (salesCategoryFilter !== 'C' && salesCategoryFilter !== 'P') {
+              const u = (entry.item.Unit || '').toLowerCase();
+              const c = salesCategoryFilter.toLowerCase();
+              if (!u.includes(c) && !(entry.item.ItemName || '').toLowerCase().includes(c)) return false;
+            }
+          }
+
+          if (salesGridSearch.trim()) {
+            const q = salesGridSearch.toLowerCase().trim();
+            const name = (entry.item.ItemName || '').toLowerCase();
+            const id = (entry.item.ItemID || '').toLowerCase();
+            if (!name.includes(q) && !id.includes(q)) return false;
+          }
+
+          return true;
+        });
+
+        const totalUnitsSoldSum = salesVelocityData.reduce((acc, c) => acc + c.totalQtySold, 0);
+        const totalRevenueSum = salesVelocityData.reduce((acc, c) => acc + c.totalRevenue, 0);
+        const criticalCount = salesVelocityData.filter(c => c.urgency === 'CRITICAL').length;
+        const fastMoversCount = salesVelocityData.filter(c => c.totalQtySold >= 10).length;
+        const maxSalesQty = salesVelocityData.length > 0 ? Math.max(...salesVelocityData.map(d => d.totalQtySold), 1) : 1;
+
+        return (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[9999] flex items-center justify-center p-2 sm:p-4 font-sans animate-fadeIn">
+            <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-7xl overflow-hidden flex flex-col h-[94vh] max-h-[95vh]">
+              
+              {/* Header Banner */}
+              <div className="p-4 bg-slate-900 text-white flex flex-col md:flex-row md:items-center justify-between gap-3 shrink-0 border-b border-slate-800">
+                <div className="flex items-center space-x-3">
+                  <div className="p-2.5 bg-indigo-600/30 text-indigo-400 rounded-xl border border-indigo-500/40 shrink-0">
+                    <CheckSquare className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <span className="px-2 py-0.5 bg-amber-400 text-slate-950 text-[10px] font-black uppercase tracking-wider rounded">
+                        Interactive Grid-View
+                      </span>
+                      <h2 className="font-extrabold text-base tracking-tight text-white">
+                        Purchase Order & Demand Analytics Center
+                      </h2>
+                    </div>
+                    <p className="text-xs text-slate-400 font-medium mt-0.5">
+                      Choose medicines, edit order quantities, build custom POs, and analyze monthly sales demand.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Tab Switcher */}
+                <div className="flex items-center space-x-2 bg-slate-800/90 p-1.5 rounded-xl border border-slate-700/80 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setPoModalTab('po_builder')}
+                    className={`px-3.5 py-2 rounded-lg text-xs font-extrabold transition flex items-center space-x-2 cursor-pointer ${
+                      poModalTab === 'po_builder'
+                        ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-400'
+                        : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
+                    }`}
+                  >
+                    <CheckSquare className="w-4 h-4 text-amber-300" />
+                    <span>1. PO Requisition Builder</span>
+                    <span className="px-1.5 py-0.2 text-[10px] bg-indigo-900 text-indigo-200 rounded-full font-black">
+                      {selectedPoItemIds.size}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPoModalTab('sales_velocity')}
+                    className={`px-3.5 py-2 rounded-lg text-xs font-extrabold transition flex items-center space-x-2 cursor-pointer ${
+                      poModalTab === 'sales_velocity'
+                        ? 'bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-400'
+                        : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
+                    }`}
+                  >
+                    <TrendingUp className="w-4 h-4 text-emerald-300" />
+                    <span>2. Monthly Sales Demand Grid</span>
+                  </button>
+                </div>
+
+                {/* Close Button */}
+                <button
+                  type="button"
+                  onClick={() => setIsPOGridModalOpen(false)}
+                  className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition cursor-pointer self-start md:self-auto"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Main Content Area */}
+              {poModalTab === 'po_builder' ? (
+                /* TAB 1: PURCHASE ORDER BUILDER GRID */
+                <div className="flex-1 flex flex-col min-h-0 bg-slate-50 overflow-hidden">
+                  
+                  {/* Metric Summary Cards */}
+                  <div className="p-4 bg-white border-b border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">
+                    <div className="p-3 bg-rose-50/70 border border-rose-200 rounded-xl flex items-center space-x-3">
+                      <div className="p-2 bg-rose-100 text-rose-700 rounded-lg shrink-0">
+                        <AlertTriangle className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-rose-600 tracking-wider block">Low Stock Items</span>
+                        <strong className="text-lg font-black font-mono text-rose-950">{lowStockCount} Items</strong>
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-xl flex items-center space-x-3">
+                      <div className="p-2 bg-indigo-100 text-indigo-700 rounded-lg shrink-0">
+                        <PackageCheck className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-indigo-600 tracking-wider block">Checked for PO</span>
+                        <strong className="text-lg font-black font-mono text-indigo-950">{selectedPoItemIds.size} Selected</strong>
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl flex items-center space-x-3">
+                      <div className="p-2 bg-amber-100 text-amber-800 rounded-lg shrink-0">
+                        <Layers className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-amber-700 tracking-wider block">Total Order Units</span>
+                        <strong className="text-lg font-black font-mono text-amber-950">{totalSelectedUnits.toLocaleString()} Units</strong>
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl flex items-center space-x-3">
+                      <div className="p-2 bg-emerald-100 text-emerald-800 rounded-lg shrink-0">
+                        <Sparkles className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-emerald-700 tracking-wider block">Est. Purchase Cost</span>
+                        <strong className="text-lg font-black font-mono text-emerald-950">Rs. {totalEstCost.toLocaleString()}</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Filter & Selection Controls Toolbar */}
+                  <div className="p-3 bg-slate-100 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs shrink-0">
+                    <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[300px]">
+                      {/* Search */}
+                      <div className="relative flex-1 min-w-[180px] max-w-xs">
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                        <input
+                          type="text"
+                          placeholder="Search medicine, ID or unit..."
+                          value={poGridSearch}
+                          onChange={(e) => setPoGridSearch(e.target.value)}
+                          className="w-full pl-8 pr-3 py-1.5 text-xs font-semibold bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                        />
+                      </div>
+
+                      {/* Stock Scope Filter */}
+                      <select
+                        value={poStockFilterScope}
+                        onChange={(e) => setPoStockFilterScope(e.target.value as any)}
+                        className="py-1.5 px-2.5 text-xs font-bold bg-white border border-slate-300 rounded-lg text-slate-800 focus:ring-2 focus:ring-indigo-500"
+                      >
+                        <option value="THRESHOLD">⚠️ Below Min Threshold (Shortage PO)</option>
+                        <option value="ALL">📦 All Inventory Medicines</option>
+                        <option value="SELECTED_ONLY">✅ Checked / Selected Items Only</option>
+                        <option value="OUT_OF_STOCK">🚨 Out of Stock Items Only (0 Stock)</option>
+                      </select>
+
+                      {/* Category Filter */}
+                      <select
+                        value={poCategoryFilter}
+                        onChange={(e) => setPoCategoryFilter(e.target.value)}
+                        className="py-1.5 px-2.5 text-xs font-bold bg-white border border-slate-300 rounded-lg text-slate-800 focus:ring-2 focus:ring-indigo-500 max-w-[160px]"
+                      >
+                        <option value="ALL">All Categories</option>
+                        <option value="C">Clinical Compounding (/C)</option>
+                        <option value="P">Patent Medicine (/P)</option>
+                        {categoryDropdownOptions.map(c => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Bulk Selection Buttons & Print Layout */}
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={handleSelectAllLowStock}
+                        className="px-2.5 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-800 font-extrabold text-[11px] rounded-lg border border-rose-300 transition cursor-pointer"
+                        title="Check all medicines below minimum threshold"
+                      >
+                        Select Low Stock
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSelectAllVisible(filteredGridItems)}
+                        className="px-2.5 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-900 font-extrabold text-[11px] rounded-lg border border-indigo-300 transition cursor-pointer"
+                        title="Check all currently filtered medicines"
+                      >
+                        Select All Visible
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleDeselectAll}
+                        className="px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[11px] rounded-lg transition cursor-pointer"
+                        title="Uncheck all items"
+                      >
+                        Deselect All
+                      </button>
+
+                      <div className="h-4 w-px bg-slate-300 mx-1" />
+
+                      {/* Print Format Selector */}
+                      <select
+                        value={poPrintLayout}
+                        onChange={(e) => setPoPrintLayout(e.target.value as any)}
+                        className="py-1.5 px-2 text-[11px] font-bold bg-white border border-slate-300 rounded-lg text-slate-800"
+                        title="Choose layout style for Purchase Order printing"
+                      >
+                        <option value="detail">A4 Detailed Table Layout</option>
+                        <option value="3col">A4 3-Column Compact Grid</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Interactive PO Builder Grid Table */}
+                  <div className="flex-1 overflow-auto p-4">
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-slate-900 text-white uppercase text-[10px] tracking-wider font-extrabold sticky top-0 z-10">
+                            <th className="p-3 text-center w-10">
+                              <input
+                                type="checkbox"
+                                checked={filteredGridItems.length > 0 && filteredGridItems.every(i => selectedPoItemIds.has(i.ItemID))}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    handleSelectAllVisible(filteredGridItems);
+                                  } else {
+                                    handleDeselectAll();
+                                  }
+                                }}
+                                className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                title="Toggle select all visible"
+                              />
+                            </th>
+                            <th className="p-3 text-center w-12">S.No</th>
+                            <th className="p-3">Item ID & Medicine Name</th>
+                            <th className="p-3 text-center">Category / Unit</th>
+                            <th className="p-3 text-center">Current Stock</th>
+                            <th className="p-3 text-center">Min Threshold</th>
+                            <th className="p-3 text-center">Stock Deficit</th>
+                            <th className="p-3 text-center w-32 bg-indigo-950 text-indigo-200">Order Qty (Editable)</th>
+                            <th className="p-3 text-right">Unit Price</th>
+                            <th className="p-3 text-right">Est. Line Cost</th>
+                            <th className="p-3 text-center">Include in PO</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-150 font-medium">
+                          {filteredGridItems.length === 0 ? (
+                            <tr>
+                              <td colSpan={11} className="p-8 text-center text-slate-400 font-bold">
+                                No medicines match your current filter scope or search query.
+                              </td>
+                            </tr>
+                          ) : (
+                            filteredGridItems.map((itm, idx) => {
+                              const isChecked = selectedPoItemIds.has(itm.ItemID);
+                              const minStock = (itm.MinStock !== undefined && itm.MinStock !== null) ? itm.MinStock : 10;
+                              const isLowStock = itm.CStock <= minStock;
+                              const deficit = Math.max(0, minStock - itm.CStock);
+                              
+                              const defaultCalcQty = (itm.ReorderQty && itm.ReorderQty > 0)
+                                ? itm.ReorderQty
+                                : Math.max((minStock * 2) - itm.CStock, 10);
+                              
+                              const currentOrderQty = customOrderQtyMap[itm.ItemID] !== undefined ? customOrderQtyMap[itm.ItemID] : defaultCalcQty;
+                              const lineCost = currentOrderQty * (itm.PurchasePrice || 0);
+
+                              return (
+                                <tr
+                                  key={itm.ItemID}
+                                  className={`transition hover:bg-slate-50 ${
+                                    isChecked ? 'bg-indigo-50/40' : isLowStock ? 'bg-rose-50/20' : ''
+                                  }`}
+                                >
+                                  <td className="p-3 text-center">
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() => handleTogglePoItem(itm.ItemID)}
+                                      className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                    />
+                                  </td>
+                                  <td className="p-3 text-center font-bold text-slate-400 font-mono">
+                                    {idx + 1}
+                                  </td>
+                                  <td className="p-3">
+                                    <div className="flex items-center space-x-2">
+                                      <span className="font-extrabold text-slate-900 text-xs">{itm.ItemName}</span>
+                                      <span className={`text-[9px] font-black uppercase px-1.5 py-0.2 rounded ${
+                                        itm.MedicineType === 'C' ? 'bg-indigo-100 text-indigo-700' : 'bg-emerald-100 text-emerald-800'
+                                      }`}>
+                                        {itm.MedicineType === 'C' ? 'Clinical' : 'Patent'}
+                                      </span>
+                                    </div>
+                                    <span className="text-[10px] text-slate-400 font-mono block">ID: {itm.ItemID}</span>
+                                  </td>
+                                  <td className="p-3 text-center font-semibold text-slate-600">
+                                    {itm.Unit || 'Tab'}
+                                  </td>
+                                  <td className="p-3 text-center">
+                                    <span className={`font-mono font-bold px-2 py-0.5 rounded text-xs ${
+                                      itm.CStock === 0
+                                        ? 'bg-rose-600 text-white animate-pulse'
+                                        : isLowStock
+                                        ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                                        : 'bg-emerald-50 text-emerald-700'
+                                    }`}>
+                                      {itm.CStock} {itm.Unit || 'Tab'}s
+                                    </span>
+                                  </td>
+                                  <td className="p-3 text-center font-mono text-slate-600 font-bold">
+                                    {minStock}
+                                  </td>
+                                  <td className="p-3 text-center font-mono">
+                                    {deficit > 0 ? (
+                                      <span className="text-rose-600 font-extrabold">-{deficit}</span>
+                                    ) : (
+                                      <span className="text-emerald-600 font-bold">OK</span>
+                                    )}
+                                  </td>
+                                  {/* Editable Order Qty Input */}
+                                  <td className="p-2 text-center bg-indigo-50/50">
+                                    <div className="flex items-center justify-center space-x-1">
+                                      <input
+                                        type="number"
+                                        min="1"
+                                        value={currentOrderQty}
+                                        onChange={(e) => handleOrderQtyChange(itm.ItemID, parseInt(e.target.value))}
+                                        disabled={!isChecked}
+                                        className={`w-20 text-center font-black font-mono border rounded p-1 text-xs focus:ring-2 focus:ring-indigo-500 shadow-xs ${
+                                          isChecked
+                                            ? 'bg-white border-indigo-300 text-indigo-950 font-extrabold'
+                                            : 'bg-slate-100 border-slate-200 text-slate-400'
+                                        }`}
+                                      />
+                                      <span className="text-[10px] text-slate-400 font-bold">{itm.Unit || 'Tab'}</span>
+                                    </div>
+                                  </td>
+                                  <td className="p-3 text-right font-mono text-slate-600 font-semibold">
+                                    Rs. {(itm.PurchasePrice || 0).toLocaleString()}
+                                  </td>
+                                  <td className="p-3 text-right font-mono font-bold text-indigo-950">
+                                    Rs. {lineCost.toLocaleString()}
+                                  </td>
+                                  <td className="p-3 text-center">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleTogglePoItem(itm.ItemID)}
+                                      className={`px-2.5 py-1 text-[11px] font-extrabold rounded-lg transition cursor-pointer ${
+                                        isChecked
+                                          ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                          : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                                      }`}
+                                    >
+                                      {isChecked ? 'Included' : '+ Add'}
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Footer Action Bar */}
+                  <div className="p-4 bg-white border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
+                    <div className="text-xs text-slate-600 font-semibold">
+                      Showing <strong className="text-slate-900">{filteredGridItems.length}</strong> items in grid view. 
+                      <strong className="text-indigo-600 ml-1">{selectedPoItemIds.size} medicines selected</strong> for custom purchase order.
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenSelectedPoPrintWindow('with_stock')}
+                        disabled={selectedPoItemIds.size === 0}
+                        className={`px-4 py-2.5 rounded-xl font-extrabold text-xs transition flex items-center space-x-1.5 border shadow-sm cursor-pointer ${
+                          selectedPoItemIds.size > 0
+                            ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300'
+                            : 'bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed'
+                        }`}
+                        title="Print report including current stock, min thresholds, and estimated cost"
+                      >
+                        <Printer className="w-4 h-4 text-slate-600" />
+                        <span>Print Report with Current Stock</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleOpenSelectedPoPrintWindow('clean_po')}
+                        disabled={selectedPoItemIds.size === 0}
+                        className={`px-5 py-2.5 rounded-xl text-white font-extrabold text-xs transition flex items-center space-x-2 shadow-md cursor-pointer ${
+                          selectedPoItemIds.size > 0
+                            ? 'bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800'
+                            : 'bg-slate-400 cursor-not-allowed'
+                        }`}
+                        title="Print clean purchase order containing medicine names and required quantity only"
+                      >
+                        <Printer className="w-4 h-4 text-amber-300" />
+                        <span>Print Report with Purchase Order</span>
+                      </button>
+                    </div>
+                  </div>
+
+                </div>
+              ) : (
+                /* TAB 2: MONTHLY TOP-SELLING MEDICINE SALES VELOCITY GRID */
+                <div className="flex-1 flex flex-col min-h-0 bg-slate-50 overflow-hidden">
+                  
+                  {/* Sales Metrics Summary Banner */}
+                  <div className="p-4 bg-white border-b border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">
+                    <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-xl flex items-center space-x-3">
+                      <div className="p-2 bg-indigo-100 text-indigo-700 rounded-lg shrink-0">
+                        <TrendingUp className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-indigo-600 tracking-wider block">Total Monthly Units Sold</span>
+                        <strong className="text-lg font-black font-mono text-indigo-950">{totalUnitsSoldSum.toLocaleString()} Units</strong>
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl flex items-center space-x-3">
+                      <div className="p-2 bg-emerald-100 text-emerald-800 rounded-lg shrink-0">
+                        <Sparkles className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-emerald-700 tracking-wider block">Total Revenue (PKR)</span>
+                        <strong className="text-lg font-black font-mono text-emerald-950">Rs. {totalRevenueSum.toLocaleString()}</strong>
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl flex items-center space-x-3">
+                      <div className="p-2 bg-amber-100 text-amber-800 rounded-lg shrink-0">
+                        <BarChart3 className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-amber-700 tracking-wider block">Fast Moving Medicines</span>
+                        <strong className="text-lg font-black font-mono text-amber-950">{fastMoversCount} Medicines</strong>
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-rose-50/70 border border-rose-200 rounded-xl flex items-center space-x-3">
+                      <div className="p-2 bg-rose-100 text-rose-700 rounded-lg shrink-0">
+                        <AlertTriangle className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-rose-600 tracking-wider block">Critical Reorder Needed</span>
+                        <strong className="text-lg font-black font-mono text-rose-950">{criticalCount} High Demand</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Filter Toolbar for Sales Grid */}
+                  <div className="p-3 bg-slate-100 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs shrink-0">
+                    <div className="flex flex-wrap items-center gap-2 flex-1">
+                      {/* Search */}
+                      <div className="relative flex-1 min-w-[180px] max-w-xs">
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                        <input
+                          type="text"
+                          placeholder="Search top selling medicine..."
+                          value={salesGridSearch}
+                          onChange={(e) => setSalesGridSearch(e.target.value)}
+                          className="w-full pl-8 pr-3 py-1.5 text-xs font-semibold bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                        />
+                      </div>
+
+                      {/* Time Period Selector */}
+                      <select
+                        value={poSalesPeriodDays}
+                        onChange={(e) => setPoSalesPeriodDays(Number(e.target.value))}
+                        className="py-1.5 px-2.5 text-xs font-bold bg-white border border-slate-300 rounded-lg text-slate-800 focus:ring-2 focus:ring-emerald-500"
+                      >
+                        <option value={30}>📅 Past 30 Days (Current Month)</option>
+                        <option value={60}>📅 Past 60 Days (2 Months)</option>
+                        <option value={90}>📅 Past 90 Days (Quarter)</option>
+                        <option value={0}>♾️ All-Time Sales Velocity</option>
+                      </select>
+
+                      {/* Sort Selector */}
+                      <select
+                        value={salesSortBy}
+                        onChange={(e) => setSalesSortBy(e.target.value as any)}
+                        className="py-1.5 px-2.5 text-xs font-bold bg-white border border-slate-300 rounded-lg text-slate-800 focus:ring-2 focus:ring-emerald-500"
+                      >
+                        <option value="units_sold">🔥 Sort by Units Sold (Highest First)</option>
+                        <option value="revenue">💵 Sort by Total Revenue (PKR)</option>
+                        <option value="stock_deficit">🚨 Sort by Stock Shortage Deficit</option>
+                      </select>
+
+                      {/* Scope Filter Scope */}
+                      <select
+                        value={salesFilterScope}
+                        onChange={(e) => setSalesFilterScope(e.target.value as any)}
+                        className="py-1.5 px-2.5 text-xs font-bold bg-white border border-slate-300 rounded-lg text-slate-800 focus:ring-2 focus:ring-emerald-500"
+                      >
+                        <option value="ALL">All Medicines</option>
+                        <option value="TOP_20">🏆 Top 20 Best Sellers Only</option>
+                        <option value="HIGH_DEMAND">🔥 High Demand (&gt;5 Units Sold)</option>
+                        <option value="LOW_STOCK_ONLY">⚠️ Low Stock Only</option>
+                      </select>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleOpenSalesReportPrintWindow}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl transition flex items-center space-x-1.5 shadow-sm cursor-pointer"
+                    >
+                      <Printer className="w-4 h-4 text-amber-300" />
+                      <span>Print Monthly Sales Report</span>
+                    </button>
+                  </div>
+
+                  {/* Monthly Sales Velocity Grid Table */}
+                  <div className="flex-1 overflow-auto p-4">
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-slate-900 text-white uppercase text-[10px] tracking-wider font-extrabold sticky top-0 z-10">
+                            <th className="p-3 text-center w-16">Rank</th>
+                            <th className="p-3">Medicine Name & Item ID</th>
+                            <th className="p-3 text-center">Category</th>
+                            <th className="p-3 text-center w-48">Monthly Units Sold</th>
+                            <th className="p-3 text-right">Total Revenue</th>
+                            <th className="p-3 text-center">Current Stock</th>
+                            <th className="p-3 text-center">Min Threshold</th>
+                            <th className="p-3 text-center">Demand Status</th>
+                            <th className="p-3 text-center">Quick Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-150 font-medium">
+                          {filteredSalesGridItems.length === 0 ? (
+                            <tr>
+                              <td colSpan={9} className="p-8 text-center text-slate-400 font-bold">
+                                No sales recorded for the selected period or filters.
+                              </td>
+                            </tr>
+                          ) : (
+                            filteredSalesGridItems.map((entry) => {
+                              const percentOfTop = Math.min(100, Math.round((entry.totalQtySold / maxSalesQty) * 100));
+                              const isInPo = selectedPoItemIds.has(entry.item.ItemID);
+
+                              return (
+                                <tr key={entry.item.ItemID} className="hover:bg-slate-50 transition">
+                                  <td className="p-3 text-center">
+                                    <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-black font-mono ${
+                                      entry.rank === 1 ? 'bg-amber-400 text-slate-950 shadow-xs ring-2 ring-amber-300' :
+                                      entry.rank === 2 ? 'bg-slate-300 text-slate-900 font-bold' :
+                                      entry.rank === 3 ? 'bg-amber-700 text-white font-bold' :
+                                      'bg-slate-100 text-slate-600'
+                                    }`}>
+                                      {entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : entry.rank === 3 ? '🥉' : `#${entry.rank}`}
+                                    </span>
+                                  </td>
+                                  <td className="p-3">
+                                    <div className="flex items-center space-x-2">
+                                      <span className="font-extrabold text-slate-900 text-xs">{entry.item.ItemName}</span>
+                                      <span className={`text-[9px] font-black uppercase px-1.5 py-0.2 rounded ${
+                                        entry.item.MedicineType === 'C' ? 'bg-indigo-100 text-indigo-700' : 'bg-emerald-100 text-emerald-800'
+                                      }`}>
+                                        {entry.item.MedicineType === 'C' ? 'Clinical' : 'Patent'}
+                                      </span>
+                                    </div>
+                                    <span className="text-[10px] text-slate-400 font-mono block">ID: {entry.item.ItemID}</span>
+                                  </td>
+                                  <td className="p-3 text-center font-semibold text-slate-600">
+                                    {entry.item.Unit || 'Tab'}
+                                  </td>
+                                  {/* Monthly Units Sold with Visual Velocity Bar */}
+                                  <td className="p-3 text-center">
+                                    <div className="space-y-1">
+                                      <span className="font-mono font-black text-indigo-950 text-xs block">
+                                        {entry.totalQtySold.toLocaleString()} {entry.item.Unit || 'Tab'}s
+                                      </span>
+                                      <div className="w-full bg-slate-150 h-1.5 rounded-full overflow-hidden">
+                                        <div
+                                          className={`h-full rounded-full transition-all duration-500 ${
+                                            entry.rank <= 3 ? 'bg-amber-500' : entry.totalQtySold >= 10 ? 'bg-indigo-600' : 'bg-slate-400'
+                                          }`}
+                                          style={{ width: `${Math.max(4, percentOfTop)}%` }}
+                                        />
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="p-3 text-right font-mono font-bold text-emerald-700">
+                                    Rs. {entry.totalRevenue.toLocaleString()}
+                                  </td>
+                                  <td className="p-3 text-center">
+                                    <span className={`font-mono font-bold px-2 py-0.5 rounded text-xs ${
+                                      entry.isLowStock
+                                        ? 'bg-rose-100 text-rose-800 border border-rose-200 font-extrabold'
+                                        : 'bg-emerald-50 text-emerald-700'
+                                    }`}>
+                                      {entry.item.CStock}
+                                    </span>
+                                  </td>
+                                  <td className="p-3 text-center font-mono text-slate-600 font-bold">
+                                    {entry.minStock}
+                                  </td>
+                                  <td className="p-3 text-center">
+                                    {entry.urgency === 'CRITICAL' ? (
+                                      <span className="px-2 py-1 bg-rose-600 text-white rounded text-[10px] font-black uppercase tracking-wider animate-pulse inline-block">
+                                        🚨 Critical Reorder
+                                      </span>
+                                    ) : entry.urgency === 'HIGH' ? (
+                                      <span className="px-2 py-1 bg-rose-100 text-rose-800 rounded text-[10px] font-extrabold uppercase tracking-wider inline-block">
+                                        ⚠️ Low Stock
+                                      </span>
+                                    ) : entry.totalQtySold >= 10 ? (
+                                      <span className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded text-[10px] font-extrabold uppercase tracking-wider inline-block">
+                                        🔥 Fast Mover
+                                      </span>
+                                    ) : (
+                                      <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded text-[10px] font-bold uppercase tracking-wider inline-block">
+                                        🟢 Sufficient
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="p-3 text-center">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        handleTogglePoItem(entry.item.ItemID);
+                                        const calcQty = Math.max(entry.totalQtySold, entry.minStock * 2);
+                                        handleOrderQtyChange(entry.item.ItemID, calcQty);
+                                      }}
+                                      className={`px-3 py-1 rounded-lg font-bold text-xs transition cursor-pointer flex items-center justify-center space-x-1 mx-auto ${
+                                        isInPo
+                                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                          : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs'
+                                      }`}
+                                    >
+                                      {isInPo ? (
+                                        <>
+                                          <Check className="w-3.5 h-3.5" />
+                                          <span>In PO</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Plus className="w-3.5 h-3.5" />
+                                          <span>Add to PO</span>
+                                        </>
+                                      )}
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Footer Action Bar */}
+                  <div className="p-4 bg-white border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
+                    <div className="text-xs text-slate-600 font-semibold">
+                      Analyzed sales history across Pharmacy POS & EMR Prescriptions over past <strong className="text-slate-900">{poSalesPeriodDays > 0 ? `${poSalesPeriodDays} days` : 'all-time'}</strong>.
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleOpenSalesReportPrintWindow}
+                      className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-extrabold text-xs rounded-xl transition flex items-center space-x-2 shadow-md cursor-pointer"
+                    >
+                      <Printer className="w-4 h-4 text-amber-300" />
+                      <span>Print Monthly Sales Demand Report</span>
+                    </button>
+                  </div>
+
+                </div>
+              )}
+
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Master A4 Purchase Order Print Dialog & Preview Modal */}
       {isPOPrintPreviewOpen && (() => {
@@ -5741,6 +7590,21 @@ export default function PharmacyPOS({
           </div>
         </div>
       )}
+
+      {/* Item QR Code Scanner Modal */}
+      <ItemQRScannerModal
+        isOpen={isQRScannerOpen}
+        onClose={() => setIsQRScannerOpen(false)}
+        onScanSuccess={handleQRScanResult}
+      />
+
+      {/* Item QR Code Generator & Label Print Modal */}
+      <ItemQRGeneratorModal
+        isOpen={isQRGeneratorOpen}
+        onClose={() => setIsQRGeneratorOpen(false)}
+        items={items}
+        clinicName={clinicSettings?.Name || 'Smart Clinic Pharmacy'}
+      />
 
     </div>
   );

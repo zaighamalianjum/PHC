@@ -68,24 +68,34 @@ import {
   CheckCircle,
   Lock,
   ChevronDown,
-  User as UserIcon
+  User as UserIcon,
+  Building2,
+  Menu,
+  X,
+  Stethoscope,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 import UnauthorizedModal from './components/UnauthorizedModal';
+import GlobalSearchHeader from './components/GlobalSearchHeader';
 
 const MENU_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, restricted: true },
-  { id: 'nhc_history', label: 'PHC Patient History', icon: DatabaseBackup, restricted: false },
-  { id: 'patients', label: 'Patient Intake & Queue', icon: Users, restricted: true },
-  { id: 'pharmacy', label: 'Pharmacy POS & Inventory', icon: ShoppingCart, restricted: true },
+  { id: 'patient_visit', label: 'Patient Visit', icon: Stethoscope, restricted: false },
+  { id: 'erp_system', label: 'Mini ERP System', icon: Building2, restricted: false },
+  { id: 'nhc_history', label: 'Patient Record', icon: DatabaseBackup, restricted: false },
+  { id: 'patients', label: 'Patients', icon: Users, restricted: true },
+  { id: 'pharmacy', label: 'Store & Dispensary', icon: ShoppingCart, restricted: true },
   { id: 'accounts', label: 'Double-Entry Accounting', icon: BookOpen, restricted: true },
-  { id: 'uploads', label: 'Excel Upload & Barcode', icon: UploadCloud, restricted: true },
-  { id: 'reports', label: 'Financial Audit & P&L', icon: BarChart3, restricted: true },
+  { id: 'uploads', label: 'Uploading', icon: UploadCloud, restricted: true },
+  { id: 'reports', label: 'Financials', icon: BarChart3, restricted: true },
   { id: 'query_handler', label: 'Query Handler Console', icon: Code, restricted: true },
   { id: 'settings', label: 'Clinic Setup & Users', icon: Settings, restricted: true }
 ];
 
 // Lazy-loaded Major Modules for React Suspense
 const Dashboard = lazy(() => import('./components/Dashboard'));
+const ErpDesk = lazy(() => import('./components/ErpDesk'));
 const PatientDesk = lazy(() => import('./components/PatientDesk'));
 const PharmacyPOS = lazy(() => import('./components/PharmacyPOS'));
 const AccountingDesk = lazy(() => import('./components/AccountingDesk'));
@@ -98,6 +108,7 @@ const QueryHandlerDesk = lazy(() => import('./components/QueryHandlerDesk'));
 import LoginDesk from './components/LoginDesk';
 import { TopProgressBar, GlobalLoadingOverlay } from './components/LoadingIndicator';
 import {
+  ErpDeskSkeleton,
   DashboardSkeleton,
   PatientDeskSkeleton,
   PharmacyPOSSkeleton,
@@ -143,14 +154,48 @@ export default function App() {
   }, [usersList, currentUser.UserID]);
 
   const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [activePatientId, setActivePatientId] = useState<string>('');
+  const [activePatientSubTab, setActivePatientSubTab] = useState<string>('');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
 
-  const handleTabChange = (tabId: string) => {
-    if (tabId === activeTab) return;
+  const handleTabChange = (tabId: string, patientId?: string, subTab?: string) => {
+    setIsMobileMenuOpen(false);
+    if (patientId !== undefined) {
+      setActivePatientId(patientId);
+    }
+    if (subTab !== undefined) {
+      setActivePatientSubTab(subTab);
+    }
+    if (tabId === 'emr') {
+      setActivePatientSubTab('certificates');
+      setActiveTab('patients');
+      return;
+    }
+    if (tabId === activeTab && patientId === undefined && subTab === undefined) return;
     setActiveTab(tabId);
   };
 
   // User Profile Popover Modal State
   const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
+
+  // App-Wide Native Full Screen State & Listener
+  const [isAppFullScreen, setIsAppFullScreen] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleFsChange = () => {
+      setIsAppFullScreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+  }, []);
+
+  const toggleAppFullScreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
+  };
 
   // Global Unauthorized Modal State
   const [unauthorizedModalState, setUnauthorizedModalState] = useState<{
@@ -240,7 +285,6 @@ export default function App() {
 
 
   // Master Database States
-  const [isDoctorFocusMode, setIsDoctorFocusMode] = useState<boolean>(false);
   const [patients, setPatients] = useState<Patient[]>(INITIAL_PATIENTS);
   const [appointments, setAppointments] = useState<Appointment[]>(INITIAL_APPOINTMENTS);
   const [tokens, setTokens] = useState<Token[]>(INITIAL_TOKENS);
@@ -375,6 +419,12 @@ export default function App() {
     // Dashboard is STRICTLY restricted to Administrator only
     if (menuId === 'dashboard') {
       return currentUser.Role === 'Administrator';
+    }
+    if (menuId === 'erp_system') {
+      return true;
+    }
+    if (menuId === 'patient_visit') {
+      return currentUser.Permissions ? !!currentUser.Permissions.canViewPatientDesk : true;
     }
 
     // 1. Check custom permissions object if configured on user
@@ -528,6 +578,16 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newToken)
       }).catch(err => console.error('Failed to synchronize token to MongoDB:', err.message));
+    }
+  };
+
+  const handleDeleteToken = (tokenNo: number, shift: 1 | 2) => {
+    setTokens((prev) => prev.filter(t => !(t.TokenNo === tokenNo && t.Shift === shift)));
+    if (mongoDbSettings.SyncEnabled) {
+      const bridgeUrl = mongoDbSettings.BridgeUrl || 'http://localhost:5000';
+      fetch(`${bridgeUrl}/api/tokens/${tokenNo}/${shift}`, {
+        method: 'DELETE'
+      }).catch(err => console.error('Failed to delete token from MongoDB:', err.message));
     }
   };
 
@@ -1953,7 +2013,8 @@ export default function App() {
     localStorage.setItem('cms_is_authenticated', 'true');
     // Auto route to corresponding desk based on staff user role
     if (user.Role === 'Doctor') {
-      setActiveTab('emr');
+      setActiveTab('patients');
+      setActivePatientSubTab('patient_visit');
     } else if (user.Role === 'Pharmacist') {
       setActiveTab('pharmacy');
     } else if (user.Role === 'Accountant') {
@@ -1998,6 +2059,9 @@ export default function App() {
       <LoginDesk
         usersList={usersList}
         onLoginSuccess={handleLoginSuccess}
+        onUserUpdated={(updatedUser) => {
+          setUsersList(prev => prev.map(u => u.UserID === updatedUser.UserID ? updatedUser : u));
+        }}
         clinicName={clinicSettings.ClinicName}
         clinicLogoImage={clinicSettings.ClinicLogoImage}
       />
@@ -2011,176 +2075,291 @@ export default function App() {
       <main className="flex-1 flex flex-col min-w-0 bg-slate-100 relative overflow-hidden h-screen" id="main-workspace">
         
         {/* Bento Header */}
-        <header className="h-16 bg-blue-900 text-white flex items-center justify-between px-6 shadow-md shrink-0">
-          <div className="flex items-center space-x-3">
-            <img src={clinicSettings.ClinicLogoImage || "/nhc_logo.svg"} alt="Clinic Logo" className="w-10 h-10 object-contain rounded-full bg-white p-0.5 shadow-md border border-white/20" />
-            <h1 className="text-sm md:text-base lg:text-lg font-black tracking-tight uppercase">
-              {clinicSettings.ClinicName || 'Punjab Homeopathic Clinic'}
-            </h1>
-          </div>
-          <div className="flex items-center space-x-3 lg:space-x-4 text-sm">
-            <button
-              onClick={refreshAllData}
-              disabled={isRefreshing}
-              className="flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-extrabold text-xs px-3 py-1.5 rounded-lg border border-emerald-400/40 shadow-sm transition cursor-pointer disabled:opacity-60 shrink-0"
-              title="Refresh all patient records, tokens, appointments, pharmacy stock, and financial ledgers"
-              id="top-refresh-all-btn"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-              <span className="uppercase tracking-wider text-[11px]">{isRefreshing ? 'Refreshing...' : 'Refresh All'}</span>
-            </button>
+        <header className="h-14 sm:h-16 bg-blue-900 text-white flex items-center justify-between px-2 sm:px-4 md:px-6 shadow-md shrink-0 gap-1.5 sm:gap-3">
+            <div className="flex items-center space-x-1.5 sm:space-x-3 shrink-0">
+              {/* Mobile Hamburger Menu Toggle Button */}
+              <button
+                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                className="lg:hidden p-1.5 rounded-lg bg-blue-800/90 hover:bg-blue-700 active:bg-blue-950 text-white transition cursor-pointer shrink-0 border border-blue-600/60 shadow-xs"
+                aria-label="Toggle navigation menu"
+                id="mobile-hamburger-btn"
+                title="Open menu"
+              >
+                {isMobileMenuOpen ? <X className="w-5 h-5 text-amber-300" /> : <Menu className="w-5 h-5 text-white" />}
+              </button>
 
-            <div className="hidden md:flex flex-col items-end">
-              <span className="font-medium uppercase tracking-wider text-[9px] text-blue-200">Active Shift Filter</span>
-              <span className="font-bold text-xs text-emerald-300">
-                {currentUser.AssignedShift === 1 ? 'Morning (08:00 - 14:00)' : currentUser.AssignedShift === 2 ? 'Evening (17:00 - 21:00)' : 'Both Shifts'}
-              </span>
+              <img src={clinicSettings.ClinicLogoImage || "/nhc_logo.svg"} alt="Clinic Logo" className="w-7 h-7 sm:w-10 sm:h-10 object-contain rounded-full bg-white p-0.5 shadow-md border border-white/20 shrink-0" />
+              <h1 className="text-xs sm:text-sm md:text-base lg:text-lg font-black tracking-tight uppercase truncate max-w-[100px] xs:max-w-[160px] sm:max-w-none">
+                {clinicSettings.ClinicName || 'Punjab Homeopathic Clinic'}
+              </h1>
             </div>
-            
-            <div className="hidden md:block h-8 w-[1px] bg-blue-700"></div>
+            <div className="flex items-center space-x-1 sm:space-x-2.5 lg:space-x-3 text-xs shrink-0">
+              <button
+                onClick={refreshAllData}
+                disabled={isRefreshing}
+                className="flex items-center space-x-1 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-extrabold text-[10px] px-2 sm:px-2.5 py-1 rounded-md border border-emerald-400/40 shadow-xs transition cursor-pointer disabled:opacity-60 shrink-0"
+                title="Refresh all patient records, tokens, appointments, pharmacy stock, and financial ledgers"
+                id="top-refresh-all-btn"
+              >
+                <RefreshCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`} />
+                <span className="uppercase tracking-wider text-[9.5px] hidden sm:inline">{isRefreshing ? 'Refreshing...' : 'Refresh All'}</span>
+                <span className="uppercase tracking-wider text-[9.5px] sm:hidden">{isRefreshing ? '...' : 'Sync'}</span>
+              </button>
 
-            {/* Role Swap dropdown inside Top Header */}
-            {currentUser.Role === 'Administrator' && (
-              <div className="flex items-center space-x-1.5 bg-blue-800/90 px-2.5 py-1.5 rounded-lg border border-blue-700 shadow-sm">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                <span className="hidden xl:inline text-[10px] font-extrabold text-blue-200 uppercase tracking-wider">Role Swap:</span>
-                <select
-                  value={currentUser.UserID}
-                  onChange={(e) => {
-                    const selected = usersList.find((u) => u.UserID === e.target.value);
-                    if (selected) {
-                      setCurrentUser(selected);
-                      
-                      // Validate authorizations for new switched user
-                      const isAdmin = selected.Role === 'Administrator';
-                      const isAccountant = selected.Role === 'Accountant';
-                      const canAccessReports = isAdmin || isAccountant;
-                      
-                      const fallbackDesk = selected.Role === 'Pharmacist' ? 'pharmacy' : selected.Role === 'Accountant' ? 'accounts' : 'patients';
-                      if (activeTab === 'dashboard' && !isAdmin) {
-                        handleTabChange(fallbackDesk);
-                      } else if (activeTab === 'settings' && !isAdmin) {
-                        handleTabChange(fallbackDesk);
-                      } else if (activeTab === 'uploads' && !isAdmin) {
-                        handleTabChange(fallbackDesk);
-                      } else if (activeTab === 'reports' && !canAccessReports) {
-                        handleTabChange(fallbackDesk);
-                      } else if (selected.Role === 'Doctor' && activeTab === 'accounts') {
-                        handleTabChange('patients');
-                      } else if (selected.Role === 'Pharmacist' && activeTab === 'accounts') {
-                        handleTabChange('pharmacy');
-                      } else if (selected.Role === 'Accountant' && activeTab === 'patients') {
-                        handleTabChange('accounts');
-                      } else if (selected.Role === 'Receptionist' && activeTab === 'accounts') {
-                        handleTabChange('patients');
+              {/* Global Search input field next to Refresh All */}
+              <GlobalSearchHeader
+                patients={patients}
+                invoices={invoices}
+                invoiceDetails={invoiceDetails}
+                visits={visits}
+                appointments={appointments}
+                tokens={tokens}
+                onNavigateTab={handleTabChange}
+              />
+
+              <div className="hidden lg:flex flex-col items-end">
+                <span className="font-medium uppercase tracking-wider text-[8px] text-blue-200">Active Shift Filter</span>
+                <span className="font-bold text-[10px] text-emerald-300">
+                  {currentUser.AssignedShift === 1 ? 'Morning (08:00 - 14:00)' : currentUser.AssignedShift === 2 ? 'Evening (17:00 - 21:00)' : 'Both Shifts'}
+                </span>
+              </div>
+              
+              <div className="hidden lg:block h-6 w-[1px] bg-blue-700"></div>
+
+              {/* Role Swap dropdown inside Top Header */}
+              {currentUser.Role === 'Administrator' && (
+                <div className="hidden sm:flex items-center space-x-1 bg-blue-800/90 px-1.5 sm:px-2 py-1 rounded-md border border-blue-700 shadow-xs shrink-0">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span className="hidden xl:inline text-[9px] font-extrabold text-blue-200 uppercase tracking-wider">Role Swap:</span>
+                  <select
+                    value={currentUser.UserID}
+                    onChange={(e) => {
+                      const selected = usersList.find((u) => u.UserID === e.target.value);
+                      if (selected) {
+                        setCurrentUser(selected);
+                        
+                        // Validate authorizations for new switched user
+                        const isAdmin = selected.Role === 'Administrator';
+                        const isAccountant = selected.Role === 'Accountant';
+                        const canAccessReports = isAdmin || isAccountant;
+                        
+                        const fallbackDesk = selected.Role === 'Pharmacist' ? 'pharmacy' : selected.Role === 'Accountant' ? 'accounts' : 'patients';
+                        if (activeTab === 'dashboard' && !isAdmin) {
+                          handleTabChange(fallbackDesk);
+                        } else if (activeTab === 'settings' && !isAdmin) {
+                          handleTabChange(fallbackDesk);
+                        } else if (activeTab === 'uploads' && !isAdmin) {
+                          handleTabChange(fallbackDesk);
+                        } else if (activeTab === 'reports' && !canAccessReports) {
+                          handleTabChange(fallbackDesk);
+                        } else if (selected.Role === 'Doctor' && activeTab === 'accounts') {
+                          handleTabChange('patients');
+                        } else if (selected.Role === 'Pharmacist' && activeTab === 'accounts') {
+                          handleTabChange('pharmacy');
+                        } else if (selected.Role === 'Accountant' && activeTab === 'patients') {
+                          handleTabChange('accounts');
+                        } else if (selected.Role === 'Receptionist' && activeTab === 'accounts') {
+                          handleTabChange('patients');
+                        }
                       }
-                    }
-                  }}
-                  className="bg-blue-950 text-white font-bold text-xs rounded px-2 py-1 border border-blue-600 focus:outline-none focus:ring-1 focus:ring-emerald-400 cursor-pointer"
-                  id="top-role-selector"
+                    }}
+                    className="bg-blue-950 text-white font-bold text-[9.5px] sm:text-[10px] rounded px-1 py-0.5 border border-blue-600 focus:outline-none focus:ring-1 focus:ring-emerald-400 cursor-pointer max-w-[80px] xs:max-w-[110px] sm:max-w-none truncate"
+                    id="top-role-selector"
+                  >
+                    {usersList
+                      .filter((usr) => canUserAccessTargetUser(usr))
+                      .map((usr) => (
+                        <option key={usr.UserID} value={usr.UserID} className="bg-slate-900 text-white">
+                          {usr.FullName} ({usr.Role})
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Ultra-Compact User Profile Pill & Profile Details Card */}
+              <div className="relative shrink-0">
+                <button
+                  onClick={() => setShowProfileModal(!showProfileModal)}
+                  className="flex items-center space-x-1 sm:space-x-1.5 bg-blue-950/80 hover:bg-blue-800 active:bg-blue-900 border border-blue-700/80 p-1 sm:pr-2 rounded-full transition cursor-pointer shadow-xs group"
+                  title={`User Profile: ${currentUser.FullName} (${currentUser.Role}) - Click to view details`}
+                  id="top-user-profile-btn"
                 >
-                  {usersList
-                    .filter((usr) => canUserAccessTargetUser(usr))
-                    .map((usr) => (
-                      <option key={usr.UserID} value={usr.UserID} className="bg-slate-900 text-white">
+                  <div className="w-6 h-6 rounded-full bg-emerald-600 border border-emerald-400/80 flex items-center justify-center font-black text-[10px] text-white uppercase shadow-xs shrink-0">
+                    {currentUser.FullName.charAt(0)}
+                  </div>
+                  <span className="text-[10px] font-bold text-white max-w-[75px] xl:max-w-[100px] truncate hidden sm:inline">
+                    {currentUser.FullName.split(' ')[0]}
+                  </span>
+                  <span className="text-[8.5px] font-extrabold text-emerald-300 bg-emerald-950/80 px-1.5 py-0.2 rounded-full uppercase border border-emerald-800/80 hidden md:inline">
+                    {currentUser.Role.slice(0, 5)}
+                  </span>
+                  <ChevronDown className={`w-3 h-3 text-blue-300 transition-transform duration-150 ${showProfileModal ? 'rotate-180' : ''}`} />
+                </button>
+
+                {/* User Profile Details Dropdown Card */}
+                {showProfileModal && (
+                  <div className="absolute right-0 mt-2 w-72 sm:w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 text-slate-800 p-4 sm:p-5 z-50 animate-fadeIn">
+                    <div className="flex items-center space-x-3.5 pb-4 border-b border-slate-100">
+                      <div className="w-12 h-12 rounded-full bg-blue-900 text-emerald-400 border-2 border-emerald-400 flex items-center justify-center font-black text-xl uppercase shadow-md shrink-0">
+                        {currentUser.FullName.charAt(0)}
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-sm text-slate-900 truncate">{currentUser.FullName}</h4>
+                        <span className="inline-block bg-blue-100 text-blue-800 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-wider mt-0.5">
+                          {currentUser.Role}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="py-3 space-y-2.5 text-xs">
+                      <div className="flex justify-between items-center py-1 border-b border-slate-50">
+                        <span className="text-slate-500 font-medium">User ID:</span>
+                        <span className="font-mono font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded">{currentUser.UserID}</span>
+                      </div>
+                      <div className="flex justify-between items-center py-1 border-b border-slate-50">
+                        <span className="text-slate-500 font-medium">Username:</span>
+                        <span className="font-mono font-bold text-slate-800">{currentUser.LoginName}</span>
+                      </div>
+                      <div className="flex justify-between items-center py-1 border-b border-slate-50">
+                        <span className="text-slate-500 font-medium">Assigned Shift:</span>
+                        <span className="font-bold text-emerald-700">
+                          {currentUser.AssignedShift === 1 ? 'Morning (08:00 - 14:00)' : currentUser.AssignedShift === 2 ? 'Evening (17:00 - 21:00)' : 'Both Shifts'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center py-1 border-b border-slate-50">
+                        <span className="text-slate-500 font-medium">Access Status:</span>
+                        <span className="inline-flex items-center text-xs font-bold text-emerald-600">
+                          <span className="w-2 h-2 bg-emerald-500 rounded-full mr-1.5 animate-pulse"></span> Active Session
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                      <button
+                        onClick={() => setShowProfileModal(false)}
+                        className="text-xs font-bold text-slate-500 hover:text-slate-800 px-3 py-1.5 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+                      >
+                        Close
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowProfileModal(false);
+                          handleLogout();
+                        }}
+                        className="flex items-center space-x-1.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-extrabold text-xs px-3.5 py-1.5 rounded-lg transition shadow-sm cursor-pointer"
+                        id="profile-card-logout-btn"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        <span>Exit System</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* App-Wide Full Screen Toggle Button */}
+              <button
+                onClick={toggleAppFullScreen}
+                className={`p-1.5 rounded-md border shadow-xs flex items-center justify-center transition cursor-pointer shrink-0 ${
+                  isAppFullScreen
+                    ? 'bg-amber-500 hover:bg-amber-600 text-slate-950 border-amber-400'
+                    : 'bg-blue-900/90 hover:bg-blue-800 text-amber-300 border-blue-700/80'
+                }`}
+                title={isAppFullScreen ? "Exit Full Screen Mode" : "Go Full Screen LCD Mode"}
+                id="top-fullscreen-btn"
+              >
+                {isAppFullScreen ? (
+                  <Minimize2 className="w-3.5 h-3.5 text-slate-950" />
+                ) : (
+                  <Maximize2 className="w-3.5 h-3.5 text-amber-300" />
+                )}
+              </button>
+
+              {/* Compact Icon-Only Exit Button */}
+              <button
+                onClick={handleLogout}
+                className="bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white p-1.5 rounded-md border border-rose-400/40 shadow-xs flex items-center justify-center transition cursor-pointer shrink-0"
+                title={`Exit System & Log out (${currentUser.FullName})`}
+                id="top-exit-btn"
+              >
+                <LogOut className="w-3.5 h-3.5 text-white" />
+              </button>
+            </div>
+          </header>
+
+        {/* Mobile Responsive Collapsible Navigation Drawer */}
+        {isMobileMenuOpen && (
+          <div className="lg:hidden bg-slate-900 border-b border-blue-800 text-white shadow-2xl animate-fadeIn z-50 shrink-0">
+            <div className="p-3 border-b border-slate-800 flex items-center justify-between bg-blue-950">
+              <div className="flex items-center space-x-2">
+                <Menu className="w-4 h-4 text-emerald-400" />
+                <span className="text-xs font-black uppercase tracking-wider text-emerald-300">Workspace Navigation</span>
+              </div>
+              <button
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="p-1 hover:bg-slate-800 rounded-md text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-2.5 grid grid-cols-2 gap-2 max-h-[65vh] overflow-y-auto">
+              {MENU_ITEMS.filter((item) => {
+                if (currentUser.Role !== 'Administrator' && item.id === 'dashboard') {
+                  return false;
+                }
+                return isAccessible(item.id);
+              }).map((item) => {
+                const active = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => handleTabChange(item.id)}
+                    className={`flex items-center space-x-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left cursor-pointer min-h-[44px] ${
+                      active
+                        ? 'bg-blue-600 text-white shadow-md ring-2 ring-blue-400/50'
+                        : 'bg-slate-800/90 hover:bg-slate-700/80 text-slate-200 border border-slate-700/60'
+                    }`}
+                  >
+                    <item.icon className={`w-4 h-4 shrink-0 ${active ? 'text-white' : 'text-emerald-400'}`} />
+                    <span className="truncate">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Mobile Role Switcher & User Details Footer */}
+            <div className="p-3 bg-slate-950 border-t border-slate-800 flex flex-col gap-2 text-xs">
+              <div className="flex items-center justify-between text-[11px] text-slate-300">
+                <span>User: <strong className="text-white">{currentUser.FullName}</strong> ({currentUser.Role})</span>
+                <span className="text-emerald-400 font-bold">Shift {currentUser.AssignedShift === 1 ? '1 (Morning)' : currentUser.AssignedShift === 2 ? '2 (Evening)' : 'Both'}</span>
+              </div>
+              {currentUser.Role === 'Administrator' && (
+                <div className="flex items-center justify-between bg-slate-900 p-2 rounded-xl border border-slate-800">
+                  <span className="text-[11px] font-extrabold text-blue-300 uppercase">Role Swap:</span>
+                  <select
+                    value={currentUser.UserID}
+                    onChange={(e) => {
+                      const selected = usersList.find((u) => u.UserID === e.target.value);
+                      if (selected) {
+                        setCurrentUser(selected);
+                        setIsMobileMenuOpen(false);
+                      }
+                    }}
+                    className="bg-slate-950 text-emerald-300 font-bold text-xs rounded px-2 py-1 border border-slate-700 focus:outline-none"
+                  >
+                    {usersList.filter((usr) => canUserAccessTargetUser(usr)).map((usr) => (
+                      <option key={usr.UserID} value={usr.UserID}>
                         {usr.FullName} ({usr.Role})
                       </option>
                     ))}
-                </select>
-              </div>
-            )}
-
-            {/* Interactive User Profile Pill & Profile Details Card */}
-            <div className="relative">
-              <button
-                onClick={() => setShowProfileModal(!showProfileModal)}
-                className="flex items-center space-x-2 bg-blue-800/90 hover:bg-blue-700/90 active:bg-blue-800 border border-blue-700 px-3 py-1.5 rounded-lg text-xs transition cursor-pointer shadow-sm"
-                title="Click to view User Profile & Account Details"
-                id="top-user-profile-btn"
-              >
-                <div className="w-7 h-7 rounded-full bg-emerald-600 border border-white flex items-center justify-center font-black text-xs text-white uppercase shadow-xs">
-                  {currentUser.FullName.charAt(0)}
-                </div>
-                <div className="text-left hidden sm:block">
-                  <div className="font-bold text-xs text-white leading-tight">{currentUser.FullName}</div>
-                  <div className="text-[9px] font-bold text-emerald-300 leading-none uppercase tracking-wider">{currentUser.Role}</div>
-                </div>
-                <ChevronDown className={`w-3.5 h-3.5 text-blue-200 transition-transform duration-150 ${showProfileModal ? 'rotate-180' : ''}`} />
-              </button>
-
-              {/* User Profile Details Dropdown Card */}
-              {showProfileModal && (
-                <div className="absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 text-slate-800 p-5 z-50 animate-fadeIn">
-                  <div className="flex items-center space-x-3.5 pb-4 border-b border-slate-100">
-                    <div className="w-12 h-12 rounded-full bg-blue-900 text-emerald-400 border-2 border-emerald-400 flex items-center justify-center font-black text-xl uppercase shadow-md shrink-0">
-                      {currentUser.FullName.charAt(0)}
-                    </div>
-                    <div className="min-w-0">
-                      <h4 className="font-bold text-sm text-slate-900 truncate">{currentUser.FullName}</h4>
-                      <span className="inline-block bg-blue-100 text-blue-800 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-wider mt-0.5">
-                        {currentUser.Role}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="py-3 space-y-2.5 text-xs">
-                    <div className="flex justify-between items-center py-1 border-b border-slate-50">
-                      <span className="text-slate-500 font-medium">User ID:</span>
-                      <span className="font-mono font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded">{currentUser.UserID}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-1 border-b border-slate-50">
-                      <span className="text-slate-500 font-medium">Username:</span>
-                      <span className="font-mono font-bold text-slate-800">{currentUser.LoginName}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-1 border-b border-slate-50">
-                      <span className="text-slate-500 font-medium">Assigned Shift:</span>
-                      <span className="font-bold text-emerald-700">
-                        {currentUser.AssignedShift === 1 ? 'Morning (08:00 - 14:00)' : currentUser.AssignedShift === 2 ? 'Evening (17:00 - 21:00)' : 'Both Shifts'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center py-1 border-b border-slate-50">
-                      <span className="text-slate-500 font-medium">Access Status:</span>
-                      <span className="inline-flex items-center text-xs font-bold text-emerald-600">
-                        <span className="w-2 h-2 bg-emerald-500 rounded-full mr-1.5 animate-pulse"></span> Active Session
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-                    <button
-                      onClick={() => setShowProfileModal(false)}
-                      className="text-xs font-bold text-slate-500 hover:text-slate-800 px-3 py-1.5 rounded-lg hover:bg-slate-100 transition cursor-pointer"
-                    >
-                      Close
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowProfileModal(false);
-                        handleLogout();
-                      }}
-                      className="flex items-center space-x-1.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-extrabold text-xs px-3.5 py-1.5 rounded-lg transition shadow-sm cursor-pointer"
-                      id="profile-card-logout-btn"
-                    >
-                      <LogOut className="w-3.5 h-3.5" />
-                      <span>Exit System</span>
-                    </button>
-                  </div>
+                  </select>
                 </div>
               )}
             </div>
-
-            {/* Direct Exit Button inside Top Header */}
-            <button
-              onClick={handleLogout}
-              className="bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white font-extrabold text-xs px-3.5 py-1.5 rounded-lg border border-rose-400/40 shadow-sm flex items-center space-x-1.5 transition cursor-pointer shrink-0"
-              title="Exit system and log out"
-              id="top-exit-btn"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span className="uppercase tracking-wider text-[11px]">Exit</span>
-            </button>
           </div>
-        </header>
+        )}
 
         {/* Global Refresh Toast Banner */}
         {refreshMessage && (
@@ -2193,54 +2372,56 @@ export default function App() {
           </div>
         )}
 
-        {/* Upper Navigation Tabs Row */}
-        <div className="bg-white border-b border-slate-200 px-3.5 py-1 flex flex-col lg:flex-row lg:items-center justify-between shadow-xs shrink-0 gap-1.5">
-          <div className="flex-1 min-w-0 flex items-center space-x-1 overflow-x-auto py-0.5 scrollbar-none pr-1">
-            {MENU_ITEMS.filter((item) => {
-              if (currentUser.Role !== 'Administrator' && item.id === 'dashboard') {
-                return false;
-              }
-              return isAccessible(item.id);
-            }).map((item) => {
-              const active = activeTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => handleTabChange(item.id)}
-                  className={`flex items-center space-x-1 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-tight transition-all duration-150 shrink-0 cursor-pointer ${
-                    active
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
-                  }`}
-                  id={`nav-btn-${item.id}`}
-                >
-                  <item.icon className={`w-3 h-3 shrink-0 ${active ? 'text-white' : 'text-slate-400'}`} />
-                  <span className="whitespace-nowrap">{item.label}</span>
-                </button>
-              );
-            })}
-          </div>
+        {/* Upper Navigation Tabs Row (Hidden on mobile; accessible via top header hamburger drawer) */}
+        <div className="hidden lg:flex bg-white border-b border-slate-200 px-3.5 py-1 lg:flex-row lg:items-center justify-between shadow-xs shrink-0 gap-1.5">
+            <div className="flex-1 min-w-0 flex items-center space-x-1 overflow-x-auto py-1 scrollbar-none pr-1 touch-pan-x">
+              {MENU_ITEMS.filter((item) => {
+                if (currentUser.Role !== 'Administrator' && item.id === 'dashboard') {
+                  return false;
+                }
+                return isAccessible(item.id);
+              }).map((item) => {
+                const active = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => handleTabChange(item.id)}
+                    className={`flex items-center space-x-1.5 px-2.5 py-1.5 sm:py-1 rounded-lg text-[10.5px] sm:text-[10px] font-bold uppercase tracking-tight transition-all duration-150 shrink-0 cursor-pointer min-h-[36px] sm:min-h-0 ${
+                      active
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 active:bg-slate-200'
+                    }`}
+                    id={`nav-btn-${item.id}`}
+                  >
+                    <item.icon className={`w-3.5 h-3.5 sm:w-3 sm:h-3 shrink-0 ${active ? 'text-white' : 'text-slate-400'}`} />
+                    <span className="whitespace-nowrap">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
 
-          <div className="flex items-center space-x-1.5 shrink-0">
-            <button
-              onClick={refreshAllData}
-              disabled={isRefreshing}
-              className="bg-slate-50 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200 hover:border-emerald-300 text-slate-700 text-[10px] font-extrabold px-2.5 py-1 rounded-md flex items-center space-x-1 transition cursor-pointer disabled:opacity-50 shrink-0"
-              title="Click to fetch latest updates and refresh records across all modules"
-            >
-              <RefreshCw className={`w-3 h-3 text-emerald-600 ${isRefreshing ? 'animate-spin' : ''}`} />
-              <span className="uppercase tracking-tight text-[9.5px]">{isRefreshing ? 'Syncing...' : 'Refresh'}</span>
-            </button>
+            <div className="hidden lg:flex items-center space-x-1.5 shrink-0">
+              <button
+                onClick={refreshAllData}
+                disabled={isRefreshing}
+                className="bg-slate-50 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200 hover:border-emerald-300 text-slate-700 text-[10px] font-extrabold px-2.5 py-1 rounded-md flex items-center space-x-1 transition cursor-pointer disabled:opacity-50 shrink-0"
+                title="Click to fetch latest updates and refresh records across all modules"
+              >
+                <RefreshCw className={`w-3 h-3 text-emerald-600 ${isRefreshing ? 'animate-spin' : ''}`} />
+                <span className="uppercase tracking-tight text-[9.5px]">{isRefreshing ? 'Syncing...' : 'Refresh'}</span>
+              </button>
+            </div>
           </div>
-        </div>
 
         {/* Viewport for Active Tabs */}
         <div className="flex-1 overflow-hidden relative flex flex-col bg-slate-100">
-          <GlobalLoadingOverlay
-            isLoading={isRefreshing}
-            message="Synchronizing Data with Server..."
-            subMessage="Fetching latest updates across database collections"
-          />
+          <TopProgressBar active={isRefreshing} />
+          {isRefreshing && (
+            <div className="absolute top-3 right-5 z-40 bg-slate-900/90 text-white px-3 py-1.5 rounded-xl text-xs font-semibold shadow-lg backdrop-blur-xs flex items-center space-x-2 animate-fadeIn">
+              <RefreshCw className="w-3.5 h-3.5 text-blue-400 animate-spin" />
+              <span>Syncing records...</span>
+            </div>
+          )}
           {activeTab === 'dashboard' && (
             <Suspense fallback={<DashboardSkeleton />}>
               <Dashboard
@@ -2251,11 +2432,64 @@ export default function App() {
                 accounts={tlAccounts}
                 config={INITIAL_CONFIG}
                 vouchers={vouchers}
-                invoices={invoices}
+                invoices={filteredInvoices}
                 salesReturns={salesReturns}
                 visits={visits}
               />
             </Suspense>
+          )}
+
+          {activeTab === 'patient_visit' && (
+            <Suspense fallback={<PatientDeskSkeleton />}>
+              <PatientDesk
+                patients={patients}
+                onAddPatient={handleAddPatient}
+                appointments={filteredAppointments}
+                onAddAppointment={handleAddAppointment}
+                onUpdateAppointment={handleUpdateAppointment}
+                onDeleteAppointment={handleDeleteAppointment}
+                onUpdateAppointmentStatus={handleUpdateAppointmentStatus}
+                tokens={filteredTokens}
+                onAddToken={handleAddToken}
+                onUpdateTokenStatus={handleUpdateTokenStatus}
+                onDeleteToken={handleDeleteToken}
+                cities={INITIAL_CITIES}
+                userRights={currentUserRights}
+                smsSettings={smsSettings}
+                nhcPatients={nhcPatients}
+                clinicSettings={clinicSettings}
+                visits={visits}
+                visitMedicines={visitMedicines}
+                onAddVisit={handleAddVisit}
+                onUpdateVisit={handleUpdateVisit}
+                medicalCertificates={medicalCertificates}
+                onAddCertificate={handleAddCertificate}
+                sbpCertificates={sbpCertificates}
+                onAddSbpCertificate={handleAddSbpCertificate}
+                mongoDbSettings={mongoDbSettings}
+                onUpdatePatient={handleUpdatePatient}
+                items={items}
+                currentUser={currentUser}
+                labTests={labTests}
+                smartLocatorMedicines={smartLocatorMedicines}
+                invoices={invoices}
+                onUnauthorized={triggerGlobalUnauthorized}
+                initialPatientId={activePatientId}
+                initialSubTab="patient_visit"
+                isFullScreenMode={true}
+              />
+            </Suspense>
+          )}
+
+          {activeTab === 'erp_system' && (
+            <div className="flex-1 overflow-y-auto h-full">
+              <Suspense fallback={<ErpDeskSkeleton />}>
+                <ErpDesk
+                  currentUser={currentUser}
+                  rights={currentUserRights}
+                />
+              </Suspense>
+            </div>
           )}
 
           {activeTab === 'nhc_history' && (
@@ -2280,6 +2514,7 @@ export default function App() {
                 tokens={filteredTokens}
                 onAddToken={handleAddToken}
                 onUpdateTokenStatus={handleUpdateTokenStatus}
+                onDeleteToken={handleDeleteToken}
                 cities={INITIAL_CITIES}
                 userRights={currentUserRights}
                 smsSettings={smsSettings}
@@ -2288,6 +2523,12 @@ export default function App() {
                 visits={visits}
                 visitMedicines={visitMedicines}
                 onAddVisit={handleAddVisit}
+                onUpdateVisit={handleUpdateVisit}
+                medicalCertificates={medicalCertificates}
+                onAddCertificate={handleAddCertificate}
+                sbpCertificates={sbpCertificates}
+                onAddSbpCertificate={handleAddSbpCertificate}
+                mongoDbSettings={mongoDbSettings}
                 onUpdatePatient={handleUpdatePatient}
                 items={items}
                 currentUser={currentUser}
@@ -2295,6 +2536,8 @@ export default function App() {
                 smartLocatorMedicines={smartLocatorMedicines}
                 invoices={invoices}
                 onUnauthorized={triggerGlobalUnauthorized}
+                initialPatientId={activePatientId}
+                initialSubTab={activePatientSubTab as any}
               />
             </Suspense>
           )}
@@ -2384,6 +2627,7 @@ export default function App() {
                 visitMedicines={visitMedicines}
                 items={items}
                 currentUser={currentUser}
+                clinicSettings={clinicSettings}
                 onUnauthorized={triggerGlobalUnauthorized}
               />
             </Suspense>

@@ -459,8 +459,8 @@ export default function NhcPatientHistoryDesk({ mongoDbSettings, setNhcPatients 
   return (
     <div className="flex-1 overflow-hidden flex flex-col lg:flex-row bg-slate-50 relative" id="nhc-patient-history-root">
       {isLoading && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-2xl shadow-xl border border-slate-150 flex flex-col items-center max-w-xs text-center space-y-4">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-6 rounded-2xl shadow-xl border border-slate-150 flex flex-col items-center max-w-xs w-full text-center space-y-4">
             <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
             <div>
               <h4 className="text-sm font-extrabold text-slate-800">Searching Patient Records</h4>
@@ -471,14 +471,14 @@ export default function NhcPatientHistoryDesk({ mongoDbSettings, setNhcPatients 
       )}
       
       {/* Main Body Panel: Excel Upload & Patient Table */}
-      <div className="flex-1 flex flex-col overflow-y-auto p-6 space-y-6 lg:border-r lg:border-slate-200">
+      <div className="flex-1 flex flex-col overflow-y-auto p-3 sm:p-6 space-y-4 sm:space-y-6 lg:border-r lg:border-slate-200">
         
         {/* Workspace Action Card */}
-        <div className="flex flex-col md:flex-row md:items-center justify-end gap-4 bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs shrink-0">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-end gap-3 bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 shadow-xs shrink-0">
+          <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
             <button
               onClick={handleOpenAddForm}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl flex items-center gap-2 shadow-xs transition-all cursor-pointer"
+              className="w-full sm:w-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>Add Patient Record</span>
@@ -486,29 +486,27 @@ export default function NhcPatientHistoryDesk({ mongoDbSettings, setNhcPatients 
           </div>
         </div>
 
-
-
         {/* Global Notifications */}
         {successMsg && (
-          <div className="bg-emerald-50 border border-emerald-200/80 p-4 rounded-2xl flex items-start gap-3 text-emerald-800 text-xs shadow-xs animate-fadeIn shrink-0">
+          <div className="bg-emerald-50 border border-emerald-200/80 p-3.5 sm:p-4 rounded-2xl flex items-start gap-3 text-emerald-800 text-xs shadow-xs animate-fadeIn shrink-0">
             <CheckCircle className="w-5 h-5 text-emerald-600 mt-0.5 shrink-0" />
             <div className="space-y-1">
               <span className="font-extrabold block text-slate-800">Operation Successful</span>
               <p>{successMsg}</p>
             </div>
-            <button onClick={() => setSuccessMsg('')} className="ml-auto text-slate-400 hover:text-slate-600">
+            <button onClick={() => setSuccessMsg('')} className="ml-auto text-slate-400 hover:text-slate-600 p-1">
               <X className="w-4 h-4" />
             </button>
           </div>
         )}
         {errorMsg && (
-          <div className="bg-rose-50 border border-rose-200/80 p-4 rounded-2xl flex items-start gap-3 text-rose-800 text-xs shadow-xs animate-fadeIn shrink-0">
+          <div className="bg-rose-50 border border-rose-200/80 p-3.5 sm:p-4 rounded-2xl flex items-start gap-3 text-rose-800 text-xs shadow-xs animate-fadeIn shrink-0">
             <AlertCircle className="w-5 h-5 text-rose-600 mt-0.5 shrink-0" />
             <div className="space-y-1">
               <span className="font-extrabold block text-slate-800">Alert / Error Encountered</span>
               <p>{errorMsg}</p>
             </div>
-            <button onClick={() => setErrorMsg('')} className="ml-auto text-slate-400 hover:text-slate-600">
+            <button onClick={() => setErrorMsg('')} className="ml-auto text-slate-400 hover:text-slate-600 p-1">
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -517,15 +515,15 @@ export default function NhcPatientHistoryDesk({ mongoDbSettings, setNhcPatients 
         {/* ========================================================== */}
         {/* INTERACTIVE DATA CONSOLE */}
         {/* ========================================================== */}
-        <div className="flex-1 min-h-[400px] bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs flex flex-col">
+        <div className="flex-1 min-h-[300px] sm:min-h-[400px] bg-white border border-slate-200/80 rounded-2xl p-3.5 sm:p-5 shadow-xs flex flex-col">
           
           {/* Advanced Filtering & Query Control Panel */}
-          <div className="space-y-4 border-b border-slate-100 pb-4 mb-4 shrink-0">
+          <div className="space-y-3 sm:space-y-4 border-b border-slate-100 pb-3 sm:pb-4 mb-3 sm:mb-4 shrink-0">
             
             {/* Main Text Search Box */}
-            <div className="flex flex-col sm:flex-row items-center gap-3 w-full">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3 w-full">
               <div className="relative w-full sm:flex-1">
-                <Search className="absolute left-3.5 top-2.5 w-4 h-4 text-slate-400 shrink-0" />
+                <Search className="absolute left-3.5 top-3 sm:top-2.5 w-4 h-4 text-slate-400 shrink-0" />
                 <input
                   type="text"
                   value={searchTerm}
@@ -536,20 +534,22 @@ export default function NhcPatientHistoryDesk({ mongoDbSettings, setNhcPatients 
                     }
                   }}
                   placeholder="Query clinical archive by Patient Name, ID, Symptom, or Diagnosis..."
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 pl-10 pr-4 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none placeholder:text-slate-400 text-slate-800"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 sm:py-2 pl-10 pr-4 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none placeholder:text-slate-400 text-slate-800"
                   id="nhc-patient-search"
                 />
               </div>
-              <button
-                type="button"
-                onClick={() => fetchRecords(searchTerm)}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 cursor-pointer"
-              >
-                <Search className="w-3.5 h-3.5" /> Search Database
-              </button>
-              <div className="flex items-center gap-2 text-xxs font-extrabold text-slate-500 bg-slate-50 px-3 py-2 rounded-xl border border-slate-150 whitespace-nowrap shrink-0">
-                <Database className="w-3.5 h-3.5 text-indigo-500" />
-                Loaded: {filteredList.length} Profiles
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => fetchRecords(searchTerm)}
+                  className="flex-1 sm:flex-initial px-4 py-2.5 sm:py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
+                >
+                  <Search className="w-3.5 h-3.5" /> Search Database
+                </button>
+                <div className="flex items-center gap-1.5 text-xxs font-extrabold text-slate-500 bg-slate-50 px-2.5 py-2.5 sm:py-2 rounded-xl border border-slate-150 whitespace-nowrap shrink-0">
+                  <Database className="w-3.5 h-3.5 text-indigo-500" />
+                  Loaded: {filteredList.length}
+                </div>
               </div>
             </div>
 

@@ -27,6 +27,9 @@ import {
   Copy,
   Printer,
   FileText,
+  Grid,
+  Receipt,
+  Building2,
   Plus,
   Edit3,
   Ticket,
@@ -43,6 +46,8 @@ import {
   Coins,
   LayoutGrid,
   Table,
+  Maximize2,
+  Minimize2,
   Database,
   Save,
   Download,
@@ -64,7 +69,10 @@ import {
   User,
   LabTest,
   SmartLocatorMedicine,
-  InvoiceHeader
+  InvoiceHeader,
+  MedicalCertificate,
+  MedicalCertificateSBP,
+  MongoDbSettings
 } from '../types';
 import {
   formatDisplayDate,
@@ -72,12 +80,15 @@ import {
   matchPatientRecord,
   getResolvedNhcPatientName
 } from './patient/patientDeskUtils';
-import PatientDeskSubNav from './patient/PatientDeskSubNav';
+import PatientDeskSubNav, { PatientDeskSubTab } from './patient/PatientDeskSubNav';
 import ThermalTokenModal, { ThermalPrintData } from './patient/ThermalTokenModal';
 import LargeScreenTokenDisplay from './patient/LargeScreenTokenDisplay';
 import PatientRegisterView from './patient/PatientRegisterView';
 import InstantTokenIssueView from './patient/InstantTokenIssueView';
 import RegistrationSuccessModal from './patient/RegistrationSuccessModal';
+import EMRDesk from './EMRDesk';
+import { generatePatientId } from '../utils/idGenerator';
+import { generateOPDThermalTokenHtml, printOPDThermalToken } from '../utils/thermalPrinter';
 
 interface PatientDeskProps {
   patients: Patient[];
@@ -91,6 +102,7 @@ interface PatientDeskProps {
   tokens: Token[];
   onAddToken: (tok: Token) => void;
   onUpdateTokenStatus: (tokenNo: number, shift: 1 | 2, status: 1 | 2 | 3) => void;
+  onDeleteToken?: (tokenNo: number, shift: 1 | 2) => void;
   cities: City[];
   userRights: UserRight[];
   smsSettings?: SmsSettings;
@@ -99,12 +111,21 @@ interface PatientDeskProps {
   visits?: Visit[];
   visitMedicines?: VisitMedicine[];
   onAddVisit?: (v: Visit, medicines: VisitMedicine[], testIds: string[]) => void;
+  onUpdateVisit?: (v: Visit, medicines: VisitMedicine[], testIds: string[]) => void;
+  medicalCertificates?: MedicalCertificate[];
+  onAddCertificate?: (c: MedicalCertificate) => void;
+  sbpCertificates?: MedicalCertificateSBP[];
+  onAddSbpCertificate?: (c: MedicalCertificateSBP) => void;
+  mongoDbSettings?: MongoDbSettings;
   items?: Item[];
   currentUser?: User;
   labTests?: LabTest[];
   smartLocatorMedicines?: SmartLocatorMedicine[];
   invoices?: InvoiceHeader[];
   onUnauthorized?: (msg?: string) => void;
+  initialPatientId?: string;
+  initialSubTab?: PatientDeskSubTab;
+  isFullScreenMode?: boolean;
 }
 
 export default function PatientDesk({
@@ -119,6 +140,7 @@ export default function PatientDesk({
   tokens,
   onAddToken,
   onUpdateTokenStatus,
+  onDeleteToken,
   cities,
   userRights,
   smsSettings,
@@ -127,12 +149,21 @@ export default function PatientDesk({
   visits = [],
   visitMedicines = [],
   onAddVisit,
+  onUpdateVisit,
+  medicalCertificates = [],
+  onAddCertificate,
+  sbpCertificates = [],
+  onAddSbpCertificate,
+  mongoDbSettings,
   items = [],
   currentUser,
   labTests = [],
   smartLocatorMedicines = [],
   invoices = [],
-  onUnauthorized
+  onUnauthorized,
+  initialPatientId,
+  initialSubTab,
+  isFullScreenMode = false
 }: PatientDeskProps) {
   const triggerAuthAlert = (featureName?: string) => {
     const msg = featureName ? `You are not authorized to access ${featureName}.` : 'You are not authorized to access.';
@@ -163,13 +194,27 @@ export default function PatientDesk({
   const canEditPatient = isAdministrator || perms.canEditPatient !== false;
   const canIssueToken = isAdministrator || perms.canIssueToken !== false;
   const canBookAppointment = isAdministrator || perms.canBookAppointment !== false;
-  const canCancelAppointment = isAdministrator || perms.canCancelAppointment !== false;
+  const canCancelAppointment = isAdministrator || perms.canCancelAppointment === true;
+  const canDeleteToken = isAdministrator || perms.canDeleteToken === true;
   const canCallServeToken = isAdministrator || perms.canCallServeToken !== false;
 
-  // Sub-tabs state initialized to queue
-  const [activeSubTab, setActiveSubTab] = useState<'register' | 'token_issue' | 'book' | 'queue' | 'patient_visit' | 'grid_view' | 'status'>('queue');
+  // Sub-tabs state initialized to initialSubTab or queue
+  const [activeSubTab, setActiveSubTab] = useState<PatientDeskSubTab>(initialSubTab || 'queue');
   const [isSubTabLoading, setIsSubTabLoading] = useState(false);
   const [subTabLoadingText, setSubTabLoadingText] = useState('Loading Sub-module...');
+  const [isFullScreen, setIsFullScreen] = useState<boolean>(isFullScreenMode || false);
+
+  useEffect(() => {
+    if (initialSubTab) {
+      setActiveSubTab(initialSubTab);
+    }
+  }, [initialSubTab]);
+
+  useEffect(() => {
+    if (isFullScreenMode !== undefined) {
+      setIsFullScreen(isFullScreenMode);
+    }
+  }, [isFullScreenMode]);
 
   const handleSubTabChange = (tab: any) => {
     if (tab === activeSubTab) return;
@@ -180,6 +225,7 @@ export default function PatientDesk({
       patient_visit: 'Patient Visit & Prescriptions',
       grid_view: 'Grid-View',
       book: 'Appointments',
+      certificates: 'Medical Certificates',
       status: 'Large Screen Display',
     };
     setSubTabLoadingText(`Opening ${labels[tab] || 'Patient Sub-desk'}...`);
@@ -190,7 +236,7 @@ export default function PatientDesk({
     }, 280);
   };
   const [fullscreenShift, setFullscreenShift] = useState<'both' | 'morning' | 'evening'>('both');
-  const [isFullScreenMode, setIsFullScreenMode] = useState(false);
+  const [isLcdFullScreenMode, setIsLcdFullScreenMode] = useState(false);
 
   // Auto-switch sub-tab if active one is restricted
   useEffect(() => {
@@ -250,7 +296,14 @@ export default function PatientDesk({
   const canAdd = canAddPatient;
 
   // Search filter state
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(initialPatientId || '');
+
+  useEffect(() => {
+    if (initialPatientId) {
+      setSelectedPatientId(initialPatientId);
+      setSearchTerm(initialPatientId);
+    }
+  }, [initialPatientId]);
 
   // Form states for Patient Intake
   const [patientName, setPatientName] = useState('');
@@ -267,6 +320,7 @@ export default function PatientDesk({
   const [successMsg, setSuccessMsg] = useState('');
 
   // Form states for Appointments
+  const [showFollowUpConfirmModal, setShowFollowUpConfirmModal] = useState<boolean>(false);
   const [selectedPatientId, setSelectedPatientId] = useState('');
   const [appDate, setAppDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [futureBookingModal, setFutureBookingModal] = useState<{
@@ -292,7 +346,10 @@ export default function PatientDesk({
     autoPrintTicket: boolean;
   } | null>(null);
   const [smsSentToast, setSmsSentToast] = useState<{ recipient: string; message: string; provider: string } | null>(null);
-  const [shift, setShift] = useState<1 | 2>(1); // 1 = Morning, 2 = Evening
+  const [shift, setShift] = useState<1 | 2>(() => {
+    if (currentUser?.AssignedShift === 2) return 2;
+    return 1;
+  }); // 1 = Morning, 2 = Evening
   const [remarks, setRemarks] = useState('');
   const [appError, setAppError] = useState('');
   const [appSuccess, setAppSuccess] = useState('');
@@ -352,6 +409,11 @@ export default function PatientDesk({
   const [pvSmartLocatorTargetBox, setPvSmartLocatorTargetBox] = useState<'clinical' | 'patient'>('clinical');
   const [mongoSmartLocatorList, setMongoSmartLocatorList] = useState<SmartLocatorMedicine[]>([]);
   const [pvSmartLocatorNotification, setPvSmartLocatorNotification] = useState<string | null>(null);
+
+  // Helper for focusing Patient Visit input field (auto-scroll removed per user request)
+  const handleFocusPatientVisitInput = () => {
+    // Auto-scroll disabled per user request
+  };
 
   // Fetch smart locator entries directly from MongoDB collection via backend API
   const fetchSmartLocatorFromMongoDB = useCallback(() => {
@@ -532,6 +594,113 @@ export default function PatientDesk({
   const [pvClinicalMedicinePkr, setPvClinicalMedicinePkr] = useState<number | string>('');
   const [pvFilePkr, setPvFilePkr] = useState<number | string>('');
   const [pvCardPkr, setPvCardPkr] = useState<number | string>('');
+  const [pvOpdFeePkr, setPvOpdFeePkr] = useState<number | string>('');
+
+  const resetPvConsultationFields = (targetPatId?: string) => {
+    setEditingVisitId(null);
+    setPvVisitDate(new Date().toISOString().split('T')[0]);
+    setPvSymptomsDiagnosis('');
+    setPvClinicalItems([{ id: '1', medicineName: '', dosage: '' }]);
+    setPvPatientItems([{ id: '1', medicineName: '', dosage: '' }]);
+    setPvClinicalMedicineExpireDate('');
+    setPvMedicalReportResult('');
+    setPvLabTestAdvice('');
+    setPvClinicalMedicinePkr('');
+    setPvFilePkr('');
+    setPvCardPkr('');
+
+    let initialOpdFee = '';
+    const patId = targetPatId || pvSelectedPatientId;
+    if (patId) {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const matchedAppt = (appointments || []).find(a => a.PatientID === patId && a.AppointmentDate === todayStr);
+      if (matchedAppt?.FeeCharged !== undefined && matchedAppt.FeeCharged !== null) {
+        initialOpdFee = String(matchedAppt.FeeCharged);
+      } else if (clinicSettings?.OPDFee) {
+        initialOpdFee = String(clinicSettings.OPDFee);
+      } else {
+        initialOpdFee = '1500';
+      }
+    } else if (clinicSettings?.OPDFee) {
+      initialOpdFee = String(clinicSettings.OPDFee);
+    } else {
+      initialOpdFee = '1500';
+    }
+    setPvOpdFeePkr(initialOpdFee);
+    setPvSaveError('');
+    setPvSaveSuccess('');
+  };
+
+  // Shift-wise Daily Collection calculation (Clinical Medicine, File, Cards, OPD & Store Payments)
+  const shiftDailyCollection = useMemo(() => {
+    const targetDate = pvVisitDate || new Date().toISOString().split('T')[0];
+    const targetShift = shift;
+
+    let clinicalMedsTotal = 0;
+    let fileTotal = 0;
+    let cardTotal = 0;
+    let opdConsultationTotal = 0;
+
+    (visits || []).forEach((v) => {
+      const vDate = v.VisitDate ? v.VisitDate.split('T')[0] : '';
+      if (vDate === targetDate) {
+        const matchedToken = (tokens || []).find(
+          (t) => t.PatientID === v.PatientID && (t.Date ? t.Date.split('T')[0] : targetDate) === targetDate
+        );
+        const vShift = v.Shift || matchedToken?.Shift || targetShift;
+        if (vShift === targetShift) {
+          let clin = Number(v.ClinicalMedicinePayment) || 0;
+          let file = Number(v.FileFee) || 0;
+          let card = Number(v.CardFee) || Number(v.CardsPayment) || 0;
+          if (v.VisitRemarks) {
+            if (!clin) { const cPkr = v.VisitRemarks.match(/Clinical Meds PKR\s*(\d+)/); if (cPkr) clin = Number(cPkr[1]); }
+            if (!file) { const fPkr = v.VisitRemarks.match(/File PKR\s*(\d+)/); if (fPkr) file = Number(fPkr[1]); }
+            if (!card) { const kPkr = v.VisitRemarks.match(/Card PKR\s*(\d+)/); if (kPkr) card = Number(kPkr[1]); }
+          }
+          clinicalMedsTotal += clin;
+          fileTotal += file;
+          cardTotal += card;
+
+          if (Number(v.ConsultationFee) > 0) {
+            opdConsultationTotal += Number(v.ConsultationFee);
+          }
+        }
+      }
+    });
+
+    let appointmentFeesTotal = 0;
+    (appointments || []).forEach((app) => {
+      const appDate = app.AppointmentDate ? app.AppointmentDate.split('T')[0] : '';
+      const appShift = app.Shift || 1;
+      if (appDate === targetDate && appShift === targetShift && app.Status !== 3) {
+        appointmentFeesTotal += Number(app.FeeCharged) || 0;
+      }
+    });
+
+    const opdTotal = Math.max(opdConsultationTotal, appointmentFeesTotal) || (opdConsultationTotal + appointmentFeesTotal);
+
+    let storePaymentTotal = 0;
+    (invoices || []).forEach((inv) => {
+      const invDate = inv.InvoiceDate ? inv.InvoiceDate.split('T')[0] : '';
+      const invShift = inv.shift || 1;
+      if (invDate === targetDate && invShift === targetShift) {
+        storePaymentTotal += Number(inv.NetAmount) || 0;
+      }
+    });
+
+    const clinicalFileCardSubtotal = clinicalMedsTotal + fileTotal + cardTotal;
+    const grandTotal = clinicalFileCardSubtotal + opdTotal + storePaymentTotal;
+
+    return {
+      clinicalMedsTotal,
+      fileTotal,
+      cardTotal,
+      clinicalFileCardSubtotal,
+      opdTotal,
+      storePaymentTotal,
+      grandTotal
+    };
+  }, [pvVisitDate, shift, visits, appointments, invoices, tokens]);
   const [pvSaveSuccess, setPvSaveSuccess] = useState('');
   const [pvSaveError, setPvSaveError] = useState('');
   const [isSavingVisit, setIsSavingVisit] = useState(false);
@@ -540,16 +709,27 @@ export default function PatientDesk({
   const [pvNhcHistory, setPvNhcHistory] = useState<NhcPatientHistory[]>([]);
   const [isFetchingPvHistory, setIsFetchingPvHistory] = useState(false);
   const [pvPrescriptionModalOpen, setPvPrescriptionModalOpen] = useState(false);
-  const [printDocType, setPrintDocType] = useState<'A5_VISIT_SLIP' | 'A4_PRESCRIPTION' | 'A4_LAB_TESTS'>('A5_VISIT_SLIP');
+  const [printDocType, setPrintDocType] = useState<'A5_VISIT_SLIP' | 'A4_PRESCRIPTION' | 'A4_LAB_TESTS' | 'A4_PATIENT_INVOICE'>('A5_VISIT_SLIP');
   const [pvSelectedHistoryDate, setPvSelectedHistoryDate] = useState<string>('ALL');
   const lastAutoSelectedPatientRef = useRef<string>('');
   const [isSearchLoadingModal, setIsSearchLoadingModal] = useState<boolean>(false);
   const [historyAlertModalOpen, setHistoryAlertModalOpen] = useState<boolean>(false);
   const [hidePreviousHistory, setHidePreviousHistory] = useState<boolean>(false);
 
+  // States for Daily Collection Report (Clinic & Store) Grid-View Modal
+  const [isDailyCollectionReportModalOpen, setIsDailyCollectionReportModalOpen] = useState<boolean>(false);
+  const [dailyCollectionStartDate, setDailyCollectionStartDate] = useState<string>('');
+  const [dailyCollectionEndDate, setDailyCollectionEndDate] = useState<string>('');
+  const [dailyCollectionReportData, setDailyCollectionReportData] = useState<any>(null);
+  const [dailyCollectionReportFormat, setDailyCollectionReportFormat] = useState<'grid' | 'pdf'>('grid');
+
   // States for Edit Recent Visit Record Popup Modal
   const [isRecentVisitsModalOpen, setIsRecentVisitsModalOpen] = useState(false);
   const [recentModalSearch, setRecentModalSearch] = useState('');
+
+  // States for New Patient Search Token / Patient ID Popup Modal
+  const [isNewPatientSearchModalOpen, setIsNewPatientSearchModalOpen] = useState(false);
+  const [newPatientSearchQuery, setNewPatientSearchQuery] = useState('');
   const [modalEditingVisitId, setModalEditingVisitId] = useState<string>('');
   const [modalPatientId, setModalPatientId] = useState<string>('');
   const [modalPatientName, setModalPatientName] = useState<string>('');
@@ -572,6 +752,14 @@ export default function PatientDesk({
   const [modalRemarks, setModalRemarks] = useState<string>('');
   const [modalSaveSuccess, setModalSaveSuccess] = useState<string>('');
   const [modalSaveError, setModalSaveError] = useState<string>('');
+
+  // States for Organization Claim Bill Modal
+  const [isClaimBillModalOpen, setIsClaimBillModalOpen] = useState<boolean>(false);
+  const [claimBillOrg, setClaimBillOrg] = useState<string>('WAPDA');
+  const [claimBillCustomOrg, setClaimBillCustomOrg] = useState<string>('');
+  const [claimBillEmployeeId, setClaimBillEmployeeId] = useState<string>('');
+  const [claimBillDesignation, setClaimBillDesignation] = useState<string>('');
+  const [claimBillRemarks, setClaimBillRemarks] = useState<string>('');
 
   // States for All Patients Grid-View Tab
   const [gridViewSearch, setGridViewSearch] = useState('');
@@ -638,6 +826,10 @@ export default function PatientDesk({
   };
 
   const handleDeleteAppointmentAction = (appId: string) => {
+    if (!canCancelAppointment) {
+      alert('Access Control Security: You do not have permission to Delete / Cancel appointments. Administrator rights required.');
+      return;
+    }
     const app = appointments.find((a) => a.AppointmentID === appId);
     const pat = patients.find((p) => p.PatientID === app?.PatientID);
     if (window.confirm(`Are you sure you want to delete the appointment for ${pat?.PatientName || app?.PatientID || appId}?`)) {
@@ -680,8 +872,7 @@ export default function PatientDesk({
     let patId = formPatientId;
 
     if (!patId && formPatientName.trim()) {
-      const nextPatNum = patients.length + 1;
-      patId = `P-${new Date().getFullYear()}-${String(nextPatNum).padStart(4, '0')}`;
+      patId = generatePatientId(patients);
       const newPat: Patient = {
         PatientID: patId,
         PatientName: formPatientName.trim(),
@@ -773,8 +964,7 @@ export default function PatientDesk({
       return;
     }
 
-    const nextPatNum = patients.length + 1;
-    const newPatId = `P-${new Date().getFullYear()}-${String(nextPatNum).padStart(4, '0')}`;
+    const newPatId = generatePatientId(patients);
     
     const newPatient: Patient = {
       PatientID: newPatId,
@@ -843,7 +1033,8 @@ export default function PatientDesk({
       setPvVisitDate(group.date);
     }
 
-    // Restore Visit Charges (PKR) for Clinical Meds, File, and Card
+    // Restore Visit Charges (PKR) for OPD Fee, Clinical Meds, File, and Card
+    setPvOpdFeePkr(group.opdFeePkr !== undefined && group.opdFeePkr !== null ? group.opdFeePkr : (group.consultationFee !== undefined ? group.consultationFee : ''));
     setPvClinicalMedicinePkr(group.clinicalMedicinePkr !== undefined && group.clinicalMedicinePkr !== null ? group.clinicalMedicinePkr : '');
     setPvFilePkr(group.filePkr !== undefined && group.filePkr !== null ? group.filePkr : '');
     setPvCardPkr(group.cardPkr !== undefined && group.cardPkr !== null ? group.cardPkr : '');
@@ -920,30 +1111,81 @@ export default function PatientDesk({
     return hasVisits || hasNhc || hasPriorApp ? 'Old Patient' : 'New Patient';
   };
 
+  const getPhoneVariants = (phoneVal: string | number | undefined | null): string[] => {
+    if (!phoneVal) return [];
+    const raw = String(phoneVal).trim().toLowerCase();
+    const cleanDigits = raw.replace(/\D/g, '');
+    if (!cleanDigits) return [];
+
+    let baseDigits = cleanDigits;
+    if (baseDigits.startsWith('92') && baseDigits.length >= 11) {
+      baseDigits = baseDigits.slice(2);
+    }
+    baseDigits = baseDigits.replace(/^0+/, '');
+
+    const variants = new Set<string>();
+    variants.add(raw);
+    variants.add(cleanDigits);
+    if (baseDigits) {
+      variants.add(baseDigits);
+      variants.add('0' + baseDigits);
+      variants.add('92' + baseDigits);
+      variants.add('+92' + baseDigits);
+    }
+    return Array.from(variants);
+  };
+
+  const getIdVariants = (idVal: string | number | undefined | null) => {
+    if (!idVal) return { clean: '', digits: '', raw: '', strippedDigits: '' };
+    const raw = String(idVal).trim().toLowerCase();
+    const clean = raw.replace(/[^0-9a-zA-Z]/g, '');
+    const digits = raw.replace(/[^0-9]/g, '');
+    const strippedDigits = digits.replace(/^0+/, '');
+    return { clean, digits, raw, strippedDigits };
+  };
+
+  const normalizePhone = (phoneStr: string | number | undefined | null): string => {
+    if (!phoneStr) return '';
+    let digits = String(phoneStr).replace(/\D/g, '');
+    if (digits.startsWith('92') && digits.length >= 11) {
+      digits = digits.slice(2);
+    }
+    digits = digits.replace(/^0+/, '');
+    return digits;
+  };
+
   // Helper function for extremely robust, multi-word, normalized patient search
-  const matchPatientRecord = (p: { PatientName?: string, PatientID?: string, PhoneMobile?: string | number }, query: string): boolean => {
+  const matchPatientRecord = (p: { PatientName?: string, PatientID?: string, PhoneMobile?: string | number, Address?: string }, query: string): boolean => {
     const normalizedQuery = query.toLowerCase().trim();
     if (!normalizedQuery) return true;
     const terms = normalizedQuery.split(/\s+/).filter(Boolean);
     if (terms.length === 0) return true;
     
     const name = String(p.PatientName || '').toLowerCase();
-    const id = String(p.PatientID || '').toLowerCase();
-    const phone = String(p.PhoneMobile || '').toLowerCase();
-    
-    const cleanPhone = phone.replace(/[^0-9]/g, '');
-    const cleanId = id.replace(/[^0-9a-zA-Z]/g, '');
+    const address = String(p.Address || '').toLowerCase();
+    const patIdVar = getIdVariants(p.PatientID);
+    const patPhoneVars = getPhoneVariants(p.PhoneMobile);
 
     return terms.every(term => {
-      const cleanTerm = term.replace(/[^0-9a-zA-Z]/g, '');
+      const termIdVar = getIdVariants(term);
+      const termPhoneVars = getPhoneVariants(term);
       
-      if (name.includes(term)) return true;
-      if (id.includes(term)) return true;
-      if (phone.includes(term)) return true;
+      // 1. Direct substring match on Patient Name or Address
+      if (name.includes(term) || address.includes(term)) return true;
       
-      if (cleanTerm) {
-        if (cleanId.includes(cleanTerm)) return true;
-        if (cleanPhone.includes(cleanTerm)) return true;
+      // 2. Patient ID Matching (raw, clean alphanumeric, or digits with leading zero handling)
+      if (patIdVar.raw && (patIdVar.raw.includes(term) || term.includes(patIdVar.raw))) return true;
+      if (termIdVar.clean && patIdVar.clean && (patIdVar.clean.includes(termIdVar.clean) || termIdVar.clean.includes(patIdVar.clean))) return true;
+      if (termIdVar.strippedDigits && patIdVar.strippedDigits) {
+        if (patIdVar.strippedDigits === termIdVar.strippedDigits || patIdVar.strippedDigits.includes(termIdVar.strippedDigits) || termIdVar.strippedDigits.includes(patIdVar.strippedDigits)) return true;
+      }
+      
+      // 3. Phone Mobile Matching (checks all phone variants including without leading 0, with 0, with 92)
+      if (patPhoneVars.length > 0 && termPhoneVars.length > 0) {
+        const hasPhoneMatch = patPhoneVars.some(pv => 
+          termPhoneVars.some(tv => pv === tv || pv.includes(tv) || tv.includes(pv))
+        );
+        if (hasPhoneMatch) return true;
       }
       
       return false;
@@ -1073,44 +1315,36 @@ export default function PatientDesk({
       }
     });
 
-    // 2. Add local EMR patients ONLY if they have an issued token or are currently selected
+    // 2. Add local EMR patients
     patients.forEach(p => {
       if (!p || !p.PatientID) return;
       const cleanId = String(p.PatientID).trim().toLowerCase();
-      const tokenNo = tokenMap.get(cleanId) ?? tokenMap.get(String(p.PatientID).trim());
-      const isSelected = p.PatientID === pvSelectedPatientId;
-      if (tokenNo !== undefined || isSelected) {
-        if (!seenIds.has(cleanId)) {
-          seenIds.add(cleanId);
-          list.push({
-            PatientID: p.PatientID,
-            PatientName: p.PatientName,
-            PhoneMobile: p.PhoneMobile,
-            tokenNo: tokenNo,
-            isNhc: false
-          });
-        }
+      if (!seenIds.has(cleanId)) {
+        seenIds.add(cleanId);
+        list.push({
+          PatientID: p.PatientID,
+          PatientName: p.PatientName,
+          PhoneMobile: p.PhoneMobile,
+          tokenNo: tokenMap.get(cleanId) ?? tokenMap.get(String(p.PatientID).trim()),
+          isNhc: false
+        });
       }
     });
 
-    // 3. Add NHC archive patients ONLY if they have an issued token or are currently selected
+    // 3. Add NHC archive patients so searching works seamlessly
     const allNhc = [...(nhcPatients || []), ...nhcArchiveList, ...pvNhcHistory];
     allNhc.forEach(nhc => {
       if (!nhc || !nhc.PatientID) return;
       const cleanId = String(nhc.PatientID).trim().toLowerCase();
-      const tokenNo = tokenMap.get(cleanId) ?? tokenMap.get(String(nhc.PatientID).trim());
-      const isSelected = nhc.PatientID === pvSelectedPatientId;
-      if (tokenNo !== undefined || isSelected) {
-        if (!seenIds.has(cleanId)) {
-          seenIds.add(cleanId);
-          list.push({
-            PatientID: nhc.PatientID,
-            PatientName: getResolvedNhcPatientName(nhc, patients, allNhc),
-            PhoneMobile: nhc.PhoneMobile || '',
-            tokenNo: tokenNo,
-            isNhc: true
-          });
-        }
+      if (!seenIds.has(cleanId)) {
+        seenIds.add(cleanId);
+        list.push({
+          PatientID: nhc.PatientID,
+          PatientName: getResolvedNhcPatientName(nhc, patients, allNhc),
+          PhoneMobile: nhc.PhoneMobile || '',
+          tokenNo: tokenMap.get(cleanId) ?? tokenMap.get(String(nhc.PatientID).trim()),
+          isNhc: true
+        });
       }
     });
 
@@ -1139,15 +1373,19 @@ export default function PatientDesk({
     const query = pvPatientSearch.trim().toLowerCase();
     const cleanNum = query.replace(/\D/g, '');
     
-    if (!query && !pvSelectedPatientId) {
-      setTimeout(() => setIsSearchLoadingModal(false), 300);
+    if (!query) {
+      setPvSelectedPatientId('');
+      resetPvConsultationFields('');
+      setPvSelectedHistoryDate('ALL');
+      setTimeout(() => setIsSearchLoadingModal(false), 200);
       return;
     }
 
     let targetPatId = '';
 
     // 1. Search by Issued Token Number in active tokens
-    if (cleanNum && tokens && tokens.length > 0) {
+    const isExplicitTokenQuery = query.startsWith('token') || query.startsWith('tk') || query.startsWith('#');
+    if (cleanNum && tokens && tokens.length > 0 && (cleanNum.length <= 4 || isExplicitTokenQuery)) {
       const tokenMatch = tokens.find(t => 
         String(t.TokenNo) === cleanNum || 
         `token-${t.TokenNo}` === query || 
@@ -1160,15 +1398,15 @@ export default function PatientDesk({
       }
     }
 
-    // 2. Search exact match in local patients (ID or Mobile)
+    // 2. Search match in local patients using matchPatientRecord
     if (!targetPatId) {
-      const localExact = patients.find(p => String(p.PatientID || '').toLowerCase() === query || String(p.PhoneMobile || '') === query || String(p.PatientID || '').toLowerCase() === `pat-${cleanNum}`);
-      if (localExact) {
-        targetPatId = localExact.PatientID;
+      const localMatch = patients.find(p => matchPatientRecord(p, query));
+      if (localMatch) {
+        targetPatId = localMatch.PatientID;
       }
     }
 
-    // 3. Search in dropdown options
+    // 3. Search in dropdown options / cached archive
     if (!targetPatId) {
       const optMatch = pvPatientDropdownOptions.find(p => 
         String(p.PatientID || '').toLowerCase() === query || 
@@ -1180,10 +1418,11 @@ export default function PatientDesk({
       }
     }
 
+    // 4. Fetch archive records from backend API so search immediately works even for un-cached legacy patients
     const bridgeUrl = window.location.origin;
     const targetQuery = targetPatId || query || pvSelectedPatientId;
 
-    fetch(`${bridgeUrl}/api/nhc-patient-history?q=${encodeURIComponent(targetQuery)}&limit=50`)
+    fetch(`${bridgeUrl}/api/nhc-patient-history?q=${encodeURIComponent(targetQuery)}&limit=100`)
       .then(res => res.ok ? res.json() : [])
       .then((nhcResults: NhcPatientHistory[]) => {
         if (Array.isArray(nhcResults) && nhcResults.length > 0) {
@@ -1196,34 +1435,31 @@ export default function PatientDesk({
         }
 
         if (!targetPatId) {
-          const nhcExact = (nhcResults || []).find(p => String(p.PatientID || '').toLowerCase() === query || String(p.PhoneMobile || '') === query)
-            || (nhcPatients || []).find(p => String(p.PatientID || '').toLowerCase() === query || String(p.PhoneMobile || '') === query);
-          if (nhcExact) {
-            targetPatId = nhcExact.PatientID;
+          const matchedNhc = (nhcResults || []).find(p => matchPatientRecord(p, query));
+          if (matchedNhc) {
+            targetPatId = matchedNhc.PatientID;
           } else {
             const localMatches = patients.filter(p => matchPatientRecord(p, query));
             if (localMatches.length > 0) {
               targetPatId = localMatches[0].PatientID;
-            } else {
-              const nhcMatches = (nhcResults || []).filter(p => matchPatientRecord(p, query));
-              if (nhcMatches.length > 0) {
-                targetPatId = nhcMatches[0].PatientID;
-              }
             }
           }
         }
 
         if (targetPatId) {
+          resetPvConsultationFields(targetPatId);
           setPvSelectedPatientId(targetPatId);
           loadPvPatientHistory(targetPatId, false);
           checkAndPromptDirectVisitToken(targetPatId);
         } else if (query) {
+          resetPvConsultationFields();
           loadPvPatientHistory(query, false);
         }
       })
       .catch((e) => {
         console.warn('Search query error in NHC history workstation:', e);
         if (targetPatId) {
+          resetPvConsultationFields(targetPatId);
           setPvSelectedPatientId(targetPatId);
           loadPvPatientHistory(targetPatId, false);
           checkAndPromptDirectVisitToken(targetPatId);
@@ -1232,8 +1468,16 @@ export default function PatientDesk({
       .finally(() => {
         setTimeout(() => {
           setIsSearchLoadingModal(false);
-        }, 500);
+        }, 300);
       });
+  };
+
+  const isSamePatient = (id1?: any, id2?: any): boolean => {
+    if (!id1 || !id2) return false;
+    const s1 = String(id1).trim().toLowerCase();
+    const s2 = String(id2).trim().toLowerCase();
+    if (s1 === s2) return true;
+    return s1.replace(/[^0-9a-zA-Z]/g, '') === s2.replace(/[^0-9a-zA-Z]/g, '');
   };
 
   const loadPvPatientHistory = (patId: any, autoTriggerPopup = false) => {
@@ -1243,8 +1487,9 @@ export default function PatientDesk({
       return;
     }
     setIsFetchingPvHistory(true);
+    setPvNhcHistory([]);
     const bridgeUrl = window.location.origin;
-    fetch(`${bridgeUrl}/api/nhc-patient-history?q=${encodeURIComponent(cleanId)}&limit=50`)
+    fetch(`${bridgeUrl}/api/nhc-patient-history?q=${encodeURIComponent(cleanId)}&limit=200`)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
@@ -1259,12 +1504,7 @@ export default function PatientDesk({
       })
       .catch((e) => {
         console.warn('Could not fetch patient NHC history in Patient Visit:', e.message);
-        const lowerId = cleanId.toLowerCase();
-        const matched = (nhcPatients || []).filter((p) => {
-          if (!p || !p.PatientID) return false;
-          const pid = String(p.PatientID);
-          return pid === cleanId || pid.toLowerCase().includes(lowerId);
-        });
+        const matched = (nhcPatients || []).filter((p) => isSamePatient(p.PatientID, cleanId));
         setPvNhcHistory(matched);
         if (autoTriggerPopup) {
           setHistoryAlertModalOpen(true);
@@ -1276,45 +1516,8 @@ export default function PatientDesk({
   };
 
   const checkAndPromptDirectVisitToken = (patientId: string) => {
-    if (!patientId) return;
-    const targetDate = pvVisitDate || new Date().toISOString().split('T')[0];
-    const todayStr = new Date().toISOString().split('T')[0];
-
-    const cleanId = String(patientId).trim().toLowerCase();
-    const patObj = patients.find(p => String(p.PatientID || '').trim().toLowerCase() === cleanId)
-      || pvPatientDropdownOptions.find(p => String(p.PatientID || '').trim().toLowerCase() === cleanId)
-      || (nhcPatients || []).find(p => String(p.PatientID || '').trim().toLowerCase() === cleanId)
-      || (nhcArchiveList || []).find(p => String(p.PatientID || '').trim().toLowerCase() === cleanId);
-
-    if (!patObj) return;
-
-    // Check if token already exists for today / target visit date
-    const existingTok = (tokens || []).find(t => 
-      String(t.PatientID || '').trim().toLowerCase() === cleanId &&
-      (t.Date === targetDate || (!t.Date && targetDate === todayStr))
-    );
-
-    if (!existingTok) {
-      // Clinic timings: Morning (8:30 AM - 12:30 PM), Evening (5:00 PM - 9:00 PM)
-      const mins = new Date().getHours() * 60 + new Date().getMinutes();
-      const detectedShift: 1 | 2 = mins < 870 ? 1 : 2; // Before 2:30 PM defaults to Morning Shift
-      const defaultFee = clinicSettings?.OPDFee !== undefined ? Number(clinicSettings.OPDFee) : 1500;
-
-      setDirectVisitShiftModal({
-        isOpen: true,
-        patient: {
-          PatientID: patObj.PatientID,
-          PatientName: patObj.PatientName || patObj.PatientID,
-          PhoneMobile: patObj.PhoneMobile || '',
-          Sex: patObj.Sex || 'M',
-          AgeYears: patObj.AgeYears || 30
-        },
-        shift: detectedShift,
-        fee: defaultFee,
-        remarks: 'Direct Walk-In Checkup (Without prior token)',
-        autoPrintTicket: false
-      });
-    }
+    // Disabled direct walk-in popup when searching/selecting patient per user request
+    return;
   };
 
   const handleConfirmDirectVisitToken = () => {
@@ -1459,9 +1662,27 @@ export default function PatientDesk({
       return pvVisitDate || new Date().toISOString().split('T')[0];
     }
     const str = String(raw).trim();
-    if (str.includes('T')) return str.split('T')[0];
-    if (str.includes(' ')) return str.split(' ')[0];
-    return str;
+    if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+      return str.slice(0, 10);
+    }
+    const parts = str.split(/[\/\-\s]/);
+    if (parts.length >= 3 && parts[0].length <= 2 && parts[1].length <= 2 && parts[2].length === 4) {
+      const p1 = parseInt(parts[0], 10);
+      const p2 = parseInt(parts[1], 10);
+      const yr = parts[2];
+      if (!isNaN(p1) && !isNaN(p2) && yr) {
+        if (p1 > 12) {
+          return `${yr}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+        } else {
+          return `${yr}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+        }
+      }
+    }
+    const parsedDate = new Date(str);
+    if (!isNaN(parsedDate.getTime())) {
+      return parsedDate.toISOString().split('T')[0];
+    }
+    return str.split(' ')[0].split('T')[0];
   };
 
   const combinedPreviousHistory = (() => {
@@ -1479,7 +1700,7 @@ export default function PatientDesk({
 
     // 1. From local EMR visits
     (visits || [])
-      .filter((v) => v.PatientID === pvSelectedPatientId)
+      .filter((v) => isSamePatient(v.PatientID, pvSelectedPatientId))
       .forEach((v) => {
         const vMeds = (visitMedicines || []).filter((m) => m.VisitID === v.VisitID);
         const clinicalList = vMeds.filter((m) => m.MedicineType === 'C').map((m) => `${m.ItemID} - ${m.Dosage} (${m.MedicineDetail})`).join('\n');
@@ -1507,25 +1728,39 @@ export default function PatientDesk({
       });
 
     // 2. From NHC Patient History archive
-    pvNhcHistory.forEach((nhc) => {
-      const cMed = nhc.MedicineType === 'C' ? `${nhc.PrescribedMedicines || nhc.MedicineDetail || ''} ${nhc.Dosage || ''}`.trim() : '';
-      const pMed = nhc.MedicineType === 'P' ? `${nhc.PrescribedMedicines || nhc.MedicineDetail || ''} ${nhc.Dosage || ''}`.trim() : '';
-      const generalMed = nhc.PrescribedMedicines || nhc.MedicineDetail || '';
-      const mrRes = nhc.MedicalReportResult || (nhc as any).medicalReportResult || (nhc as any).MedicalReportResult || 'N/A';
-      const labAdv = nhc.LabTestAdvice || nhc.LabTests || 'N/A';
+    pvNhcHistory
+      .filter((nhc) => isSamePatient(nhc.PatientID, pvSelectedPatientId) || !nhc.PatientID)
+      .forEach((nhc) => {
+        let cMed = nhc.clinicalMedication || nhc.ClinicalMedication || '';
+        let pMed = nhc.patientMedication || nhc.PatientMedication || '';
 
-      const rawNhcDate = nhc.VisitDate || nhc.RegistrationDate || nhc.Date || nhc.CreatedAt || nhc.date;
+        if (!cMed && nhc.MedicineType === 'C') {
+          cMed = `${nhc.PrescribedMedicines || nhc.MedicineDetail || ''} ${nhc.Dosage || ''}`.trim();
+        }
+        if (!pMed && nhc.MedicineType === 'P') {
+          pMed = `${nhc.PrescribedMedicines || nhc.MedicineDetail || ''} ${nhc.Dosage || ''}`.trim();
+        }
+        const generalMed = nhc.PrescribedMedicines || nhc.MedicineDetail || '';
+        if (!cMed && !pMed && generalMed) {
+          if (nhc.MedicineType === 'C') cMed = generalMed;
+          else pMed = generalMed;
+        }
 
-      historyItems.push({
-        date: parseCleanVisitDate(rawNhcDate),
-        source: 'NHC Archive',
-        symptoms: nhc.SymptomsDiagnosis || nhc.Diagnosis || nhc.Symptoms || nhc.MedicalCondition || 'N/A',
-        clinicalMedication: cMed || (nhc.MedicineType === 'C' ? generalMed : 'None recorded'),
-        patientMedication: pMed || (nhc.MedicineType !== 'C' ? generalMed : 'None recorded'),
-        medicalReportResult: mrRes !== 'N/A' ? mrRes : 'N/A',
-        labTestAdvice: labAdv !== 'N/A' ? labAdv : 'N/A'
+        const mrRes = nhc.MedicalReportResult || (nhc as any).medicalReportResult || (nhc as any).MedicalReportResult || 'N/A';
+        const labAdv = nhc.LabTestAdvice || nhc.LabTests || 'N/A';
+
+        const rawNhcDate = nhc.VisitDate || nhc.RegistrationDate || nhc.Date || nhc.CreatedAt || nhc.date;
+
+        historyItems.push({
+          date: parseCleanVisitDate(rawNhcDate),
+          source: 'NHC Archive',
+          symptoms: nhc.SymptomsDiagnosis || nhc.Diagnosis || nhc.Symptoms || nhc.symptoms || nhc.MedicalCondition || 'N/A',
+          clinicalMedication: cMed || 'None recorded',
+          patientMedication: pMed || 'None recorded',
+          medicalReportResult: mrRes !== 'N/A' ? mrRes : 'N/A',
+          labTestAdvice: labAdv !== 'N/A' ? labAdv : 'N/A'
+        });
       });
-    });
 
     return historyItems;
   })();
@@ -1544,7 +1779,7 @@ export default function PatientDesk({
     const seenIds = new Set<string>();
 
     (visits || [])
-      .filter((v) => v.PatientID === pvSelectedPatientId)
+      .filter((v) => isSamePatient(v.PatientID, pvSelectedPatientId))
       .forEach((v) => {
         if (!seenIds.has(v.VisitID)) {
           seenIds.add(v.VisitID);
@@ -1557,19 +1792,21 @@ export default function PatientDesk({
         }
       });
 
-    pvNhcHistory.forEach((nhc, idx) => {
-      const vId = ('VisitID' in nhc && nhc.VisitID) ? nhc.VisitID : ('date' in nhc ? `NHC-${nhc.date}` : `NHC-${idx}`);
-      if (!seenIds.has(vId)) {
-        seenIds.add(vId);
-        const rawNhcDate = nhc.VisitDate || nhc.RegistrationDate || nhc.Date || nhc.CreatedAt || nhc.date;
-        list.push({
-          id: vId,
-          date: parseCleanVisitDate(rawNhcDate),
-          symptoms: nhc.SymptomsDiagnosis || nhc.Diagnosis || nhc.Symptoms || nhc.symptoms || 'Routine Consultation',
-          nhcObj: nhc,
-        });
-      }
-    });
+    pvNhcHistory
+      .filter((nhc) => isSamePatient(nhc.PatientID, pvSelectedPatientId) || !nhc.PatientID)
+      .forEach((nhc, idx) => {
+        const vId = ('VisitID' in nhc && nhc.VisitID) ? nhc.VisitID : ('date' in nhc ? `NHC-${nhc.date}` : `NHC-${idx}`);
+        if (!seenIds.has(vId)) {
+          seenIds.add(vId);
+          const rawNhcDate = nhc.VisitDate || nhc.RegistrationDate || nhc.Date || nhc.CreatedAt || nhc.date;
+          list.push({
+            id: vId,
+            date: parseCleanVisitDate(rawNhcDate),
+            symptoms: nhc.SymptomsDiagnosis || nhc.Diagnosis || nhc.Symptoms || nhc.symptoms || 'Routine Consultation',
+            nhcObj: nhc,
+          });
+        }
+      });
 
     list.sort((a, b) => b.date.localeCompare(a.date));
     return list;
@@ -1723,7 +1960,7 @@ export default function PatientDesk({
 
       // 1. From local EMR visits for this date
       const dateVisits = (visits || []).filter(
-        (v) => v.PatientID === pvSelectedPatientId && (v.VisitDate ? v.VisitDate.split('T')[0] : 'N/A') === dateStr
+        (v) => isSamePatient(v.PatientID, pvSelectedPatientId) && parseCleanVisitDate(v.VisitDate) === dateStr
       );
 
       dateVisits.forEach((v) => {
@@ -1830,13 +2067,13 @@ export default function PatientDesk({
 
       // 2. From NHC archive for this date
       const dateNhc = pvNhcHistory.filter((nhc) => {
-        const d = nhc.VisitDate ? nhc.VisitDate.split('T')[0] : (nhc.RegistrationDate ? nhc.RegistrationDate.split('T')[0] : (nhc.Date ? nhc.Date.split('T')[0] : (nhc.CreatedAt ? nhc.CreatedAt.split('T')[0] : 'N/A')));
-        return d === dateStr;
+        const rawNhcDate = nhc.VisitDate || nhc.RegistrationDate || nhc.Date || nhc.CreatedAt || nhc.date;
+        return (isSamePatient(nhc.PatientID, pvSelectedPatientId) || !nhc.PatientID) && parseCleanVisitDate(rawNhcDate) === dateStr;
       });
 
       dateNhc.forEach((nhc) => {
-        if (!dateSymptoms && (nhc.SymptomsDiagnosis || nhc.Diagnosis || nhc.Symptoms)) {
-          dateSymptoms = nhc.SymptomsDiagnosis || nhc.Diagnosis || nhc.Symptoms || '';
+        if (!dateSymptoms && (nhc.SymptomsDiagnosis || nhc.Diagnosis || nhc.Symptoms || nhc.symptoms)) {
+          dateSymptoms = nhc.SymptomsDiagnosis || nhc.Diagnosis || nhc.Symptoms || nhc.symptoms || '';
         }
 
         const mr = nhc.MedicalReportResult || (nhc as any).medicalReportResult || (nhc as any).MedicalReportResult;
@@ -1879,6 +2116,31 @@ export default function PatientDesk({
           }
         }
 
+        const cMedStr = nhc.clinicalMedication || (nhc as any).ClinicalMedication;
+        const pMedStr = nhc.patientMedication || (nhc as any).PatientMedication;
+
+        if (cMedStr && cMedStr !== 'None prescribed' && cMedStr !== 'None recorded') {
+          cMedStr.split('\n').filter(Boolean).forEach((line) => {
+            const parts = line.includes(' - ') ? line.split(' - ') : [line, 'As directed'];
+            clinicalItems.push({
+              medicineName: parts[0].trim(),
+              dosage: parts.slice(1).join(' - ').trim() || 'As directed',
+              type: 'C'
+            });
+          });
+        }
+
+        if (pMedStr && pMedStr !== 'None prescribed' && pMedStr !== 'None recorded') {
+          pMedStr.split('\n').filter(Boolean).forEach((line) => {
+            const parts = line.includes(' - ') ? line.split(' - ') : [line, 'As directed'];
+            patentItems.push({
+              medicineName: parts[0].trim(),
+              dosage: parts.slice(1).join(' - ').trim() || 'As directed',
+              type: 'P'
+            });
+          });
+        }
+
         const rawMed = nhc.MedicineDetail || nhc.PrescribedMedicines || '';
         let medName = rawMed;
         let dosage = nhc.Dosage || 'As directed';
@@ -1901,7 +2163,7 @@ export default function PatientDesk({
             dosage: dosage || 'As directed',
             type: 'P'
           });
-        } else if (rawMed) {
+        } else if (rawMed && !cMedStr && !pMedStr) {
           patentItems.push({
             medicineName: medName || 'Prescribed Medicine',
             dosage: dosage || 'As directed',
@@ -1941,91 +2203,15 @@ export default function PatientDesk({
       return;
     }
 
-    const elem = document.getElementById('thermal-receipt');
-    if (!elem) {
+    if (!thermalPrintData) {
       window.print();
       return;
     }
 
-    const printWin = window.open('', '_blank', 'width=600,height=700');
-    if (!printWin) {
-      window.print();
-      return;
-    }
-
-    const printerName = clinicSettings?.ThermalPrinterName || 'Thermal Printer';
-    const basePaperWidth = clinicSettings?.ThermalPaperWidth || '60mm';
-    const widthOffset = clinicSettings?.ThermalWidthOffset || '+0in';
-    const paperHeight = clinicSettings?.ThermalPaperHeight || 'auto';
-    const marginVal = clinicSettings?.ThermalMargin || '0mm';
-    const scaleVal = clinicSettings?.ThermalScale || '100%';
-    const scaleFactor = parseFloat(scaleVal) > 1 ? parseFloat(scaleVal) / 100 : (parseFloat(scaleVal) || 1);
-
-    const effectiveWidth = widthOffset && widthOffset !== '+0in' ? `calc(${basePaperWidth} + ${widthOffset})` : basePaperWidth;
-
-    let pageCssSize = `${effectiveWidth} auto`;
-    if (paperHeight && paperHeight !== 'auto') {
-      pageCssSize = `${effectiveWidth} ${paperHeight}`;
-    }
-
-    printWin.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>OPD Token Ticket #${thermalPrintData?.tokenNo || ''} - ${printerName}</title>
-          <script src="https://cdn.tailwindcss.com"></script>
-          <style>
-            @page {
-              size: ${pageCssSize};
-              margin: ${marginVal};
-            }
-            html, body {
-              margin: 0;
-              padding: 0;
-              width: ${effectiveWidth};
-              ${paperHeight && paperHeight !== 'auto' ? `height: ${paperHeight};` : ''}
-              background: white !important;
-              color: black !important;
-              font-family: Arial, Helvetica, sans-serif !important;
-              font-weight: 900 !important;
-              -webkit-print-color-adjust: exact !important;
-              print-color-adjust: exact !important;
-            }
-            *, p, span, div, h1, h2, h3, h4, strong, b {
-              font-weight: 900 !important;
-            }
-            #thermal-receipt-container {
-              width: ${effectiveWidth};
-              ${paperHeight && paperHeight !== 'auto' ? `min-height: ${paperHeight}; height: ${paperHeight}; max-height: ${paperHeight};` : ''}
-              margin: ${marginVal} auto;
-              padding: 6px 4px;
-              box-sizing: border-box;
-              ${scaleVal && scaleVal !== '100%' ? `transform: scale(${scaleFactor}); transform-origin: top center;` : ''}
-            }
-          </style>
-        </head>
-        <body>
-          <div id="thermal-receipt-container">
-            ${elem.innerHTML}
-          </div>
-          <script>
-            window.onload = function() {
-              setTimeout(function() {
-                window.focus();
-                window.print();
-                setTimeout(function() {
-                  try { window.close(); } catch(e) {}
-                }, 300);
-              }, 100);
-            };
-          </script>
-        </body>
-      </html>
-    `);
-    printWin.document.close();
+    printOPDThermalToken(thermalPrintData, clinicSettings);
   };
 
-  const handleCleanPrintTab = (docType: 'A5_VISIT_SLIP' | 'A4_PRESCRIPTION' | 'A4_LAB_TESTS') => {
+  const handleCleanPrintTab = (docType: 'A5_VISIT_SLIP' | 'A4_PRESCRIPTION' | 'A4_LAB_TESTS' | 'A4_PATIENT_INVOICE') => {
     if (docType === 'A5_VISIT_SLIP' && currentUser?.Role !== 'Administrator' && (currentUser?.Permissions?.canPrintVisitSlip === false || userRights.find(r => r.MenuID === 'patients')?.PrintRec === false)) {
       alert("Printing Visit Slips is restricted by administrator permissions.");
       return;
@@ -2036,6 +2222,10 @@ export default function PatientDesk({
     }
     if (docType === 'A4_LAB_TESTS' && currentUser?.Role !== 'Administrator' && (currentUser?.Permissions?.canPrintLabAdvice === false || userRights.find(r => r.MenuID === 'patients')?.PrintRec === false)) {
       alert("Printing Lab Advice Slips is restricted by administrator permissions.");
+      return;
+    }
+    if (docType === 'A4_PATIENT_INVOICE' && currentUser?.Role !== 'Administrator' && (currentUser?.Permissions?.canPrintVisitSlip === false || userRights.find(r => r.MenuID === 'patients')?.PrintRec === false)) {
+      alert("Printing Patient Invoice is restricted by administrator permissions.");
       return;
     }
 
@@ -2058,6 +2248,8 @@ export default function PatientDesk({
       ? "Patient Visit Slip (148mm x 210mm)"
       : docType === 'A4_LAB_TESTS'
       ? "Lab Test Advice (A4 Letterhead)"
+      : docType === 'A4_PATIENT_INVOICE'
+      ? "Patient Official Invoice (Punjab Homeopathic Clinic)"
       : "Prescription Letterhead (A4)";
 
     const paperW = '210mm';
@@ -2139,19 +2331,1178 @@ export default function PatientDesk({
     printWin.document.close();
   };
 
-  const handleReadyForNextPatient = (prevPatientName?: string) => {
-    setEditingVisitId(null);
-    setPvVisitDate(new Date().toISOString().split('T')[0]);
-    setPvSymptomsDiagnosis('');
-    setPvClinicalItems([{ id: '1', medicineName: '', dosage: '' }]);
-    setPvPatientItems([{ id: '1', medicineName: '', dosage: '' }]);
-    setPvClinicalMedicineExpireDate('');
-    setPvMedicalReportResult('');
-    setPvLabTestAdvice('');
-    setPvClinicalMedicinePkr('');
-    setPvFilePkr('');
-    setPvCardPkr('');
+  const formatReportDate = (dateStr: string) => {
+    if (!dateStr) return '';
+    const pts = dateStr.split('-');
+    if (pts.length !== 3) return dateStr;
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthIdx = parseInt(pts[1], 10) - 1;
+    const monthStr = months[monthIdx] || pts[1];
+    return `${pts[2]}-${monthStr}-${pts[0]}`;
+  };
 
+  const generateDailyCollectionReport = (start: string, end: string) => {
+    const datesSet = new Set<string>();
+
+    const checkDateInRange = (dateStr: string) => {
+      if (!dateStr) return false;
+      return dateStr >= start && dateStr <= end;
+    };
+
+    (appointments || []).forEach(app => {
+      if (checkDateInRange(app.AppointmentDate)) {
+        datesSet.add(app.AppointmentDate);
+      }
+    });
+
+    (visits || []).forEach(vis => {
+      if (checkDateInRange(vis.VisitDate)) {
+        datesSet.add(vis.VisitDate);
+      }
+    });
+
+    (invoices || []).forEach(inv => {
+      if (checkDateInRange(inv.InvoiceDate)) {
+        datesSet.add(inv.InvoiceDate);
+      }
+    });
+
+    if (datesSet.size === 0 && start) {
+      datesSet.add(start);
+    }
+
+    const sortedDates = Array.from(datesSet).sort();
+
+    const getVisShift = (vis: Visit) => {
+      if (vis.Shift) return vis.Shift;
+      const matchedApp = appointments?.find(
+        (a) => a.PatientID === vis.PatientID && a.AppointmentDate === vis.VisitDate
+      );
+      if (matchedApp) return matchedApp.Shift || 1;
+      const matchedToken = (tokens || [])?.find(
+        (t) => t.PatientID === vis.PatientID && (t.Date ? t.Date.split('T')[0] : '') === vis.VisitDate
+      );
+      if (matchedToken) return matchedToken.Shift || 1;
+      return 1;
+    };
+
+    const getVisFees = (v: Visit) => {
+      let clin = Number(v.ClinicalMedicinePayment) || 0;
+      let file = Number(v.FileFee) || Number(v.ConsultationFee) || 0;
+      let card = Number(v.CardFee) || Number(v.CardsPayment) || 0;
+      if (v.VisitRemarks) {
+        if (!clin) { const cPkr = v.VisitRemarks.match(/Clinical Meds PKR\s*(\d+)/); if (cPkr) clin = Number(cPkr[1]); }
+        if (!file) { const fPkr = v.VisitRemarks.match(/File PKR\s*(\d+)/); if (fPkr) file = Number(fPkr[1]); }
+        if (!card) { const kPkr = v.VisitRemarks.match(/Card PKR\s*(\d+)/); if (kPkr) card = Number(kPkr[1]); }
+      }
+      return { clin, file, card };
+    };
+
+    const reportRows = sortedDates.map(date => {
+      const appsForDate = (appointments || []).filter(app => app.AppointmentDate === date && app.Status !== 3);
+      const visitsForDate = (visits || []).filter(vis => vis.VisitDate === date);
+      const invoicesForDate = (invoices || []).filter(inv => inv.InvoiceDate === date && (inv.Status as number) !== 3);
+
+      // MORNING (Shift 1)
+      const mApp = appsForDate.filter(a => a.Shift === 1).reduce((sum, a) => sum + (a.FeeCharged || 0), 0);
+      const mCmed = visitsForDate.filter(v => getVisShift(v) === 1).reduce((sum, v) => sum + getVisFees(v).clin, 0);
+      const mCards = visitsForDate.filter(v => getVisShift(v) === 1).reduce((sum, v) => sum + getVisFees(v).card, 0);
+      const mFile = visitsForDate.filter(v => getVisShift(v) === 1).reduce((sum, v) => sum + getVisFees(v).file, 0);
+      const mStore = invoicesForDate.filter(inv => (inv.shift || (inv as any).Shift || 1) === 1).reduce((sum, inv) => sum + (inv.NetAmount || 0), 0);
+      const mTotal = mApp + mCmed + mCards + mFile + mStore;
+
+      // EVENING (Shift 2)
+      const eApp = appsForDate.filter(a => a.Shift === 2).reduce((sum, a) => sum + (a.FeeCharged || 0), 0);
+      const eCmed = visitsForDate.filter(v => getVisShift(v) === 2).reduce((sum, v) => sum + getVisFees(v).clin, 0);
+      const eCards = visitsForDate.filter(v => getVisShift(v) === 2).reduce((sum, v) => sum + getVisFees(v).card, 0);
+      const eFile = visitsForDate.filter(v => getVisShift(v) === 2).reduce((sum, v) => sum + getVisFees(v).file, 0);
+      const eStore = invoicesForDate.filter(inv => (inv.shift || (inv as any).Shift || 1) === 2).reduce((sum, inv) => sum + (inv.NetAmount || 0), 0);
+      const eTotal = eApp + eCmed + eCards + eFile + eStore;
+
+      const dayTotal = mTotal + eTotal;
+
+      return {
+        date,
+        morning: { app: mApp, cmed: mCmed, cards: mCards, file: mFile, store: mStore, total: mTotal },
+        evening: { app: eApp, cmed: eCmed, cards: eCards, file: eFile, store: eStore, total: eTotal },
+        dayTotal
+      };
+    });
+
+    const morningSummaryTotals = {
+      app: reportRows.reduce((sum, r) => sum + r.morning.app, 0),
+      cmed: reportRows.reduce((sum, r) => sum + r.morning.cmed, 0),
+      cards: reportRows.reduce((sum, r) => sum + r.morning.cards, 0),
+      file: reportRows.reduce((sum, r) => sum + r.morning.file, 0),
+      store: reportRows.reduce((sum, r) => sum + r.morning.store, 0),
+      total: reportRows.reduce((sum, r) => sum + r.morning.total, 0)
+    };
+
+    const eveningSummaryTotals = {
+      app: reportRows.reduce((sum, r) => sum + r.evening.app, 0),
+      cmed: reportRows.reduce((sum, r) => sum + r.evening.cmed, 0),
+      cards: reportRows.reduce((sum, r) => sum + r.evening.cards, 0),
+      file: reportRows.reduce((sum, r) => sum + r.evening.file, 0),
+      store: reportRows.reduce((sum, r) => sum + r.evening.store, 0),
+      total: reportRows.reduce((sum, r) => sum + r.evening.total, 0)
+    };
+
+    const grandSummaryTotals = {
+      app: morningSummaryTotals.app + eveningSummaryTotals.app,
+      cmed: morningSummaryTotals.cmed + eveningSummaryTotals.cmed,
+      cards: morningSummaryTotals.cards + eveningSummaryTotals.cards,
+      file: morningSummaryTotals.file + eveningSummaryTotals.file,
+      store: morningSummaryTotals.store + eveningSummaryTotals.store,
+      total: morningSummaryTotals.total + eveningSummaryTotals.total
+    };
+
+    const pdfRows: any[] = [];
+    let pdfGrandTotal = 0;
+
+    sortedDates.forEach((date) => {
+      const dateParts = date.split('-');
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const monthIdx = parseInt(dateParts[1], 10) - 1;
+      const monthStr = months[monthIdx] || dateParts[1];
+      const formattedDate = dateParts.length === 3
+        ? `${dateParts[2]}-${monthStr}-${dateParts[0].substring(2)}`
+        : date;
+
+      const appsForDate = (appointments || []).filter(app => app.AppointmentDate === date && app.Status !== 3);
+      const visitsForDate = (visits || []).filter(vis => vis.VisitDate === date);
+      const invoicesForDate = (invoices || []).filter(inv => inv.InvoiceDate === date && (inv.Status as number) !== 3);
+
+      const shiftOrder = [
+        { shiftNum: 2, label: 'Evening' },
+        { shiftNum: 1, label: 'Morning' }
+      ];
+
+      const shiftBlocks: any[] = [];
+      let dayTotalAmount = 0;
+
+      shiftOrder.forEach(({ shiftNum, label }) => {
+        const apps = appsForDate.filter(a => a.Shift === shiftNum);
+        const vis = visitsForDate.filter(v => getVisShift(v) === shiftNum);
+        const invs = invoicesForDate.filter(i => (i.shift || (i as any).Shift || 1) === shiftNum);
+
+        const visitedCount = Math.max(vis.length, apps.length);
+        const items: { count: number; description: string; amount: number }[] = [];
+
+        const cardsVisits = vis.filter(v => getVisFees(v).card > 0);
+        if (cardsVisits.length > 0) {
+          items.push({ count: cardsVisits.length, description: 'Cards', amount: cardsVisits.reduce((sum, v) => sum + getVisFees(v).card, 0) });
+        }
+
+        const cmedVisits = vis.filter(v => getVisFees(v).clin > 0);
+        if (cmedVisits.length > 0) {
+          items.push({ count: cmedVisits.length, description: 'Clinical Medicine Charges', amount: cmedVisits.reduce((sum, v) => sum + getVisFees(v).clin, 0) });
+        }
+
+        const fileVisits = vis.filter(v => getVisFees(v).file > 0);
+        if (fileVisits.length > 0) {
+          items.push({ count: fileVisits.length, description: 'Registration File', amount: fileVisits.reduce((sum, v) => sum + getVisFees(v).file, 0) });
+        }
+
+        if (invs.length > 0) {
+          const storeAmt = invs.reduce((sum, i) => sum + (i.NetAmount || 0), 0);
+          if (storeAmt > 0) {
+            items.push({ count: invs.length, description: 'Store Collection', amount: storeAmt });
+          }
+        }
+
+        const appCharges = apps.filter(a => Number(a.FeeCharged || 0) > 0);
+        if (appCharges.length > 0) {
+          items.push({ count: appCharges.length, description: 'Appointment Charges', amount: appCharges.reduce((sum, a) => sum + Number(a.FeeCharged || 0), 0) });
+        }
+
+        if (items.length === 0 && visitedCount > 0) {
+          items.push({ count: visitedCount, description: 'Free of Charge', amount: 0 });
+        }
+
+        const shiftTotal = items.reduce((sum, it) => sum + it.amount, 0);
+
+        if (visitedCount > 0 || shiftTotal > 0 || items.length > 0) {
+          dayTotalAmount += shiftTotal;
+          shiftBlocks.push({ shiftLabel: label, visitedCount, items, shiftTotal });
+        }
+      });
+
+      if (shiftBlocks.length > 0) {
+        pdfGrandTotal += dayTotalAmount;
+        pdfRows.push({
+          date: formattedDate,
+          rawDate: date,
+          shiftBlocks,
+          todayClosing: dayTotalAmount
+        });
+      }
+    });
+
+    return {
+      startDate: start,
+      endDate: end,
+      rows: reportRows,
+      morningTotals: morningSummaryTotals,
+      eveningTotals: eveningSummaryTotals,
+      grandTotals: grandSummaryTotals,
+      pdfRows,
+      pdfGrandTotal
+    };
+  };
+
+  const handleCleanPrintDailyCollectionReport = (data: any, format: 'pdf' | 'grid' = 'grid') => {
+    if (!data) return;
+
+    const clinicName = clinicSettings?.ClinicName || 'PUNJAB HOMEOPATHIC CLINIC';
+    const clinicAddress = clinicSettings?.ClinicAddress || '39-Shalimar Road, Garhi Shahu, Lahore-39';
+    const phone = clinicSettings?.PhoneMobile || '0300-1234567';
+
+    if (format === 'pdf') {
+      const rowsHtml = data.pdfRows.length === 0 ? `
+        <tr>
+          <td colspan="5" style="padding: 20px; text-align: center; color: #64748b; font-style: italic; font-weight: bold;">
+            No collection records found for the selected period (${formatReportDate(data.startDate)} to ${formatReportDate(data.endDate)}).
+          </td>
+        </tr>
+      ` : data.pdfRows.map((dateBlock: any) => {
+        return dateBlock.shiftBlocks.map((shiftBlock: any) => {
+          const itemRows = shiftBlock.items.map((item: any, itemIdx: number) => `
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 6px 8px; font-weight: bold; color: #0f172a;">${itemIdx === 0 ? `${dateBlock.date} ${shiftBlock.shiftLabel}` : ''}</td>
+              <td style="padding: 6px 8px; text-align: center; font-weight: bold; color: #0f172a;">${itemIdx === 0 ? shiftBlock.visitedCount : ''}</td>
+              <td style="padding: 6px 8px; text-align: center; font-family: monospace; font-weight: bold;">${item.count || '-'}</td>
+              <td style="padding: 6px 8px; color: #1e293b;">${item.description}</td>
+              <td style="padding: 6px 8px; text-align: right; font-family: monospace; font-weight: bold;">Rs. ${(Number(item.amount) || 0).toLocaleString()}</td>
+            </tr>
+          `).join('');
+
+          const shiftTotalRow = `
+            <tr style="background-color: #f8fafc; font-weight: bold; border-top: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1;">
+              <td style="padding: 6px 8px;"></td>
+              <td style="padding: 6px 8px;"></td>
+              <td style="padding: 6px 8px;"></td>
+              <td style="padding: 6px 8px; font-weight: 800; color: #0f172a; text-transform: uppercase;">Shift Total (${shiftBlock.shiftLabel})</td>
+              <td style="padding: 6px 8px; text-align: right; font-family: monospace; font-weight: 900; color: #0f172a; border-top: 1px solid #0f172a;">Rs. ${(Number(shiftBlock.shiftTotal) || 0).toLocaleString()}</td>
+            </tr>
+          `;
+          return itemRows + shiftTotalRow;
+        }).join('') + `
+          <tr style="background-color: #f1f5f9; font-weight: 900; border-top: 2px solid #0f172a; border-bottom: 2px solid #0f172a;">
+            <td style="padding: 8px;"></td>
+            <td style="padding: 8px;"></td>
+            <td style="padding: 8px;"></td>
+            <td style="padding: 8px; text-transform: uppercase; color: #0f172a; letter-spacing: 0.5px;">Today Closing (${dateBlock.date})</td>
+            <td style="padding: 8px; text-align: right; font-family: monospace; font-size: 13px; color: #0f172a; border-top: 2px solid #0f172a;">Rs. ${(Number(dateBlock.todayClosing) || 0).toLocaleString()}</td>
+          </tr>
+        `;
+      }).join('');
+
+      const htmlContent = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Payment Collection Report - ${clinicName}</title>
+  <style>
+    @page { size: A4 portrait; margin: 10mm; }
+    body { font-family: system-ui, -apple-system, sans-serif; color: #0f172a; margin: 0; padding: 15px; background: #ffffff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .no-print { display: flex; justify-content: space-between; align-items: center; background: #0f172a; color: white; padding: 10px 16px; border-radius: 8px; margin-bottom: 15px; }
+    .no-print button { background: #7e22ce; color: white; border: none; padding: 6px 16px; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 12px; }
+    @media print { .no-print { display: none !important; } body { padding: 0; } }
+    .header { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 12px; }
+    .clinic-title { font-size: 18px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.5px; color: #0f172a; }
+    .clinic-address { font-size: 11px; font-weight: 700; color: #334155; margin-top: 2px; }
+    .report-title { font-size: 13px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; color: #0f172a; margin-top: 8px; }
+    .meta-bar { font-size: 11px; font-weight: 800; color: #1e293b; margin-top: 4px; display: flex; justify-content: center; gap: 20px; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 10px; border: 1px solid #cbd5e1; }
+    th { background: #f8fafc; color: #0f172a; font-weight: 900; text-transform: uppercase; font-size: 10px; padding: 8px; border-bottom: 2px solid #0f172a; border-right: 1px solid #cbd5e1; text-align: left; }
+    td { padding: 6px 8px; border-right: 1px solid #cbd5e1; }
+    .grand-total-bar { border-top: 2px solid #0f172a; border-bottom: 2px solid #0f172a; padding: 10px 12px; margin-top: 15px; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; font-weight: 900; }
+    .footer { margin-top: 25px; padding-top: 10px; border-top: 1px solid #cbd5e1; display: flex; justify-content: space-between; font-size: 10px; font-weight: bold; color: #64748b; }
+    .signatures { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 40px; text-align: center; font-size: 9px; font-weight: 800; color: #475569; text-transform: uppercase; }
+    .sig-line { border-top: 1px solid #94a3b8; padding-top: 6px; }
+  </style>
+</head>
+<body>
+  <div class="no-print">
+    <div style="font-weight: bold; font-size: 13px;">Payment Collection Report Preview (A4 Portrait)</div>
+    <button onclick="window.print()">🖨️ Print / Save PDF</button>
+  </div>
+
+  <div class="header">
+    <div class="clinic-title">${clinicName}</div>
+    <div class="clinic-address">${clinicAddress} • Tel: ${phone}</div>
+    <div class="report-title">PAYMENT COLLECTION REPORT</div>
+    <div class="meta-bar">
+      <span>From: <u>${formatReportDate(data.startDate)}</u></span>
+      <span>To: <u>${formatReportDate(data.endDate)}</u></span>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 22%;">Date & Shift</th>
+        <th style="width: 16%; text-align: center;">Patients Visited</th>
+        <th style="width: 16%; text-align: center;">No of Patients</th>
+        <th style="width: 31%;">Payment Description</th>
+        <th style="width: 15%; text-align: right;">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rowsHtml}
+    </tbody>
+  </table>
+
+  <div class="grand-total-bar">
+    <span style="font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #0f172a;">GRAND TOTAL COLLECTION</span>
+    <span style="font-family: monospace; font-size: 16px; color: #0f172a;">Rs. ${(Number(data.pdfGrandTotal) || 0).toLocaleString()}</span>
+  </div>
+
+  <div class="signatures">
+    <div class="sig-line">PREPARED BY (CASHIER)</div>
+    <div class="sig-line">CHECKED BY (ACCOUNTANT)</div>
+    <div class="sig-line">APPROVED BY (ADMIN)</div>
+  </div>
+
+  <div class="footer">
+    <span>Print Date: ${new Date().toLocaleDateString('en-GB')} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+    <span>Generated By: ${currentUser?.FullName || currentUser?.LoginName || 'ADMIN'}</span>
+  </div>
+
+  <script>
+    window.onload = function() {
+      setTimeout(function() { window.print(); }, 400);
+    };
+  </script>
+</body>
+</html>`;
+
+      const printWin = window.open('', '_blank');
+      if (printWin) {
+        printWin.document.write(htmlContent);
+        printWin.document.close();
+        printWin.focus();
+      }
+    } else {
+      // GRID FORMAT (A4 Landscape)
+      const rowsHtml = data.rows.length === 0 ? `
+        <tr>
+          <td colspan="14" style="padding: 20px; text-align: center; color: #64748b; font-style: italic; font-weight: bold;">
+            No transaction records found for the selected period.
+          </td>
+        </tr>
+      ` : data.rows.map((row: any) => {
+        const pts = row.date.split('-');
+        const dateDisp = pts.length === 3 ? `${pts[2]}-${pts[1]}-${pts[0].substring(2)}` : row.date;
+        return `
+          <tr style="border-bottom: 1px solid #cbd5e1; font-family: monospace;">
+            <td style="padding: 5px 6px; text-align: center; font-family: sans-serif; font-weight: bold; color: #0f172a;">${dateDisp}</td>
+            <td style="padding: 5px 6px; text-align: right;">${row.morning.app || '-'}</td>
+            <td style="padding: 5px 6px; text-align: right;">${row.morning.cmed || '-'}</td>
+            <td style="padding: 5px 6px; text-align: right;">${row.morning.cards || '-'}</td>
+            <td style="padding: 5px 6px; text-align: right;">${row.morning.file || '-'}</td>
+            <td style="padding: 5px 6px; text-align: right;">${row.morning.store || '-'}</td>
+            <td style="padding: 5px 6px; text-align: right; background-color: #f1f5f9; font-weight: bold; color: #0f172a;">${row.morning.total || '-'}</td>
+            <td style="padding: 5px 6px; text-align: right;">${row.evening.app || '-'}</td>
+            <td style="padding: 5px 6px; text-align: right;">${row.evening.cmed || '-'}</td>
+            <td style="padding: 5px 6px; text-align: right;">${row.evening.cards || '-'}</td>
+            <td style="padding: 5px 6px; text-align: right;">${row.evening.file || '-'}</td>
+            <td style="padding: 5px 6px; text-align: right;">${row.evening.store || '-'}</td>
+            <td style="padding: 5px 6px; text-align: right; background-color: #f1f5f9; font-weight: bold; color: #0f172a;">${row.evening.total || '-'}</td>
+            <td style="padding: 5px 6px; text-align: right; background-color: #e2e8f0; font-family: sans-serif; font-weight: 900; color: #0f172a;">${(Number(row.dayTotal) || 0).toLocaleString()}</td>
+          </tr>
+        `;
+      }).join('');
+
+      const htmlContent = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Daily Collection Grid-View Summary - ${clinicName}</title>
+  <style>
+    @page { size: A4 landscape; margin: 8mm; }
+    body { font-family: system-ui, -apple-system, sans-serif; color: #0f172a; margin: 0; padding: 12px; background: #ffffff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .no-print { display: flex; justify-content: space-between; align-items: center; background: #0f172a; color: white; padding: 8px 14px; border-radius: 8px; margin-bottom: 12px; }
+    .no-print button { background: #7e22ce; color: white; border: none; padding: 6px 16px; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 12px; }
+    @media print { .no-print { display: none !important; } body { padding: 0; } }
+    .header { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 8px; margin-bottom: 12px; }
+    .clinic-title { font-size: 18px; font-weight: 900; text-transform: uppercase; color: #0f172a; }
+    .report-title { font-size: 13px; font-weight: 800; color: #334155; margin-top: 2px; }
+    .meta-bar { font-size: 11px; font-weight: 700; color: #475569; margin-top: 4px; }
+    table { width: 100%; border-collapse: collapse; font-size: 10px; margin-top: 8px; border: 1px solid #94a3b8; }
+    th { border: 1px solid #94a3b8; padding: 5px; text-align: center; font-weight: 800; font-size: 9px; }
+    td { border: 1px solid #cbd5e1; }
+    .th-morn { background: #eff6ff; color: #1d4ed8; text-transform: uppercase; }
+    .th-eve { background: #fef3c7; color: #b45309; text-transform: uppercase; }
+    .summary-container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 15px; }
+    .summary-box { border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px; background: #fafafa; }
+    .summary-box h3 { font-size: 10px; font-weight: 900; text-transform: uppercase; margin: 0 0 6px 0; color: #0f172a; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }
+    .summary-table { width: 100%; border-collapse: collapse; font-size: 9.5px; }
+    .summary-table th, .summary-table td { border: 1px solid #cbd5e1; padding: 4px 6px; }
+    .summary-table th { background: #f1f5f9; font-weight: 800; }
+    .signatures { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 25px; text-align: center; font-size: 9px; font-weight: 800; color: #475569; text-transform: uppercase; }
+    .sig-line { border-top: 1px solid #94a3b8; padding-top: 4px; }
+  </style>
+</head>
+<body>
+  <div class="no-print">
+    <div style="font-weight: bold; font-size: 13px;">Daily Collection Grid-View Summary (A4 Landscape)</div>
+    <button onclick="window.print()">🖨️ Print / Save PDF</button>
+  </div>
+
+  <div class="header">
+    <div class="clinic-title">${clinicName}</div>
+    <div class="report-title">DAILY COLLECTION REPORT (CLINIC & STORE) - GRID-VIEW SUMMARY</div>
+    <div class="meta-bar">
+      Period: <strong>${formatReportDate(data.startDate)}</strong> to <strong>${formatReportDate(data.endDate)}</strong>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr style="background-color: #f8fafc;">
+        <th rowSpan="2" style="width: 8%;">Date</th>
+        <th colSpan="6" class="th-morn">Morning Shift</th>
+        <th colSpan="6" class="th-eve">Evening Shift</th>
+        <th rowSpan="2" style="width: 10%; background-color: #f1f5f9;">Day Total</th>
+      </tr>
+      <tr style="background-color: #f1f5f9; font-size: 8.5px;">
+        <th style="width: 6.5%;">App</th>
+        <th style="width: 6.5%;">C.med</th>
+        <th style="width: 6.5%;">Cards</th>
+        <th style="width: 6.5%;">File</th>
+        <th style="width: 6.5%;">Store</th>
+        <th style="width: 7.5%; background-color: #dbeafe; font-weight: 900;">Total</th>
+        <th style="width: 6.5%;">App</th>
+        <th style="width: 6.5%;">C.med</th>
+        <th style="width: 6.5%;">Cards</th>
+        <th style="width: 6.5%;">File</th>
+        <th style="width: 6.5%;">Store</th>
+        <th style="width: 7.5%; background-color: #fef3c7; font-weight: 900;">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rowsHtml}
+      ${data.rows.length > 0 ? `
+        <tr style="background-color: #f8fafc; font-weight: 900; font-size: 10px; border-top: 2px solid #0f172a;">
+          <td style="padding: 6px; text-align: center; text-transform: uppercase;">Total</td>
+          <td style="padding: 6px; text-align: right; font-family: monospace;">${data.morningTotals.app || '-'}</td>
+          <td style="padding: 6px; text-align: right; font-family: monospace;">${data.morningTotals.cmed || '-'}</td>
+          <td style="padding: 6px; text-align: right; font-family: monospace;">${data.morningTotals.cards || '-'}</td>
+          <td style="padding: 6px; text-align: right; font-family: monospace;">${data.morningTotals.file || '-'}</td>
+          <td style="padding: 6px; text-align: right; font-family: monospace;">${data.morningTotals.store || '-'}</td>
+          <td style="padding: 6px; text-align: right; font-family: monospace; background-color: #dbeafe; color: #1e3a8a;">${data.morningTotals.total || '-'}</td>
+          <td style="padding: 6px; text-align: right; font-family: monospace;">${data.eveningTotals.app || '-'}</td>
+          <td style="padding: 6px; text-align: right; font-family: monospace;">${data.eveningTotals.cmed || '-'}</td>
+          <td style="padding: 6px; text-align: right; font-family: monospace;">${data.eveningTotals.cards || '-'}</td>
+          <td style="padding: 6px; text-align: right; font-family: monospace;">${data.eveningTotals.file || '-'}</td>
+          <td style="padding: 6px; text-align: right; font-family: monospace;">${data.eveningTotals.store || '-'}</td>
+          <td style="padding: 6px; text-align: right; font-family: monospace; background-color: #fef3c7; color: #78350f;">${data.eveningTotals.total || '-'}</td>
+          <td style="padding: 6px; text-align: right; font-family: sans-serif; font-size: 11px; background-color: #0f172a; color: #ffffff;">Rs. ${data.grandTotals.total.toLocaleString()}</td>
+        </tr>
+      ` : ''}
+    </tbody>
+  </table>
+
+  <div class="summary-container">
+    <div class="summary-box">
+      <h3>Summary 1: Revenue Categories</h3>
+      <table class="summary-table">
+        <thead>
+          <tr>
+            <th>Category</th>
+            <th style="text-align: right;">Morning</th>
+            <th style="text-align: right;">Evening</th>
+            <th style="text-align: right; background-color: #e2e8f0;">Total</th>
+          </tr>
+        </thead>
+        <tbody style="font-family: monospace;">
+          <tr>
+            <td style="font-family: sans-serif; font-weight: bold;">Appointments (App)</td>
+            <td style="text-align: right;">${data.morningTotals.app || '-'}</td>
+            <td style="text-align: right;">${data.eveningTotals.app || '-'}</td>
+            <td style="text-align: right; font-weight: bold; background: #f8fafc;">${data.grandTotals.app || '-'}</td>
+          </tr>
+          <tr>
+            <td style="font-family: sans-serif; font-weight: bold;">Clinical Medicine (C.med)</td>
+            <td style="text-align: right;">${data.morningTotals.cmed || '-'}</td>
+            <td style="text-align: right;">${data.eveningTotals.cmed || '-'}</td>
+            <td style="text-align: right; font-weight: bold; background: #f8fafc;">${data.grandTotals.cmed || '-'}</td>
+          </tr>
+          <tr>
+            <td style="font-family: sans-serif; font-weight: bold;">Cards Fee</td>
+            <td style="text-align: right;">${data.morningTotals.cards || '-'}</td>
+            <td style="text-align: right;">${data.eveningTotals.cards || '-'}</td>
+            <td style="text-align: right; font-weight: bold; background: #f8fafc;">${data.grandTotals.cards || '-'}</td>
+          </tr>
+          <tr>
+            <td style="font-family: sans-serif; font-weight: bold;">File Fee</td>
+            <td style="text-align: right;">${data.morningTotals.file || '-'}</td>
+            <td style="text-align: right;">${data.eveningTotals.file || '-'}</td>
+            <td style="text-align: right; font-weight: bold; background: #f8fafc;">${data.grandTotals.file || '-'}</td>
+          </tr>
+          <tr>
+            <td style="font-family: sans-serif; font-weight: bold;">Store Sales</td>
+            <td style="text-align: right;">${data.morningTotals.store || '-'}</td>
+            <td style="text-align: right;">${data.eveningTotals.store || '-'}</td>
+            <td style="text-align: right; font-weight: bold; background: #f8fafc;">${data.grandTotals.store || '-'}</td>
+          </tr>
+          <tr style="font-weight: 900; background-color: #f1f5f9;">
+            <td style="font-family: sans-serif; text-transform: uppercase;">Total Cumulative</td>
+            <td style="text-align: right;">${data.morningTotals.total || '-'}</td>
+            <td style="text-align: right;">${data.eveningTotals.total || '-'}</td>
+            <td style="text-align: right; background-color: #0f172a; color: white;">Rs. ${data.grandTotals.total.toLocaleString()}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="summary-box">
+      <h3>Summary 2: Grouping Overview</h3>
+      <table class="summary-table">
+        <thead>
+          <tr>
+            <th>Grouping</th>
+            <th style="text-align: right;">Morning</th>
+            <th style="text-align: right;">Evening</th>
+            <th style="text-align: right; background-color: #e2e8f0;">Total</th>
+          </tr>
+        </thead>
+        <tbody style="font-family: monospace;">
+          <tr>
+            <td style="font-family: sans-serif; font-weight: bold;">App & C.med</td>
+            <td style="text-align: right;">${(data.morningTotals.app + data.morningTotals.cmed) || '-'}</td>
+            <td style="text-align: right;">${(data.eveningTotals.app + data.eveningTotals.cmed) || '-'}</td>
+            <td style="text-align: right; font-weight: bold; background: #f8fafc;">${(data.grandTotals.app + data.grandTotals.cmed) || '-'}</td>
+          </tr>
+          <tr>
+            <td style="font-family: sans-serif; font-weight: bold;">Cards & File</td>
+            <td style="text-align: right;">${(data.morningTotals.cards + data.morningTotals.file) || '-'}</td>
+            <td style="text-align: right;">${(data.eveningTotals.cards + data.eveningTotals.file) || '-'}</td>
+            <td style="text-align: right; font-weight: bold; background: #f8fafc;">${(data.grandTotals.cards + data.grandTotals.file) || '-'}</td>
+          </tr>
+          <tr>
+            <td style="font-family: sans-serif; font-weight: bold;">Store</td>
+            <td style="text-align: right;">${data.morningTotals.store || '-'}</td>
+            <td style="text-align: right;">${data.eveningTotals.store || '-'}</td>
+            <td style="text-align: right; font-weight: bold; background: #f8fafc;">${data.grandTotals.store || '-'}</td>
+          </tr>
+          <tr style="font-weight: 900; background-color: #f1f5f9;">
+            <td style="font-family: sans-serif; text-transform: uppercase;">Total Cumulative</td>
+            <td style="text-align: right;">${data.morningTotals.total || '-'}</td>
+            <td style="text-align: right;">${data.eveningTotals.total || '-'}</td>
+            <td style="text-align: right; background-color: #0f172a; color: white;">Rs. ${data.grandTotals.total.toLocaleString()}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="signatures">
+    <div class="sig-line">PREPARED BY (ACCOUNTANT)</div>
+    <div class="sig-line">CHECKED BY (ACCOUNTANT)</div>
+    <div class="sig-line">APPROVED BY (ADMIN)</div>
+  </div>
+
+  <div class="footer" style="margin-top: 15px; display: flex; justify-content: space-between; font-size: 9px; font-weight: bold; color: #64748b;">
+    <span>Print Date: ${new Date().toLocaleDateString('en-GB')} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+    <span>Generated By: ${currentUser?.FullName || currentUser?.LoginName || 'ADMIN'}</span>
+  </div>
+
+  <script>
+    window.onload = function() {
+      setTimeout(function() { window.print(); }, 400);
+    };
+  </script>
+</body>
+</html>`;
+
+      const printWin = window.open('', '_blank');
+      if (printWin) {
+        printWin.document.write(htmlContent);
+        printWin.document.close();
+        printWin.focus();
+      }
+    }
+  };
+
+  const handlePrintDailyReport = () => {
+    const targetDate = pvVisitDate || new Date().toISOString().split('T')[0];
+    setDailyCollectionStartDate(targetDate);
+    setDailyCollectionEndDate(targetDate);
+    const data = generateDailyCollectionReport(targetDate, targetDate);
+    setDailyCollectionReportData(data);
+    setDailyCollectionReportFormat('grid');
+    setIsDailyCollectionReportModalOpen(true);
+  };
+
+  const handlePrintDailyReportOld = () => {
+    const targetDate = pvVisitDate || new Date().toISOString().split('T')[0];
+    const targetShift = shift;
+    const shiftLabel = targetShift === 1 ? 'MORNING SHIFT (08:30 - 12:30)' : 'EVENING SHIFT (17:00 - 21:00)';
+    const currentUserTitle = currentUser?.FullName || currentUser?.LoginName || 'Staff';
+
+    // Collect visits for this shift and date
+    const shiftVisitsList: {
+      srNo: number;
+      tokenNo?: number;
+      patientId: string;
+      patientName: string;
+      clinicalMeds: number;
+      fileFee: number;
+      cardFee: number;
+      opdFee: number;
+      total: number;
+      remarks: string;
+    }[] = [];
+
+    (visits || []).forEach((v) => {
+      const vDate = v.VisitDate ? v.VisitDate.split('T')[0] : '';
+      if (vDate === targetDate) {
+        const matchedToken = (tokens || []).find(
+          (t) => t.PatientID === v.PatientID && (t.Date ? t.Date.split('T')[0] : targetDate) === targetDate
+        );
+        const vShift = v.Shift || matchedToken?.Shift || targetShift;
+        if (vShift === targetShift) {
+          let clin = Number(v.ClinicalMedicinePayment) || 0;
+          let file = Number(v.FileFee) || 0;
+          let card = Number(v.CardFee) || Number(v.CardsPayment) || 0;
+          if (v.VisitRemarks) {
+            if (!clin) { const cPkr = v.VisitRemarks.match(/Clinical Meds PKR\s*(\d+)/); if (cPkr) clin = Number(cPkr[1]); }
+            if (!file) { const fPkr = v.VisitRemarks.match(/File PKR\s*(\d+)/); if (fPkr) file = Number(fPkr[1]); }
+            if (!card) { const kPkr = v.VisitRemarks.match(/Card PKR\s*(\d+)/); if (kPkr) card = Number(kPkr[1]); }
+          }
+          const opdFee = Number(v.ConsultationFee) || 0;
+          const total = clin + file + card + opdFee;
+
+          const pObj = patients.find(p => p.PatientID === v.PatientID) || (nhcPatients || []).find(p => p.PatientID === v.PatientID);
+          const patientName = pObj ? pObj.PatientName : `Patient ${v.PatientID}`;
+
+          shiftVisitsList.push({
+            srNo: shiftVisitsList.length + 1,
+            tokenNo: matchedToken?.TokenNo,
+            patientId: v.PatientID,
+            patientName,
+            clinicalMeds: clin,
+            fileFee: file,
+            cardFee: card,
+            opdFee,
+            total,
+            remarks: v.SymptomsDiagnosis || v.VisitRemarks || 'Routine Visit'
+          });
+        }
+      }
+    });
+
+    // Collect Store Invoices for this shift and date
+    const shiftInvoicesList: {
+      srNo: number;
+      invoiceNo: string;
+      patientId: string;
+      patientName: string;
+      amount: number;
+    }[] = [];
+
+    (invoices || []).forEach((inv) => {
+      const invDate = inv.InvoiceDate ? inv.InvoiceDate.split('T')[0] : '';
+      const invShift = inv.shift || 1;
+      if (invDate === targetDate && invShift === targetShift) {
+        const pObj = patients.find(p => p.PatientID === inv.PatientID) || (nhcPatients || []).find(p => p.PatientID === inv.PatientID);
+        shiftInvoicesList.push({
+          srNo: shiftInvoicesList.length + 1,
+          invoiceNo: inv.InvoiceNo,
+          patientId: inv.PatientID,
+          patientName: pObj ? pObj.PatientName : (inv.PatientID || 'Walk-in'),
+          amount: Number(inv.NetAmount) || 0
+        });
+      }
+    });
+
+    const printWin = window.open('', '_blank', 'width=1000,height=1100');
+    if (!printWin) {
+      window.print();
+      return;
+    }
+
+    const todayDisplay = formatDisplayDate(targetDate);
+    const printTimeStr = new Date().toLocaleString('en-US', {
+      day: '2-digit', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', hour12: true
+    });
+
+    const tableRowsHtml = shiftVisitsList.map(v => `
+      <tr class="hover:bg-slate-50">
+        <td class="p-1.5 border border-slate-300 text-center font-mono font-bold">${v.srNo}</td>
+        <td class="p-1.5 border border-slate-300 text-center font-mono font-bold">${v.tokenNo ? `#${v.tokenNo}` : '-'}</td>
+        <td class="p-1.5 border border-slate-300 font-semibold">
+          <div>${v.patientName}</div>
+          <div class="text-[9px] font-mono text-slate-500">${v.patientId}</div>
+        </td>
+        <td class="p-1.5 border border-slate-300 text-right font-mono">${v.clinicalMeds ? `PKR ${v.clinicalMeds.toLocaleString()}` : '-'}</td>
+        <td class="p-1.5 border border-slate-300 text-right font-mono">${v.fileFee ? `PKR ${v.fileFee.toLocaleString()}` : '-'}</td>
+        <td class="p-1.5 border border-slate-300 text-right font-mono">${v.cardFee ? `PKR ${v.cardFee.toLocaleString()}` : '-'}</td>
+        <td class="p-1.5 border border-slate-300 text-right font-mono">${v.opdFee ? `PKR ${v.opdFee.toLocaleString()}` : '-'}</td>
+        <td class="p-1.5 border border-slate-300 text-right font-mono font-bold text-slate-900">PKR ${v.total.toLocaleString()}</td>
+      </tr>
+    `).join('');
+
+    const invoiceRowsHtml = shiftInvoicesList.map(inv => `
+      <tr class="hover:bg-slate-50">
+        <td class="p-1.5 border border-slate-300 text-center font-mono font-bold">${inv.srNo}</td>
+        <td class="p-1.5 border border-slate-300 font-mono font-bold">${inv.invoiceNo}</td>
+        <td class="p-1.5 border border-slate-300 font-semibold">${inv.patientName} (${inv.patientId})</td>
+        <td class="p-1.5 border border-slate-300 text-right font-mono font-bold text-slate-900">PKR ${inv.amount.toLocaleString()}</td>
+      </tr>
+    `).join('');
+
+    printWin.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Daily Shift Collection Report - ${shiftLabel}</title>
+          <script src="https://cdn.tailwindcss.com"></script>
+          <style>
+            @page { size: A4 portrait; margin: 10mm; }
+            body { font-family: system-ui, -apple-system, sans-serif; color: #0f172a; background: #ffffff; }
+            @media print {
+              .no-print { display: none !important; }
+              body { margin: 0; padding: 0; }
+            }
+          </style>
+        </head>
+        <body class="p-4 sm:p-6 text-slate-900">
+          <div class="no-print mb-4 p-3 bg-slate-900 text-white rounded-xl flex items-center justify-between shadow-lg">
+            <div class="text-xs font-bold">
+              <span>Daily Shift Collection & Patient Visits Report</span>
+              <span class="text-emerald-400 ml-2 font-mono">(${shiftLabel})</span>
+            </div>
+            <button onclick="window.print()" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-lg transition cursor-pointer flex items-center space-x-1">
+              <span>Print Report</span>
+            </button>
+          </div>
+
+          <div class="border-b-2 border-slate-900 pb-3 mb-3 text-center">
+            <h1 class="text-xl font-black text-slate-900 uppercase tracking-wide">${clinicSettings?.ClinicName ? clinicSettings.ClinicName.toUpperCase() : 'PUNJAB HOMEOPATHIC CLINIC & HEALTHCARE SYSTEM'}</h1>
+            <h2 class="text-xs font-extrabold text-emerald-800 uppercase tracking-wider mt-0.5">DAILY SHIFT COLLECTION & PATIENT VISITS REPORT</h2>
+            <p class="text-[11px] font-semibold text-slate-600 mt-0.5">Patient Desk & Pharmacy Collection Ledger</p>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-300 text-xs mb-4">
+            <div>
+              <p><span class="font-bold text-slate-600">Report Date:</span> <span class="font-mono font-extrabold text-slate-900">${todayDisplay}</span></p>
+              <p class="mt-1"><span class="font-bold text-slate-600">Active Shift:</span> <span class="font-extrabold text-emerald-900">${shiftLabel}</span></p>
+            </div>
+            <div class="text-right">
+              <p><span class="font-bold text-slate-600">Generated By:</span> <span class="font-bold text-slate-900">${currentUserTitle}</span></p>
+              <p class="mt-1"><span class="font-bold text-slate-600">Printed At:</span> <span class="font-mono text-slate-700">${printTimeStr}</span></p>
+            </div>
+          </div>
+
+          <div class="mb-5">
+            <h3 class="text-xs font-black text-slate-900 uppercase tracking-wider mb-2 border-l-4 border-emerald-600 pl-2">Collection Summary Breakdown</h3>
+            <div class="grid grid-cols-3 gap-2 text-center">
+              <div class="p-2 bg-slate-50 rounded-lg border border-slate-200">
+                <span class="text-[9px] uppercase font-bold text-slate-500">Clinical Medicine</span>
+                <p class="text-xs font-black text-slate-900 font-mono mt-0.5">PKR ${shiftDailyCollection.clinicalMedsTotal.toLocaleString()}</p>
+              </div>
+              <div class="p-2 bg-slate-50 rounded-lg border border-slate-200">
+                <span class="text-[9px] uppercase font-bold text-slate-500">File Fee</span>
+                <p class="text-xs font-black text-slate-900 font-mono mt-0.5">PKR ${shiftDailyCollection.fileTotal.toLocaleString()}</p>
+              </div>
+              <div class="p-2 bg-slate-50 rounded-lg border border-slate-200">
+                <span class="text-[9px] uppercase font-bold text-slate-500">Card Fee</span>
+                <p class="text-xs font-black text-slate-900 font-mono mt-0.5">PKR ${shiftDailyCollection.cardTotal.toLocaleString()}</p>
+              </div>
+              <div class="p-2 bg-slate-50 rounded-lg border border-slate-200">
+                <span class="text-[9px] uppercase font-bold text-slate-500">OPD / Token Fee</span>
+                <p class="text-xs font-black text-slate-900 font-mono mt-0.5">PKR ${shiftDailyCollection.opdTotal.toLocaleString()}</p>
+              </div>
+              <div class="p-2 bg-slate-50 rounded-lg border border-slate-200">
+                <span class="text-[9px] uppercase font-bold text-slate-500">Store / Pharmacy</span>
+                <p class="text-xs font-black text-slate-900 font-mono mt-0.5">PKR ${shiftDailyCollection.storePaymentTotal.toLocaleString()}</p>
+              </div>
+              <div class="p-2 bg-slate-900 text-white rounded-lg border border-slate-950">
+                <span class="text-[9px] uppercase font-bold text-emerald-400">Grand Total</span>
+                <p class="text-sm font-black text-amber-300 font-mono mt-0.5">PKR ${shiftDailyCollection.grandTotal.toLocaleString()}</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-5">
+            <h3 class="text-xs font-black text-slate-900 uppercase tracking-wider mb-2 border-l-4 border-emerald-600 pl-2">
+              Patient Visit Details (${shiftVisitsList.length} Visits)
+            </h3>
+            ${shiftVisitsList.length === 0 ? `
+              <div class="p-4 bg-slate-50 rounded-lg border border-slate-200 text-center text-xs text-slate-500 italic">
+                No patient visit records recorded for this shift on ${todayDisplay}.
+              </div>
+            ` : `
+              <table class="w-full text-left text-[11px] border-collapse border border-slate-300">
+                <thead>
+                  <tr class="bg-slate-800 text-white font-bold uppercase text-[10px]">
+                    <th class="p-1.5 border border-slate-700 text-center">Sr #</th>
+                    <th class="p-1.5 border border-slate-700 text-center">Token #</th>
+                    <th class="p-1.5 border border-slate-700">Patient ID & Name</th>
+                    <th class="p-1.5 border border-slate-700 text-right">Clinical</th>
+                    <th class="p-1.5 border border-slate-700 text-right">File</th>
+                    <th class="p-1.5 border border-slate-700 text-right">Card</th>
+                    <th class="p-1.5 border border-slate-700 text-right">OPD</th>
+                    <th class="p-1.5 border border-slate-700 text-right">Total</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200">
+                  ${tableRowsHtml}
+                </tbody>
+                <tfoot>
+                  <tr class="bg-slate-100 font-extrabold text-slate-900 border-t-2 border-slate-800">
+                    <td colspan="3" class="p-1.5 border border-slate-300 text-right uppercase text-[10px]">Subtotal:</td>
+                    <td class="p-1.5 border border-slate-300 text-right font-mono">PKR ${shiftDailyCollection.clinicalMedsTotal.toLocaleString()}</td>
+                    <td class="p-1.5 border border-slate-300 text-right font-mono">PKR ${shiftDailyCollection.fileTotal.toLocaleString()}</td>
+                    <td class="p-1.5 border border-slate-300 text-right font-mono">PKR ${shiftDailyCollection.cardTotal.toLocaleString()}</td>
+                    <td class="p-1.5 border border-slate-300 text-right font-mono">PKR ${shiftDailyCollection.opdTotal.toLocaleString()}</td>
+                    <td class="p-1.5 border border-slate-300 text-right font-mono font-black text-emerald-900">
+                      PKR ${(shiftDailyCollection.clinicalFileCardSubtotal + shiftDailyCollection.opdTotal).toLocaleString()}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            `}
+          </div>
+
+          ${shiftInvoicesList.length > 0 ? `
+            <div class="mb-5">
+              <h3 class="text-xs font-black text-slate-900 uppercase tracking-wider mb-2 border-l-4 border-blue-600 pl-2">
+                Pharmacy / Store Collection Details (${shiftInvoicesList.length} Sales)
+              </h3>
+              <table class="w-full text-left text-[11px] border-collapse border border-slate-300">
+                <thead>
+                  <tr class="bg-slate-800 text-white font-bold uppercase text-[10px]">
+                    <th class="p-1.5 border border-slate-700 text-center">Sr #</th>
+                    <th class="p-1.5 border border-slate-700">Invoice #</th>
+                    <th class="p-1.5 border border-slate-700">Patient ID & Name</th>
+                    <th class="p-1.5 border border-slate-700 text-right">Amount (PKR)</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200">
+                  ${invoiceRowsHtml}
+                </tbody>
+                <tfoot>
+                  <tr class="bg-slate-100 font-extrabold text-slate-900 border-t-2 border-slate-800">
+                    <td colspan="3" class="p-1.5 border border-slate-300 text-right uppercase text-[10px]">Store Sales Subtotal:</td>
+                    <td class="p-1.5 border border-slate-300 text-right font-mono font-black text-emerald-900">PKR ${shiftDailyCollection.storePaymentTotal.toLocaleString()}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          ` : ''}
+
+          <div class="mt-10 pt-4 border-t border-slate-300 flex justify-between text-xs text-slate-700 font-semibold">
+            <div>
+              <p>Prepared By: __________________________</p>
+              <p class="text-[10px] text-slate-500 mt-1">(${currentUserTitle})</p>
+            </div>
+            <div>
+              <p>Accounts Verified By: __________________________</p>
+              <p class="text-[10px] text-slate-500 mt-1">(Stamp & Signature)</p>
+            </div>
+          </div>
+
+          <script>
+            setTimeout(() => {
+              window.focus();
+              window.print();
+            }, 300);
+          </script>
+        </body>
+      </html>
+    `);
+
+    printWin.document.close();
+  };
+
+  const handlePrintClaimBill = (customPatient?: Patient | null) => {
+    const pat = customPatient || selectedPvPatient;
+    if (!pat) {
+      alert('Please select a patient first to print the Organization Claim Bill.');
+      return;
+    }
+
+    const orgName = claimBillOrg === 'Custom' ? (claimBillCustomOrg.trim() || 'Corporate / Private Organization') : claimBillOrg;
+    const targetDate = pvVisitDate || new Date().toISOString().split('T')[0];
+    const formattedDate = formatDisplayDate(targetDate);
+
+    const appt = (appointments || []).find(a => a.PatientID === pat.PatientID && a.AppointmentDate.startsWith(targetDate));
+    const consultationFee = Number(appt?.FeeCharged) || 0;
+
+    // Calculate itemized charges
+    const clinMedsFee = Number(pvClinicalMedicinePkr) || 0;
+    const fileFee = Number(pvFilePkr) || 0;
+    const cardFee = Number(pvCardPkr) || 0;
+    const totalAmount = clinMedsFee + fileFee + cardFee + consultationFee;
+
+    // Medicines prescribed
+    const activeMedsList = [
+      ...pvClinicalItems.filter(i => i.medicineName && i.medicineName.trim()),
+      ...pvPatientItems.filter(i => i.medicineName && i.medicineName.trim())
+    ];
+
+    const printWin = window.open('', '_blank', 'width=950,height=1100');
+    if (!printWin) {
+      window.print();
+      return;
+    }
+
+    const printTimeStr = new Date().toLocaleString('en-US', {
+      day: '2-digit', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', hour12: true
+    });
+
+    const currentUserTitle = currentUser?.FullName || currentUser?.LoginName || 'Attending Specialist';
+
+    printWin.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Medical Reimbursement Claim Bill - ${pat.PatientName}</title>
+          <script src="https://cdn.tailwindcss.com"></script>
+          <style>
+            @page { size: A4 portrait; margin: 12mm 15mm; }
+            body { font-family: system-ui, -apple-system, sans-serif; color: #0f172a; background: #ffffff; }
+            @media print {
+              .no-print { display: none !important; }
+              body { margin: 0; padding: 0; }
+            }
+          </style>
+        </head>
+        <body class="p-6 text-slate-900 max-w-[210mm] mx-auto">
+          <div class="no-print mb-4 p-3 bg-slate-900 text-white rounded-xl flex items-center justify-between shadow-lg">
+            <div class="text-xs font-bold flex items-center space-x-2">
+              <span>Organization Claim Bill / Receipt Preview</span>
+              <span class="text-amber-300 bg-slate-800 px-2 py-0.5 rounded border border-slate-700 font-mono">
+                Claim for: ${orgName}
+              </span>
+            </div>
+            <button onclick="window.print()" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-lg transition cursor-pointer flex items-center space-x-1">
+              <span>Print Claim Bill</span>
+            </button>
+          </div>
+
+          <!-- Official Punjab Homeopathic Clinic A4 Letterhead -->
+          <div class="border-b-4 border-slate-900 pb-4 mb-4">
+            <div class="flex items-center justify-between gap-4">
+              <!-- Official Clinic Logo -->
+              <div class="w-20 h-20 shrink-0 flex items-center justify-center">
+                <img src="${clinicSettings?.ClinicLogoImage || '/nhc_logo.svg'}" alt="PHC Logo" class="max-w-full max-h-full object-contain" />
+              </div>
+
+              <!-- Center Branding -->
+              <div class="text-center flex-1">
+                <h1 class="text-2xl sm:text-3xl font-black text-red-900 uppercase tracking-tight font-serif">${clinicSettings?.ClinicName || 'PUNJAB HOMEOPATHIC CLINIC'}</h1>
+                <p class="text-[10px] font-extrabold text-emerald-800 tracking-widest uppercase mt-0.5">HEALING NATURALLY • RESTORING BALANCE</p>
+                <p class="text-[11px] font-bold text-slate-800 mt-1">${clinicSettings?.DoctorName || 'Dr. Ejaz Ahmad, D.H.M.S (Pak)'} &nbsp;|&nbsp; PHC Regd. Healthcare Facility</p>
+                <p class="text-[10px] text-slate-600 mt-0.5">${clinicSettings?.ClinicAddress || 'Main Branch, Punjab, Pakistan'} • Cell: ${clinicSettings?.PhoneMobile || '0300-1234567'}</p>
+                <div class="inline-block mt-2 px-3 py-1 bg-slate-900 text-white font-black text-[11px] uppercase tracking-wider rounded">
+                  OFFICIAL MEDICAL REIMBURSEMENT CLAIM BILL & CASH RECEIPT
+                </div>
+              </div>
+
+              <!-- Right Verification Stamp Badge -->
+              <div class="w-20 h-20 shrink-0 text-right text-[9px] text-slate-500 font-mono hidden sm:block">
+                <div class="border-2 border-slate-800 rounded p-1.5 text-center bg-slate-50">
+                  <span class="block font-black text-slate-900 uppercase">A4 OFFICIAL</span>
+                  <span class="block font-black text-emerald-800 text-[10px]">CLAIM BILL</span>
+                  <span class="block text-[8px] text-slate-600">VERIFIED</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Invoice Metadata & Claim Target Box -->
+          <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-300 text-xs mb-4 grid grid-cols-2 gap-4">
+            <div>
+              <p><span class="font-bold text-slate-500">Bill / Receipt No:</span> <span class="font-mono font-extrabold text-slate-900">CLM-${Date.now().toString().slice(-6)}</span></p>
+              <p class="mt-1"><span class="font-bold text-slate-500">Visit / Billing Date:</span> <span class="font-mono font-bold text-slate-900">${formattedDate}</span></p>
+              <p class="mt-1"><span class="font-bold text-slate-500">Claim Organization / Employer:</span> <span class="font-extrabold text-emerald-900 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-300 inline-block">${orgName}</span></p>
+            </div>
+            <div class="text-right">
+              <p><span class="font-bold text-slate-500">Patient MR ID:</span> <span class="font-mono font-black text-slate-900">${pat.PatientID}</span></p>
+              <p class="mt-1"><span class="font-bold text-slate-500">Employee / Designation:</span> <span class="font-bold text-slate-900">${claimBillEmployeeId || claimBillDesignation || 'N/A'}</span></p>
+              <p class="mt-1"><span class="font-bold text-slate-500">Issued On:</span> <span class="font-mono text-slate-700">${printTimeStr}</span></p>
+            </div>
+          </div>
+
+          <!-- Patient Particulars Box -->
+          <div class="mb-4 bg-white p-3 rounded-xl border border-slate-300 text-xs">
+            <h3 class="text-[11px] font-black text-slate-900 uppercase tracking-wider mb-2 border-l-4 border-slate-900 pl-2">Patient Particulars</h3>
+            <div class="grid grid-cols-3 gap-2">
+              <div>
+                <span class="text-slate-500 text-[10px] font-bold block uppercase">Patient Name</span>
+                <span class="font-extrabold text-slate-900 text-sm">${pat.PatientName}</span>
+              </div>
+              <div>
+                <span class="text-slate-500 text-[10px] font-bold block uppercase">Father / Husband Name</span>
+                <span class="font-bold text-slate-800">${pat.Father_husband || 'N/A'}</span>
+              </div>
+              <div>
+                <span class="text-slate-500 text-[10px] font-bold block uppercase">Age / Gender / Contact</span>
+                <span class="font-bold text-slate-800">${pat.AgeYears ? `${pat.AgeYears} Yrs` : ''} ${pat.Sex ? `/ ${pat.Sex}` : ''} ${pat.PhoneMobile ? `- ${pat.PhoneMobile}` : ''}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Itemized Financial Breakdown Table -->
+          <div class="mb-4">
+            <h3 class="text-[11px] font-black text-slate-900 uppercase tracking-wider mb-2 border-l-4 border-emerald-600 pl-2">Itemized Medical & Treatment Charges</h3>
+            <table class="w-full text-left text-xs border-collapse border border-slate-300">
+              <thead>
+                <tr class="bg-slate-900 text-white font-bold uppercase text-[10px]">
+                  <th class="p-2 border border-slate-700 text-center w-12">Sr #</th>
+                  <th class="p-2 border border-slate-700">Description of Healthcare Service / Medical Item</th>
+                  <th class="p-2 border border-slate-700 text-center w-32">Category</th>
+                  <th class="p-2 border border-slate-700 text-right w-36">Amount (PKR)</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-200">
+                ${consultationFee > 0 ? `
+                  <tr>
+                    <td class="p-2 border border-slate-300 text-center font-mono font-bold">1</td>
+                    <td class="p-2 border border-slate-300 font-bold">OPD Specialist Medical Consultation & Checkup Fee</td>
+                    <td class="p-2 border border-slate-300 text-center text-[10px] font-semibold text-slate-600">Consultation</td>
+                    <td class="p-2 border border-slate-300 text-right font-mono font-bold">PKR ${consultationFee.toLocaleString()}</td>
+                  </tr>
+                ` : ''}
+                ${clinMedsFee > 0 ? `
+                  <tr>
+                    <td class="p-2 border border-slate-300 text-center font-mono font-bold">2</td>
+                    <td class="p-2 border border-slate-300 font-bold">Clinical Medicines & Pharmacy Dispensing Charges</td>
+                    <td class="p-2 border border-slate-300 text-center text-[10px] font-semibold text-slate-600">Pharmacy / Meds</td>
+                    <td class="p-2 border border-slate-300 text-right font-mono font-bold">PKR ${clinMedsFee.toLocaleString()}</td>
+                  </tr>
+                ` : ''}
+                ${fileFee > 0 ? `
+                  <tr>
+                    <td class="p-2 border border-slate-300 text-center font-mono font-bold">3</td>
+                    <td class="p-2 border border-slate-300 font-bold">Patient Medical File Folder & Record Management Fee</td>
+                    <td class="p-2 border border-slate-300 text-center text-[10px] font-semibold text-slate-600">Documentation</td>
+                    <td class="p-2 border border-slate-300 text-right font-mono font-bold">PKR ${fileFee.toLocaleString()}</td>
+                  </tr>
+                ` : ''}
+                ${cardFee > 0 ? `
+                  <tr>
+                    <td class="p-2 border border-slate-300 text-center font-mono font-bold">4</td>
+                    <td class="p-2 border border-slate-300 font-bold">Hospital Identification Card & Registration Fee</td>
+                    <td class="p-2 border border-slate-300 text-center text-[10px] font-semibold text-slate-600">Registration</td>
+                    <td class="p-2 border border-slate-300 text-right font-mono font-bold">PKR ${cardFee.toLocaleString()}</td>
+                  </tr>
+                ` : ''}
+                ${(consultationFee === 0 && clinMedsFee === 0 && fileFee === 0 && cardFee === 0) ? `
+                  <tr>
+                    <td class="p-2 border border-slate-300 text-center font-mono font-bold">1</td>
+                    <td class="p-2 border border-slate-300 font-bold">OPD Specialist Consultation & Medical Examination Services</td>
+                    <td class="p-2 border border-slate-300 text-center text-[10px] font-semibold text-slate-600">General OPD</td>
+                    <td class="p-2 border border-slate-300 text-right font-mono font-bold">PKR 0</td>
+                  </tr>
+                ` : ''}
+              </tbody>
+              <tfoot>
+                <tr class="bg-slate-900 text-white font-black border-t-2 border-slate-900">
+                  <td colspan="3" class="p-2 text-right uppercase text-xs">Total Reimbursable Amount Claimed:</td>
+                  <td class="p-2 text-right font-mono text-sm text-amber-300 font-black">PKR ${totalAmount.toLocaleString()}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <!-- Prescribed Treatment Summary for Organization Audit -->
+          ${activeMedsList.length > 0 ? `
+            <div class="mb-4 bg-slate-50 p-3 rounded-xl border border-slate-300">
+              <h4 class="text-[10px] font-black uppercase text-slate-700 tracking-wider mb-1">Prescribed Medical Treatment Summary</h4>
+              <div class="flex flex-wrap gap-1.5 text-xs font-semibold text-slate-800">
+                ${activeMedsList.map(m => `<span class="bg-white border border-slate-300 px-2 py-0.5 rounded font-mono text-[11px]">${m.medicineName} ${m.dosage ? `(${m.dosage})` : ''}</span>`).join('')}
+              </div>
+            </div>
+          ` : ''}
+
+          <!-- Diagnostic Advice Summary if any -->
+          ${pvLabTestAdvice ? `
+            <div class="mb-4 bg-purple-50 p-3 rounded-xl border border-purple-200">
+              <h4 class="text-[10px] font-black uppercase text-purple-900 tracking-wider mb-1">Advised Laboratory & Diagnostic Investigations</h4>
+              <p class="text-xs font-mono text-purple-950 font-bold">${pvLabTestAdvice}</p>
+            </div>
+          ` : ''}
+
+          <!-- Payment Status Stamp & Authorization -->
+          <div class="mt-8 pt-4 border-t-2 border-slate-300 grid grid-cols-2 gap-4 items-end">
+            <div>
+              <div class="inline-block border-2 border-emerald-600 p-2.5 rounded-lg text-emerald-800 bg-emerald-50 text-center shadow-xs">
+                <span class="block text-[10px] font-black uppercase tracking-widest">PAYMENT RECEIPT STAMP</span>
+                <span class="block text-xs font-black font-mono mt-0.5">PAID IN FULL - PKR ${totalAmount.toLocaleString()}</span>
+              </div>
+              ${claimBillRemarks ? `<p class="text-[10px] text-slate-600 mt-2 italic font-medium">Remarks: ${claimBillRemarks}</p>` : ''}
+            </div>
+
+            <div class="text-right space-y-8">
+              <div>
+                <p class="text-xs font-bold text-slate-900">Attending Specialist / Authorized Signatory</p>
+                <div class="mt-8 border-b border-slate-400 w-48 ml-auto"></div>
+                <p class="text-[10px] text-slate-500 mt-0.5">(${currentUserTitle} - Hospital Accounts Stamp)</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-8 text-center text-[9px] text-slate-400 border-t border-slate-200 pt-2">
+            This is an official computer-generated medical reimbursement bill issued for claim with <strong>${orgName}</strong>. Valid for employer, health insurance & corporate medical reimbursement.
+          </div>
+
+          <script>
+            setTimeout(() => {
+              window.focus();
+              window.print();
+            }, 300);
+          </script>
+        </body>
+      </html>
+    `);
+
+    printWin.document.close();
+  };
+
+  const handleOpenNewPatientModal = () => {
+    setNewPatientSearchQuery('');
+    setIsNewPatientSearchModalOpen(true);
+  };
+
+  const handleSelectPatientFromModal = (targetPatId: string) => {
+    setIsNewPatientSearchModalOpen(false);
+
+    // Reset visit fields for fresh entry
+    resetPvConsultationFields(targetPatId);
+
+    if (targetPatId) {
+      setPvSelectedPatientId(targetPatId);
+      setPvPatientSearch(targetPatId);
+      setPvSelectedHistoryDate('ALL');
+      loadPvPatientHistory(targetPatId, false);
+      checkAndPromptDirectVisitToken(targetPatId);
+
+      const ptObj = patients.find((p) => p.PatientID === targetPatId) || (nhcPatients || []).find((p) => p.PatientID === targetPatId);
+      const name = ptObj ? ptObj.PatientName : targetPatId;
+      const tok = (tokens || []).find((t) => t.PatientID === targetPatId);
+
+      const msg = `Selected Patient Record: ${name} (ID: ${targetPatId})${tok ? ` - Token #${tok.TokenNo}` : ''}`;
+      setPvSaveSuccess(msg);
+      setTimeout(() => setPvSaveSuccess(''), 5000);
+    } else {
+      // Create blank form for walk-in patient
+      setPvSelectedPatientId('');
+      setPvPatientSearch('');
+      setPvNhcHistory([]);
+      setPvSaveSuccess('Form cleared for New Patient Entry');
+      setTimeout(() => setPvSaveSuccess(''), 4000);
+    }
+  };
+
+  const handleReadyForNextPatient = (prevPatientName?: string) => {
     // Find next waiting token or patient in queue
     const waitingTokens = (tokens || []).filter(
       (t) => t.Status === 1 && t.PatientID && t.PatientID !== pvSelectedPatientId
@@ -2176,6 +3527,8 @@ export default function PatientDesk({
         nextPatName = nextOpt.PatientName;
       }
     }
+
+    resetPvConsultationFields(nextPatId);
 
     if (nextPatId) {
       setPvSelectedPatientId(nextPatId);
@@ -2272,12 +3625,16 @@ export default function PatientDesk({
       }
     }
 
+    let opdFeePkr = ('ConsultationFee' in visit && visit.ConsultationFee) ? String(visit.ConsultationFee) : '';
     let clinPkr = ('ClinicalMedicinePayment' in visit && visit.ClinicalMedicinePayment && visit.ClinicalMedicinePayment !== '0') ? String(visit.ClinicalMedicinePayment) : '';
-    let filePkr = ('FileFee' in visit && (visit as any).FileFee && (visit as any).FileFee !== '0') ? String((visit as any).FileFee) : ('ConsultationFee' in visit && visit.ConsultationFee && visit.ConsultationFee !== 0) ? String(visit.ConsultationFee) : '';
+    let filePkr = ('FileFee' in visit && (visit as any).FileFee && (visit as any).FileFee !== '0') ? String((visit as any).FileFee) : '';
     let cardPkr = ('CardFee' in visit && (visit as any).CardFee && (visit as any).CardFee !== '0') ? String((visit as any).CardFee) : ('CardsPayment' in visit && visit.CardsPayment && visit.CardsPayment !== '0') ? String(visit.CardsPayment) : '';
 
     if ('VisitRemarks' in visit && visit.VisitRemarks) {
       const rem = visit.VisitRemarks;
+      const oPkr = rem.match(/OPD Fee PKR\s*(\d+)/);
+      if (oPkr) opdFeePkr = oPkr[1];
+
       const cPkr = rem.match(/Clinical Meds PKR\s*(\d+)/);
       if (cPkr) clinPkr = cPkr[1];
 
@@ -2288,6 +3645,7 @@ export default function PatientDesk({
       if (kPkr) cardPkr = kPkr[1];
     }
 
+    setPvOpdFeePkr(opdFeePkr);
     setPvClinicalMedicinePkr(clinPkr);
     setPvFilePkr(filePkr);
     setPvCardPkr(cardPkr);
@@ -2351,6 +3709,143 @@ export default function PatientDesk({
     setTimeout(() => setPvSaveSuccess(''), 3000);
   };
 
+  const executeSavePatientVisit = (isFollowUp: boolean = false) => {
+    setIsSavingVisit(true);
+    try {
+      const validClinical = pvClinicalItems.filter((i) => i.medicineName.trim() || i.dosage.trim());
+      const validPatent = pvPatientItems.filter((i) => i.medicineName.trim() || i.dosage.trim());
+
+      if (validClinical.length === 0 && validPatent.length === 0) {
+        setPvSaveError('Please enter at least one Clinical Medicine or Patient Medicine row.');
+        setIsSavingVisit(false);
+        return;
+      }
+
+      const totalPkr = (Number(pvOpdFeePkr) || 0) + (Number(pvClinicalMedicinePkr) || 0) + (Number(pvFilePkr) || 0) + (Number(pvCardPkr) || 0);
+      const targetVisitId = editingVisitId || `VIS-${Date.now()}`;
+      const clinicalTextWithExp = `${clinicalMedicineDosage.trim()}${pvClinicalMedicineExpireDate.trim() ? ` (EXP: ${pvClinicalMedicineExpireDate.trim()})` : ''}`;
+
+      const chargesRemarkText = isFollowUp
+        ? `Charges: 0 PKR (Follow-up Visit)`
+        : `Charges: OPD Fee PKR ${pvOpdFeePkr || 0}, Clinical Meds PKR ${pvClinicalMedicinePkr || 0}, File PKR ${pvFilePkr || 0}, Card PKR ${pvCardPkr || 0} (Total PKR ${totalPkr})`;
+
+      const newVisit: Visit = {
+        VisitID: targetVisitId,
+        PatientID: pvSelectedPatientId,
+        VisitDate: pvVisitDate || new Date().toISOString().split('T')[0],
+        SymptomsDiagnosis: pvSymptomsDiagnosis || (isFollowUp ? 'Follow-up Consultation' : 'Routine Consultation'),
+        MedicalReportResult: pvMedicalReportResult.trim() || 'N/A',
+        LabTestAdvice: pvLabTestAdvice || 'None',
+        PatientAdvice: pvLabTestAdvice || 'Take medicines regularly.',
+        VisitRemarks: `Clinical: ${clinicalTextWithExp} | Patent: ${patientMedicineDosage} | Medical Reports: ${pvMedicalReportResult.trim() || 'N/A'} | Lab Tests: ${pvLabTestAdvice || 'None'} | ${chargesRemarkText}`,
+        Status: 2,
+        ConsultationFee: Number(pvOpdFeePkr) || 0,
+        ClinicalMedicinePayment: pvClinicalMedicinePkr || '0',
+        FileFee: pvFilePkr || '0',
+        CardFee: pvCardPkr || '0',
+        CardsPayment: String((Number(pvFilePkr) || 0) + (Number(pvCardPkr) || 0))
+      };
+
+      const newVisitMedicines: VisitMedicine[] = [];
+
+      // Save each clinical medicine row
+      validClinical.forEach((item, idx) => {
+        newVisitMedicines.push({
+          VisitID: targetVisitId,
+          ItemID: `CLIN-${idx + 1}`,
+          MedicineType: 'C',
+          MedicineDetail: item.medicineName.trim() || 'Clinical Compounding Medicine',
+          Dosage: item.dosage.trim() || 'As directed',
+          Qty: 1,
+          ExpireDate: pvClinicalMedicineExpireDate.trim()
+        });
+      });
+
+      // Save each patent medicine row
+      validPatent.forEach((item, idx) => {
+        newVisitMedicines.push({
+          VisitID: targetVisitId,
+          ItemID: `PAT-${idx + 1}`,
+          MedicineType: 'P',
+          MedicineDetail: item.medicineName.trim() || 'Commercial Medicine',
+          Dosage: item.dosage.trim() || 'As directed',
+          Qty: 1
+        });
+      });
+      if (onAddPatient && selectedPvPatient && !patients.some(p => p.PatientID === pvSelectedPatientId)) {
+        onAddPatient(selectedPvPatient);
+      }
+
+      if (onAddVisit) {
+        onAddVisit(newVisit, newVisitMedicines, []);
+      }
+
+      // Also update in pvNhcHistory so side navigation updates dynamically
+      setPvNhcHistory(prev => {
+        const idx = prev.findIndex(item => item.VisitID === targetVisitId);
+        const newHistoryRecord: NhcPatientHistory = {
+          PatientID: pvSelectedPatientId,
+          PatientName: selectedPvPatient?.PatientName || '',
+          VisitID: targetVisitId,
+          date: pvVisitDate || new Date().toISOString().split('T')[0],
+          symptoms: pvSymptomsDiagnosis || (isFollowUp ? 'Follow-up Consultation' : 'Routine Consultation'),
+          clinicalMedication: clinicalMedicineDosage,
+          patientMedication: patientMedicineDosage,
+          VisitRemarks: newVisit.VisitRemarks
+        };
+        if (idx >= 0) {
+          const copy = [...prev];
+          copy[idx] = { ...copy[idx], ...newHistoryRecord };
+          return copy;
+        }
+        return [newHistoryRecord, ...prev];
+      });
+
+      const currentPatientId = pvSelectedPatientId;
+      const currentPatientName = selectedPvPatient?.PatientName || currentPatientId;
+
+      if (editingVisitId) {
+        setPvSaveSuccess(`Patient visit #${targetVisitId} updated successfully!`);
+        setPvSaveError('');
+        setEditingVisitId(targetVisitId);
+        setPvSelectedHistoryDate(pvVisitDate || new Date().toISOString().split('T')[0]);
+        setTimeout(() => setPvSaveSuccess(''), 6000);
+      } else {
+        // Mark Token as Visited/Checked (Status = 2)
+        if (onUpdateTokenStatus && currentPatientId) {
+          const ptToken = (tokens || []).find(
+            (t) => t.PatientID === currentPatientId && (t.Status === 1 || t.Status === 2)
+          );
+          if (ptToken) {
+            onUpdateTokenStatus(ptToken.TokenNo, ptToken.Shift, 2);
+          }
+        }
+
+        // Mark Appointment as Visited (Status = 2)
+        if (onUpdateAppointmentStatus && currentPatientId) {
+          const app = (appointments || []).find(
+            (a) => a.PatientID === currentPatientId && a.Status === 1
+          );
+          if (app) {
+            onUpdateAppointmentStatus(app.AppointmentID, 2);
+          }
+        }
+
+        setPvSaveSuccess(`✓ Visit saved for ${currentPatientName}! Opening print document...`);
+        setPvSaveError('');
+        setEditingVisitId(targetVisitId);
+        setPvSelectedHistoryDate(pvVisitDate || new Date().toISOString().split('T')[0]);
+        setTimeout(() => setPvSaveSuccess(''), 6000);
+      }
+
+      // Open Print Patient Document modal popup for current patient
+      setPvPrescriptionModalOpen(true);
+    } finally {
+      setIsSavingVisit(false);
+      setShowFollowUpConfirmModal(false);
+    }
+  };
+
   const handleSavePatientVisit = (e: React.FormEvent) => {
     e.preventDefault();
     if (isSavingVisit) return;
@@ -2359,134 +3854,26 @@ export default function PatientDesk({
       return;
     }
 
-    setIsSavingVisit(true);
-    try {
     const validClinical = pvClinicalItems.filter((i) => i.medicineName.trim() || i.dosage.trim());
     const validPatent = pvPatientItems.filter((i) => i.medicineName.trim() || i.dosage.trim());
 
     if (validClinical.length === 0 && validPatent.length === 0) {
       setPvSaveError('Please enter at least one Clinical Medicine or Patient Medicine row.');
-      setIsSavingVisit(false);
       return;
     }
 
-    const totalPkr = (Number(pvClinicalMedicinePkr) || 0) + (Number(pvFilePkr) || 0) + (Number(pvCardPkr) || 0);
-    const targetVisitId = editingVisitId || `VIS-${Date.now()}`;
-    const clinicalTextWithExp = `${clinicalMedicineDosage.trim()}${pvClinicalMedicineExpireDate.trim() ? ` (EXP: ${pvClinicalMedicineExpireDate.trim()})` : ''}`;
+    const totalPkr = (Number(pvOpdFeePkr) || 0) + (Number(pvClinicalMedicinePkr) || 0) + (Number(pvFilePkr) || 0) + (Number(pvCardPkr) || 0);
+    const isPaymentEmpty = (!pvOpdFeePkr || String(pvOpdFeePkr).trim() === '' || Number(pvOpdFeePkr) === 0) &&
+                           (!pvClinicalMedicinePkr || String(pvClinicalMedicinePkr).trim() === '' || Number(pvClinicalMedicinePkr) === 0) &&
+                           (!pvFilePkr || String(pvFilePkr).trim() === '' || Number(pvFilePkr) === 0) &&
+                           (!pvCardPkr || String(pvCardPkr).trim() === '' || Number(pvCardPkr) === 0);
 
-    const newVisit: Visit = {
-      VisitID: targetVisitId,
-      PatientID: pvSelectedPatientId,
-      VisitDate: pvVisitDate || new Date().toISOString().split('T')[0],
-      SymptomsDiagnosis: pvSymptomsDiagnosis || 'Routine Consultation',
-      MedicalReportResult: pvMedicalReportResult.trim() || 'N/A',
-      LabTestAdvice: pvLabTestAdvice || 'None',
-      PatientAdvice: pvLabTestAdvice || 'Take medicines regularly.',
-      VisitRemarks: `Clinical: ${clinicalTextWithExp} | Patent: ${patientMedicineDosage} | Medical Reports: ${pvMedicalReportResult.trim() || 'N/A'} | Lab Tests: ${pvLabTestAdvice || 'None'} | Charges: Clinical Meds PKR ${pvClinicalMedicinePkr || 0}, File PKR ${pvFilePkr || 0}, Card PKR ${pvCardPkr || 0} (Total PKR ${totalPkr})`,
-      Status: 2,
-      ClinicalMedicinePayment: pvClinicalMedicinePkr || '0',
-      FileFee: pvFilePkr || '0',
-      CardFee: pvCardPkr || '0',
-      CardsPayment: String((Number(pvFilePkr) || 0) + (Number(pvCardPkr) || 0))
-    };
-
-    const newVisitMedicines: VisitMedicine[] = [];
-
-    // Save each clinical medicine row
-    validClinical.forEach((item, idx) => {
-      newVisitMedicines.push({
-        VisitID: targetVisitId,
-        ItemID: `CLIN-${idx + 1}`,
-        MedicineType: 'C',
-        MedicineDetail: item.medicineName.trim() || 'Clinical Compounding Medicine',
-        Dosage: item.dosage.trim() || 'As directed',
-        Qty: 1,
-        ExpireDate: pvClinicalMedicineExpireDate.trim()
-      });
-    });
-
-    // Save each patent medicine row
-    validPatent.forEach((item, idx) => {
-      newVisitMedicines.push({
-        VisitID: targetVisitId,
-        ItemID: `PAT-${idx + 1}`,
-        MedicineType: 'P',
-        MedicineDetail: item.medicineName.trim() || 'Commercial Medicine',
-        Dosage: item.dosage.trim() || 'As directed',
-        Qty: 1
-      });
-    });
-    if (onAddPatient && selectedPvPatient && !patients.some(p => p.PatientID === pvSelectedPatientId)) {
-      onAddPatient(selectedPvPatient);
+    if (isPaymentEmpty || totalPkr === 0) {
+      setShowFollowUpConfirmModal(true);
+      return;
     }
 
-    if (onAddVisit) {
-      onAddVisit(newVisit, newVisitMedicines, []);
-    }
-
-    // Also update in pvNhcHistory so side navigation updates dynamically
-    setPvNhcHistory(prev => {
-      const idx = prev.findIndex(item => item.VisitID === targetVisitId);
-      const newHistoryRecord: NhcPatientHistory = {
-        PatientID: pvSelectedPatientId,
-        PatientName: selectedPvPatient?.PatientName || '',
-        VisitID: targetVisitId,
-        date: pvVisitDate || new Date().toISOString().split('T')[0],
-        symptoms: pvSymptomsDiagnosis || 'Routine Consultation',
-        clinicalMedication: clinicalMedicineDosage,
-        patientMedication: patientMedicineDosage,
-        VisitRemarks: newVisit.VisitRemarks
-      };
-      if (idx >= 0) {
-        const copy = [...prev];
-        copy[idx] = { ...copy[idx], ...newHistoryRecord };
-        return copy;
-      }
-      return [newHistoryRecord, ...prev];
-    });
-
-    const currentPatientId = pvSelectedPatientId;
-    const currentPatientName = selectedPvPatient?.PatientName || currentPatientId;
-
-    if (editingVisitId) {
-      setPvSaveSuccess(`Patient visit #${targetVisitId} updated successfully!`);
-      setPvSaveError('');
-      setEditingVisitId(targetVisitId);
-      setPvSelectedHistoryDate(pvVisitDate || new Date().toISOString().split('T')[0]);
-      setTimeout(() => setPvSaveSuccess(''), 6000);
-    } else {
-      // Mark Token as Visited/Checked (Status = 2)
-      if (onUpdateTokenStatus && currentPatientId) {
-        const ptToken = (tokens || []).find(
-          (t) => t.PatientID === currentPatientId && (t.Status === 1 || t.Status === 2)
-        );
-        if (ptToken) {
-          onUpdateTokenStatus(ptToken.TokenNo, ptToken.Shift, 2);
-        }
-      }
-
-      // Mark Appointment as Visited (Status = 2)
-      if (onUpdateAppointmentStatus && currentPatientId) {
-        const app = (appointments || []).find(
-          (a) => a.PatientID === currentPatientId && a.Status === 1
-        );
-        if (app) {
-          onUpdateAppointmentStatus(app.AppointmentID, 2);
-        }
-      }
-
-      setPvSaveSuccess(`✓ Visit saved for ${currentPatientName}! Opening print document...`);
-      setPvSaveError('');
-      setEditingVisitId(targetVisitId);
-      setPvSelectedHistoryDate(pvVisitDate || new Date().toISOString().split('T')[0]);
-      setTimeout(() => setPvSaveSuccess(''), 6000);
-    }
-
-    // Open Print Patient Document modal popup for current patient
-    setPvPrescriptionModalOpen(true);
-    } finally {
-      setIsSavingVisit(false);
-    }
+    executeSavePatientVisit(false);
   };
 
   const handleStartEditPatient = (p: Patient) => {
@@ -2660,10 +4047,10 @@ export default function PatientDesk({
     setModalSaveError('');
     const pId = targetPatientId || pvSelectedPatientId;
     if (pId) {
-      const pVisits = (visits || []).filter(v => v.PatientID === pId);
+      const pVisits = (visits || []).filter(v => isSamePatient(v.PatientID, pId));
       const sortedVisits = [...pVisits].sort((a, b) => {
-        const dA = a.VisitDate ? a.VisitDate.split('T')[0] : '';
-        const dB = b.VisitDate ? b.VisitDate.split('T')[0] : '';
+        const dA = parseCleanVisitDate(a.VisitDate);
+        const dB = parseCleanVisitDate(b.VisitDate);
         if (dA !== dB) return dB.localeCompare(dA);
         return (Number(b.VisitID) || 0) - (Number(a.VisitID) || 0);
       });
@@ -2671,10 +4058,10 @@ export default function PatientDesk({
         loadVisitIntoModalForm(sortedVisits[0]);
         return;
       }
-      const pNhc = (pvNhcHistory || []).filter(nhc => nhc.PatientID === pId);
+      const pNhc = (pvNhcHistory || []).filter(nhc => isSamePatient(nhc.PatientID, pId) || !nhc.PatientID);
       const sortedNhc = [...pNhc].sort((a, b) => {
-        const dA = a.date || (a as any).VisitDate || '';
-        const dB = b.date || (b as any).VisitDate || '';
+        const dA = parseCleanVisitDate(a.date || (a as any).VisitDate || (a as any).Date);
+        const dB = parseCleanVisitDate(b.date || (b as any).VisitDate || (b as any).Date);
         return dB.localeCompare(dA);
       });
       if (sortedNhc.length > 0) {
@@ -3087,6 +4474,22 @@ export default function PatientDesk({
       setErrorMsg('Patient Name is mandatory.');
       return;
     }
+    // Validation check for AgeYears and Sex fields
+    const isAgeBlank = !ageYears || Number(ageYears) <= 0 || isNaN(Number(ageYears));
+    const isSexBlank = !sex || sex.toString().trim() === '';
+    if (isAgeBlank && isSexBlank) {
+      setErrorMsg("Warning: 'Age (Years)' and 'Gender / Sex' fields are required for accurate clinical records.");
+      return;
+    }
+    if (isAgeBlank) {
+      setErrorMsg("Warning: 'Age (Years)' field is required for accurate clinical records.");
+      return;
+    }
+    if (isSexBlank) {
+      setErrorMsg("Warning: 'Gender / Sex' field is required for accurate clinical records.");
+      return;
+    }
+
     // Validation for phone format Pakistani: e.g. 03xx-xxxxxxx or simply 11 digits
     const cleanPhone = mobilePhone.trim();
     if (!cleanPhone) {
@@ -3133,7 +4536,7 @@ export default function PatientDesk({
       setErrorMsg('');
       setEditingPatientId(null);
     } else {
-      const newId = `PAT-${String(patients.length + 1).padStart(3, '0')}`;
+      const newId = generatePatientId(patients);
       const newPatient: Patient = {
         PatientID: newId,
         PatientName: patientName,
@@ -3395,11 +4798,17 @@ export default function PatientDesk({
   };
 
   const handleCancelQueue = (tok: Token) => {
-    if (!canCallServeToken && !canCancelAppointment) {
-      alert('Access Control Security: You do not have permission to Cancel queue tokens.');
+    if (!canDeleteToken && !canCallServeToken) {
+      alert('Access Control Security: You do not have permission to delete / cancel queue tokens. Administrator rights required.');
       return;
     }
-    onUpdateTokenStatus(tok.TokenNo, tok.Shift, 3); // Canceled
+
+    if (onDeleteToken) {
+      onDeleteToken(tok.TokenNo, tok.Shift);
+    } else {
+      onUpdateTokenStatus(tok.TokenNo, tok.Shift, 3); // Canceled
+    }
+
     const app = appointments.find(
       (a) => a.PatientID === tok.PatientID && a.AppointmentDate === tok.Date && a.Shift === tok.Shift && (a.Status === 1 || a.Status === 2)
     );
@@ -3420,7 +4829,7 @@ export default function PatientDesk({
   };
 
   return (
-    <div className="p-2.5 sm:p-3 space-y-2.5 overflow-y-auto flex-1 bg-slate-50 text-slate-800 relative" id="patients-desk">
+    <div className="p-2.5 sm:p-3 space-y-2.5 overflow-y-auto flex-1 bg-slate-50 text-slate-800 relative h-full w-full" id="patients-desk">
       <TopProgressBar active={isSubTabLoading} />
 
       {/* Top Section */}
@@ -3534,6 +4943,11 @@ export default function PatientDesk({
           appDate={appDate}
           shift={shift}
           canIssueToken={canIssueToken}
+          canDeleteToken={canDeleteToken}
+          onDeleteToken={onDeleteToken}
+          onUpdateTokenStatus={onUpdateTokenStatus}
+          visits={visits}
+          appointments={appointments}
           isSearchingArchive={isSearchingArchive}
           searchTerm={searchTerm}
           setSearchTerm={setSearchTerm}
@@ -3814,6 +5228,10 @@ export default function PatientDesk({
                 ) : (
                   tokens.filter(t => t.Date === appDate).map((t) => {
                     const patName = patients.find(p => p.PatientID === t.PatientID)?.PatientName || t.PatientID;
+                    const isCompleted = t.Status === 2 ||
+                      (visits || []).some(v => v.PatientID === t.PatientID && (v.VisitDate ? v.VisitDate.split('T')[0] === appDate : false)) ||
+                      (appointments || []).some(a => a.PatientID === t.PatientID && a.AppointmentDate === appDate && a.Status === 4);
+
                     return (
                       <div key={`tok-${t.TokenNo}-${t.Shift}`} className="p-2 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center text-xs">
                         <div>
@@ -3825,12 +5243,37 @@ export default function PatientDesk({
                           </div>
                           <span className="text-[10px] text-slate-500">{t.Shift === 1 ? 'Morning' : 'Evening'} Shift</span>
                         </div>
-                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
-                          t.Status === 1 ? 'bg-amber-100 text-amber-800' :
-                          t.Status === 2 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'
-                        }`}>
-                          {t.Status === 1 ? 'Waiting' : t.Status === 2 ? 'Visited' : 'Closed'}
-                        </span>
+                        <div className="flex items-center space-x-1.5">
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
+                            isCompleted || t.Status === 2 ? 'bg-emerald-100 text-emerald-800' :
+                            t.Status === 1 ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-700'
+                          }`}>
+                            {isCompleted || t.Status === 2 ? 'Visited' : t.Status === 1 ? 'Waiting' : 'Closed'}
+                          </span>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!canDeleteToken) {
+                                alert('Access Control Security: You do not have permission to delete issued tokens. Administrator rights required.');
+                                return;
+                              }
+                              if (window.confirm(`Are you sure you want to delete issued Token #${t.TokenNo} for ${patName}?`)) {
+                                if (onDeleteToken) {
+                                  onDeleteToken(t.TokenNo, t.Shift);
+                                } else {
+                                  onUpdateTokenStatus(t.TokenNo, t.Shift, 3);
+                                }
+                                setAppSuccess(`Token #${t.TokenNo} deleted successfully.`);
+                                setTimeout(() => setAppSuccess(''), 3000);
+                              }
+                            }}
+                            title="Delete issued token"
+                            className="p-1 rounded transition cursor-pointer flex items-center justify-center text-rose-600 hover:text-rose-800 hover:bg-rose-50"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     );
                   })
@@ -3849,26 +5292,103 @@ export default function PatientDesk({
           <div className="bg-white text-slate-800 p-2 rounded-xl border border-slate-200 shadow-2xs space-y-1.5">
             {/* Top Row: Title, Search, Dropdown, Visit Date, Nav Buttons */}
             <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-slate-100 pb-1.5">
-              {/* Title */}
-              <div className="flex items-center space-x-1.5 shrink-0">
-                <div className="p-1 bg-emerald-50 text-emerald-600 rounded-lg shrink-0 border border-emerald-100">
-                  <Stethoscope className="w-3.5 h-3.5" />
+              {/* Title & Daily Collection */}
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <div className="flex items-center space-x-1.5 shrink-0">
+                  <div className="p-1 bg-emerald-50 text-emerald-600 rounded-lg shrink-0 border border-emerald-100">
+                    <Stethoscope className="w-3.5 h-3.5" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-900 tracking-tight">Patient Visit & Prescription Desk</h3>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-xs font-bold text-slate-900 tracking-tight">Patient Visit & Prescription Desk</h3>
+
+                {/* Shift-wise Daily Collection Display */}
+                <div className="group relative flex items-center space-x-1.5 bg-slate-900 text-white px-2.5 py-1 rounded-lg border border-emerald-500/40 shadow-2xs text-xs font-bold transition hover:bg-slate-800 cursor-help">
+                  <Coins className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span className="text-emerald-300 font-extrabold text-[10px] uppercase tracking-wider">
+                    Daily Collection ({shift === 1 ? 'Morning' : 'Evening'}):
+                  </span>
+                  <span className="text-amber-300 font-black text-xs font-mono">
+                    PKR {shiftDailyCollection.grandTotal.toLocaleString()}
+                  </span>
+
+                  {/* Shift Quick Switch Buttons */}
+                  <div className="ml-1 flex items-center space-x-1">
+                    <div className="flex items-center bg-slate-800 p-0.5 rounded-md border border-slate-700 text-[9px] font-extrabold">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setShift(1); }}
+                        className={`px-1.5 py-0.5 rounded cursor-pointer transition ${
+                          shift === 1 ? 'bg-emerald-600 text-white font-black shadow-2xs' : 'text-slate-400 hover:text-white'
+                        }`}
+                        title="Switch to Morning Shift Collection"
+                      >
+                        Morning
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setShift(2); }}
+                        className={`px-1.5 py-0.5 rounded cursor-pointer transition ${
+                          shift === 2 ? 'bg-blue-600 text-white font-black shadow-2xs' : 'text-slate-400 hover:text-white'
+                        }`}
+                        title="Switch to Evening Shift Collection"
+                      >
+                        Evening
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Hover Breakdown Tooltip */}
+                  <div className="absolute top-full left-0 mt-1.5 hidden group-hover:flex flex-col bg-slate-900 text-white p-3 rounded-xl border border-slate-700 shadow-xl z-50 min-w-[240px] text-xs space-y-1.5 pointer-events-none">
+                    <div className="font-extrabold text-emerald-400 border-b border-slate-800 pb-1 flex justify-between items-center text-[11px]">
+                      <span>Shift Revenue Breakdown</span>
+                      <span className="text-[9px] text-slate-400 uppercase font-mono">{shift === 1 ? 'Morning' : 'Evening'} Shift</span>
+                    </div>
+                    <div className="flex justify-between text-slate-300 text-[11px]">
+                      <span>Clinical Medicine:</span>
+                      <span className="font-mono font-bold text-white">PKR {shiftDailyCollection.clinicalMedsTotal.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-300 text-[11px]">
+                      <span>File Fee:</span>
+                      <span className="font-mono font-bold text-white">PKR {shiftDailyCollection.fileTotal.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-300 text-[11px]">
+                      <span>Cards Fee:</span>
+                      <span className="font-mono font-bold text-white">PKR {shiftDailyCollection.cardTotal.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-300 text-[11px]">
+                      <span>OPD / Tokens:</span>
+                      <span className="font-mono font-bold text-white">PKR {shiftDailyCollection.opdTotal.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-300 text-[11px]">
+                      <span>Store / Pharmacy:</span>
+                      <span className="font-mono font-bold text-white">PKR {shiftDailyCollection.storePaymentTotal.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between text-amber-300 font-extrabold border-t border-slate-800 pt-1 text-xs">
+                      <span>Grand Total:</span>
+                      <span className="font-mono text-sm font-black">PKR {shiftDailyCollection.grandTotal.toLocaleString()}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
               {/* Controls */}
-              <div className="flex flex-wrap items-center gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto">
                 {/* Search Box + Search Button */}
-                <div className="flex items-center space-x-1 shrink-0">
-                  <div className="relative w-36 sm:w-44">
-                    <Search className="absolute left-2 top-2 h-3 w-3 text-slate-400" />
+                <div className="flex items-center space-x-1 shrink-0 w-full sm:w-auto">
+                  <div className="relative flex-1 sm:w-44">
+                    <Search className="absolute left-2.5 top-2.5 sm:top-2 h-3.5 w-3.5 sm:h-3 sm:w-3 text-slate-400" />
                     <input
                       type="text"
                       placeholder="Search Token / Patient..."
                       value={pvPatientSearch}
+                      onFocus={() => {
+                        // When doctor clicks/focuses search box, prepare form for new patient check
+                        if (editingVisitId) {
+                          setEditingVisitId(null);
+                        }
+                      }}
                       onChange={(e) => {
                         const val = e.target.value;
                         setPvPatientSearch(val);
@@ -3879,11 +5399,17 @@ export default function PatientDesk({
                             || patients.find(p => matchPatientRecord(p, trimmed))
                             || (nhcPatients || []).find(p => matchPatientRecord(p, trimmed))
                             || nhcArchiveList.find(p => matchPatientRecord(p, trimmed));
-                          if (matched) {
+                          if (matched && matched.PatientID !== pvSelectedPatientId) {
+                            resetPvConsultationFields(matched.PatientID);
                             setPvSelectedPatientId(matched.PatientID);
                             setPvSelectedHistoryDate('ALL');
                             loadPvPatientHistory(matched.PatientID, false);
                           }
+                        } else {
+                          // Search box is empty -> clear record & history
+                          setPvSelectedPatientId('');
+                          resetPvConsultationFields('');
+                          setPvSelectedHistoryDate('ALL');
                         }
                       }}
                       onKeyDown={(e) => {
@@ -3892,66 +5418,74 @@ export default function PatientDesk({
                           handleExecutePatientSearch();
                         }
                       }}
-                      className="w-full text-[11px] bg-slate-50 text-slate-800 border border-slate-200 rounded-md pl-7 pr-2 py-1 focus:outline-none focus:ring-1 focus:ring-emerald-500 placeholder-slate-400 focus:bg-white"
+                      className="w-full text-xs sm:text-[11px] bg-slate-50 text-slate-800 border border-slate-200 rounded-lg sm:rounded-md pl-8 sm:pl-7 pr-7 sm:pr-6 py-2 sm:py-1 focus:outline-none focus:ring-1 focus:ring-emerald-500 placeholder-slate-400 focus:bg-white min-h-[38px] sm:min-h-0"
                     />
+                    {pvPatientSearch && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPvPatientSearch('');
+                          setPvSelectedPatientId('');
+                          resetPvConsultationFields('');
+                          setPvSelectedHistoryDate('ALL');
+                        }}
+                        className="absolute right-2 top-2.5 sm:top-1.5 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                        title="Clear search"
+                      >
+                        <X className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
+                      </button>
+                    )}
                   </div>
                   <button
                     type="button"
                     onClick={handleExecutePatientSearch}
-                    className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-md shadow-2xs transition flex items-center space-x-0.5 cursor-pointer shrink-0"
+                    className="px-3 sm:px-2 py-2 sm:py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-[11px] font-bold rounded-lg sm:rounded-md shadow-2xs transition flex items-center space-x-0.5 cursor-pointer shrink-0 min-h-[38px] sm:min-h-0"
                   >
-                    <Search className="w-3 h-3" />
+                    <Search className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
                     <span>Search</span>
                   </button>
                 </div>
 
-                {/* Patient Dropdown */}
-                <select
-                  value={pvSelectedPatientId}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setPvSelectedPatientId(val);
-                    setPvSelectedHistoryDate('ALL');
-                    if (val) {
-                      loadPvPatientHistory(val, false);
-                      const cleanVal = String(val).trim().toLowerCase();
-                      const matchedOpt = pvPatientDropdownOptions.find(p => String(p.PatientID || '').trim().toLowerCase() === cleanVal)
-                        || patients.find(p => String(p.PatientID || '').trim().toLowerCase() === cleanVal);
-                      if (matchedOpt) {
-                        setPvPatientSearch(`${matchedOpt.PatientName} (${matchedOpt.PatientID})`);
-                      }
-                      checkAndPromptDirectVisitToken(val);
-                    } else {
-                      setPvPatientSearch('');
-                    }
-                  }}
-                  className="text-[11px] bg-slate-50 text-slate-800 border border-slate-200 rounded-md px-2 py-1 font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-500 max-w-[180px] sm:max-w-xs truncate"
-                >
-                  <option value="">-- Select Patient or Token --</option>
-                  {pvPatientDropdownOptions.map((p, idx) => (
-                    <option key={`pv-drop-${p.PatientID}-${idx}`} value={p.PatientID} className="bg-white text-slate-800">
-                      {p.tokenNo ? `[Token #${p.tokenNo}] ` : ''}{p.PatientName} ({p.PatientID}) {p.PhoneMobile ? `- ${p.PhoneMobile}` : ''} {p.isNhc ? '[PHC Archive]' : ''}
-                    </option>
-                  ))}
-                </select>
 
-                {/* Visit Date Input */}
+                {/* Visit Date Display (Calendar Input Removed) */}
                 <div className="flex items-center space-x-1 shrink-0">
                   <span className="text-[10px] font-bold text-slate-500 uppercase">Visit:</span>
-                  <input
-                    type="date"
-                    required
-                    value={pvVisitDate}
-                    onChange={(e) => setPvVisitDate(e.target.value)}
-                    className="text-[11px] bg-slate-50 text-slate-800 border border-slate-200 rounded-md px-1.5 py-0.5 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-bold"
-                  />
-                  <span className="text-[10px] font-extrabold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 font-mono">
+                  <span className="text-[10px] font-extrabold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-mono">
                     {formatDisplayDate(pvVisitDate)}
                   </span>
                 </div>
 
                 {/* Visit Action Buttons */}
                 <div className="flex items-center space-x-1 shrink-0">
+                  {/* Print Daily Report Button */}
+                  <button
+                    type="button"
+                    onClick={handlePrintDailyReport}
+                    className="px-1.5 py-0.5 bg-slate-900 hover:bg-slate-800 text-amber-300 border border-slate-700 text-[10px] font-bold rounded-md transition flex items-center space-x-0.5 cursor-pointer shadow-2xs"
+                    title="Print Active Shift Daily Collection & Patient Visits Report"
+                  >
+                    <Printer className="w-3 h-3 text-amber-400" />
+                    <span>Print Daily Report</span>
+                  </button>
+
+                  {/* Organization Claim Bill Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!pvSelectedPatientId) {
+                        alert('Please select a patient first.');
+                        return;
+                      }
+                      setIsClaimBillModalOpen(true);
+                    }}
+                    disabled={!pvSelectedPatientId}
+                    className="px-1.5 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-300 disabled:opacity-40 text-[10px] font-bold rounded-md transition flex items-center space-x-0.5 cursor-pointer shadow-2xs"
+                    title="Generate Official Organization / Corporate Reimbursement Claim Bill"
+                  >
+                    <Building2 className="w-3 h-3 text-blue-700" />
+                    <span>Claim Bill / Invoice</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={handlePrintPreviousRxDirect}
@@ -3961,6 +5495,17 @@ export default function PatientDesk({
                   >
                     <Printer className="w-3 h-3 text-emerald-700" />
                     <span>Print Previous Rx</span>
+                  </button>
+
+                  {/* Search Record Button */}
+                  <button
+                    type="button"
+                    onClick={() => handleOpenNewPatientModal()}
+                    className="px-2.5 py-1 text-xs font-black rounded-md transition flex items-center space-x-1 cursor-pointer bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs"
+                    title="Search Token or Patient ID for next patient checkup"
+                  >
+                    <Search className="w-3.5 h-3.5" />
+                    <span>Search Record</span>
                   </button>
                 </div>
               </div>
@@ -4001,7 +5546,7 @@ export default function PatientDesk({
             })() : (
               <div className="text-[10px] text-slate-500 italic flex items-center space-x-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-pulse"></span>
-                <span>No patient selected. Please search or select a patient from the dropdown above.</span>
+                <span>No patient selected. Please enter a Token # or Patient ID in the search box above to view patient records.</span>
               </div>
             )}
           </div>
@@ -4418,7 +5963,7 @@ export default function PatientDesk({
           )}
 
           {/* BOX 2: CURRENT PATIENT VISIT */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-3 space-y-2.5">
+          <div id="prescription-entry-form" className="bg-white rounded-xl border border-slate-200 shadow-xs p-3 space-y-2.5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-2 gap-2">
               <div className="flex items-center space-x-2">
                 <div className="p-1 bg-emerald-50 text-emerald-600 rounded-md">
@@ -4441,18 +5986,15 @@ export default function PatientDesk({
                 </div>
               </div>
 
-              {/* ACTION BUTTONS */}
-              <div className="flex items-center space-x-1.5">
-                <button
-                  type="button"
-                  onClick={handleAddNewVisit}
-                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-lg shadow-2xs transition flex items-center space-x-1 cursor-pointer shrink-0"
-                  title="Clear inputs and prepare Patient Visit Desk for the next patient in line"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>+ Ready for Next Patient</span>
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => handleOpenNewPatientModal()}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-lg shadow-2xs transition flex items-center space-x-1.5 cursor-pointer shrink-0 self-start sm:self-auto"
+                title="Search Token or Patient ID for next patient checkup"
+              >
+                <Search className="w-4 h-4" />
+                <span>Search Record</span>
+              </button>
             </div>
 
             {pvSaveSuccess && (
@@ -4479,31 +6021,45 @@ export default function PatientDesk({
               </div>
             )}
 
-            <form onSubmit={handleSavePatientVisit} className="space-y-2.5">
-              {/* 2-COLUMN ROW: Chief Complaints and Medical Reports Results */}
+            <form
+              onSubmit={handleSavePatientVisit}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                }
+              }}
+              className="space-y-2.5"
+            >
+              {/* 2-COLUMN ROW: History of Patient and Medical Reports Results */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-600 uppercase mb-0.5">Chief Complaints / Diagnosis / Symptoms</label>
+                  <label className="block text-[10px] font-bold text-slate-600 uppercase mb-0.5 flex items-center justify-between">
+                    <span>History of Patient</span>
+                  </label>
                   <textarea
-                    rows={2}
+                    rows={3}
                     placeholder="e.g. Chronic Headache, Acidity, High Blood Pressure"
                     value={pvSymptomsDiagnosis}
                     onChange={(e) => setPvSymptomsDiagnosis(e.target.value)}
-                    className="w-full text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-sans text-slate-800 resize-y"
+                    onFocus={handleFocusPatientVisitInput}
+                    className="w-full min-h-[64px] text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 focus:ring-2 focus:ring-emerald-500 focus:outline-none font-sans text-slate-800 resize-y transition-all"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-teal-800 uppercase mb-0.5 flex items-center">
-                    <FileText className="w-3.5 h-3.5 mr-1 text-teal-600" />
-                    Medical Reports Results
+                  <label className="block text-[10px] font-bold text-teal-800 uppercase mb-0.5 flex items-center justify-between">
+                    <span className="flex items-center">
+                      <FileText className="w-3.5 h-3.5 mr-1 text-teal-600" />
+                      Medical Reports Results
+                    </span>
                   </label>
                   <textarea
-                    rows={2}
+                    rows={3}
                     placeholder="e.g. Hb 12.5 g/dl, TLC 7800, LFT Normal, Ultrasound shows mild fatty liver..."
                     value={pvMedicalReportResult}
                     onChange={(e) => setPvMedicalReportResult(e.target.value)}
-                    className="w-full text-xs border border-slate-200 bg-slate-50/50 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-mono text-slate-800 resize-y"
+                    onFocus={handleFocusPatientVisitInput}
+                    className="w-full min-h-[64px] text-xs border border-slate-200 bg-slate-50/50 rounded-lg px-2.5 py-1.5 focus:ring-2 focus:ring-emerald-500 focus:outline-none font-mono text-slate-800 resize-y transition-all"
                   />
                 </div>
               </div>
@@ -4556,6 +6112,7 @@ export default function PatientDesk({
                                 placeholder="e.g. Clinical Compounding Drops"
                                 value={item.medicineName}
                                 onChange={(e) => updateClinicalItem(item.id, 'medicineName', e.target.value)}
+                                onFocus={handleFocusPatientVisitInput}
                                 className="w-full text-xs font-semibold text-slate-900 px-2 py-1 bg-transparent focus:bg-amber-50/30 focus:outline-none rounded border border-transparent focus:border-emerald-400"
                               />
                             </td>
@@ -4565,6 +6122,7 @@ export default function PatientDesk({
                                 placeholder="e.g. 10 drops 3 times daily"
                                 value={item.dosage}
                                 onChange={(e) => updateClinicalItem(item.id, 'dosage', e.target.value)}
+                                onFocus={handleFocusPatientVisitInput}
                                 className="w-full text-xs font-mono font-medium text-slate-900 px-2 py-1 bg-transparent focus:bg-amber-50/30 focus:outline-none rounded border border-transparent focus:border-emerald-400"
                               />
                             </td>
@@ -4609,6 +6167,7 @@ export default function PatientDesk({
                           type="date"
                           value={pvClinicalMedicineExpireDate}
                           onChange={(e) => setPvClinicalMedicineExpireDate(e.target.value)}
+                          onFocus={handleFocusPatientVisitInput}
                           className="text-xs font-mono font-bold border border-emerald-400 rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 text-slate-900 shadow-2xs"
                         />
                         {pvClinicalMedicineExpireDate && (
@@ -4701,6 +6260,7 @@ export default function PatientDesk({
                                 placeholder="e.g. Syrup Cinarizine / Tab Paracetamol"
                                 value={item.medicineName}
                                 onChange={(e) => updatePatientItem(item.id, 'medicineName', e.target.value)}
+                                onFocus={handleFocusPatientVisitInput}
                                 className="w-full text-xs font-semibold text-slate-900 px-2 py-1 bg-transparent focus:bg-amber-50/30 focus:outline-none rounded border border-transparent focus:border-blue-400"
                               />
                             </td>
@@ -4710,6 +6270,7 @@ export default function PatientDesk({
                                 placeholder="e.g. 1 tsp twice daily after meals"
                                 value={item.dosage}
                                 onChange={(e) => updatePatientItem(item.id, 'dosage', e.target.value)}
+                                onFocus={handleFocusPatientVisitInput}
                                 className="w-full text-xs font-mono font-medium text-slate-900 px-2 py-1 bg-transparent focus:bg-amber-50/30 focus:outline-none rounded border border-transparent focus:border-blue-400"
                               />
                             </td>
@@ -4755,11 +6316,28 @@ export default function PatientDesk({
                       Visit Charges & Fees (PKR)
                     </label>
                     <div className="text-xs font-black text-emerald-950 bg-emerald-100 px-2.5 py-0.5 rounded-md border border-emerald-300 font-mono shadow-2xs">
-                      Total: PKR {(Number(pvClinicalMedicinePkr) || 0) + (Number(pvFilePkr) || 0) + (Number(pvCardPkr) || 0)}
+                      Total: PKR {(Number(pvOpdFeePkr) || 0) + (Number(pvClinicalMedicinePkr) || 0) + (Number(pvFilePkr) || 0) + (Number(pvCardPkr) || 0)}
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2 pt-0.5">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-0.5">
+                    <div>
+                      <label className="block text-[9px] font-extrabold text-slate-600 uppercase mb-0.5 truncate">OPD / App (PKR):</label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={5}
+                        placeholder="0"
+                        value={pvOpdFeePkr}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/\D/g, '').slice(0, 5);
+                          setPvOpdFeePkr(val);
+                        }}
+                        onFocus={handleFocusPatientVisitInput}
+                        className="w-full text-xs border border-slate-300 rounded px-2 py-1.5 bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none font-mono text-center font-bold text-slate-900 shadow-inner"
+                      />
+                    </div>
+
                     <div>
                       <label className="block text-[9px] font-extrabold text-slate-600 uppercase mb-0.5 truncate">Clinical Med (PKR):</label>
                       <input
@@ -4772,6 +6350,7 @@ export default function PatientDesk({
                           const val = e.target.value.replace(/\D/g, '').slice(0, 4);
                           setPvClinicalMedicinePkr(val);
                         }}
+                        onFocus={handleFocusPatientVisitInput}
                         className="w-full text-xs border border-slate-300 rounded px-2 py-1.5 bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none font-mono text-center font-bold text-slate-900 shadow-inner"
                       />
                     </div>
@@ -4788,6 +6367,7 @@ export default function PatientDesk({
                           const val = e.target.value.replace(/\D/g, '').slice(0, 4);
                           setPvFilePkr(val);
                         }}
+                        onFocus={handleFocusPatientVisitInput}
                         className="w-full text-xs border border-slate-300 rounded px-2 py-1.5 bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none font-mono text-center font-bold text-slate-900 shadow-inner"
                       />
                     </div>
@@ -4804,6 +6384,7 @@ export default function PatientDesk({
                           const val = e.target.value.replace(/\D/g, '').slice(0, 4);
                           setPvCardPkr(val);
                         }}
+                        onFocus={handleFocusPatientVisitInput}
                         className="w-full text-xs border border-slate-300 rounded px-2 py-1.5 bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none font-mono text-center font-bold text-slate-900 shadow-inner"
                       />
                     </div>
@@ -4866,6 +6447,7 @@ export default function PatientDesk({
                     placeholder="Advised lab tests appear here (e.g. CBC, LFT, Ultrasound)..."
                     value={pvLabTestAdvice}
                     onChange={(e) => setPvLabTestAdvice(e.target.value)}
+                    onFocus={handleFocusPatientVisitInput}
                     className="w-full text-xs border border-purple-200 bg-purple-50/20 rounded-lg px-2.5 py-1 focus:ring-1 focus:ring-purple-500 focus:outline-none font-mono text-slate-800 resize-y"
                   />
                 </div>
@@ -4873,24 +6455,6 @@ export default function PatientDesk({
               </div>
 
               <div className="flex flex-col sm:flex-row items-center justify-end space-y-1.5 sm:space-y-0 sm:space-x-2 pt-1">
-                <button
-                  type="button"
-                  onClick={handleAddNewVisit}
-                  className="w-full sm:w-auto px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-lg border border-slate-300 transition flex items-center justify-center space-x-1 cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>+ Ready for Next Patient</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handlePrintClinicalMedicineLabel}
-                  className="w-full sm:w-auto px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-950 text-xs font-bold rounded-lg border border-emerald-300 transition flex items-center justify-center space-x-1 cursor-pointer shadow-2xs"
-                  title="Print 4x8 inch Clinical Medicine roll sticker label"
-                >
-                  <Tag className="w-3.5 h-3.5 text-emerald-700" />
-                  <span>Print Clinical Label (4"x8" Roll)</span>
-                </button>
 
                 <button
                   type="button"
@@ -4912,11 +6476,38 @@ export default function PatientDesk({
 
                 <button
                   type="button"
+                  onClick={() => {
+                    if (!pvSelectedPatientId) {
+                      alert('Please select a patient first.');
+                      return;
+                    }
+                    setIsClaimBillModalOpen(true);
+                  }}
+                  disabled={!pvSelectedPatientId}
+                  className="w-full sm:w-auto px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-950 text-xs font-bold rounded-lg border border-indigo-300 disabled:opacity-40 transition flex items-center justify-center space-x-1 cursor-pointer shadow-2xs"
+                  title="Generate Official Organization / Corporate Reimbursement Claim Bill"
+                >
+                  <Building2 className="w-3.5 h-3.5 text-indigo-700" />
+                  <span>Claim Bill / Invoice</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => handleOpenPrintModal('A4_LAB_TESTS')}
                   className="w-full sm:w-auto px-3.5 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-950 text-xs font-bold rounded-lg border border-teal-300 transition flex items-center justify-center space-x-1 cursor-pointer shadow-2xs"
                 >
                   <FlaskConical className="w-3.5 h-3.5 text-teal-700" />
                   <span>Print Lab Tests (A4)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleOpenNewPatientModal()}
+                  className="w-full sm:w-auto px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-extrabold rounded-lg shadow-2xs transition flex items-center justify-center space-x-1 cursor-pointer"
+                  title="Search Token or Patient ID for next patient checkup"
+                >
+                  <Search className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Search Record</span>
                 </button>
 
                 <button
@@ -4937,16 +6528,44 @@ export default function PatientDesk({
 
       {/* SEARCH LOADING MODAL POPUP */}
       {isSearchLoadingModal && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-5 shadow-xl border border-slate-200 flex flex-col items-center space-y-2.5 max-w-xs text-center animate-in fade-in zoom-in-95">
-            <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-full">
-              <div className="w-7 h-7 border-3 border-emerald-600 border-t-transparent rounded-full animate-spin"></div>
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-5 shadow-2xl border border-slate-200 flex flex-col items-center space-y-3.5 max-w-sm w-full text-center animate-in fade-in zoom-in-95">
+            <div className="relative flex items-center justify-center">
+              <div className="p-3 bg-emerald-50 text-emerald-600 rounded-full shadow-inner">
+                <div className="w-8 h-8 border-3 border-emerald-600 border-t-transparent rounded-full animate-spin"></div>
+              </div>
+              <div className="absolute -bottom-1 -right-1 bg-emerald-600 text-white p-1 rounded-full text-[9px] shadow-sm animate-pulse">
+                <Database className="w-3 h-3" />
+              </div>
             </div>
-            <div>
-              <h4 className="text-xs font-bold text-slate-900">Searching Patient Records</h4>
-              <p className="text-[10px] text-slate-500 mt-1">
-                Searching database & PHC history for: <span className="font-semibold text-emerald-700">"{pvPatientSearch || pvSelectedPatientId || 'Patient'}"</span>...
+
+            <div className="w-full space-y-1">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-100/80 text-emerald-800 text-[10px] font-bold tracking-wide uppercase mb-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-ping"></span>
+                Database Query Active
+              </div>
+              <h4 className="text-xs sm:text-sm font-extrabold text-slate-900">Fetching Patient Records...</h4>
+              <p className="text-[11px] text-slate-600 leading-snug">
+                Searching database & PHC history for: <br />
+                <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 inline-block mt-1 font-mono text-[11px]">
+                  "{pvPatientSearch || pvSelectedPatientId || 'Patient'}"
+                </span>
               </p>
+            </div>
+
+            {/* ANIMATED PROGRESS BAR */}
+            <div className="w-full space-y-1.5 pt-1">
+              <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-200/80 shadow-inner relative">
+                <div className="bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-600 h-full rounded-full animate-pulse w-full origin-left transition-all duration-300"></div>
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/50 to-transparent animate-[shimmer_1.5s_infinite] -translate-x-full"></div>
+              </div>
+              <div className="flex items-center justify-between text-[10px] font-semibold text-slate-500 px-0.5">
+                <span className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  Loading Records...
+                </span>
+                <span className="font-mono text-emerald-700 font-bold">Connecting API</span>
+              </div>
             </div>
           </div>
         </div>
@@ -5061,6 +6680,19 @@ export default function PatientDesk({
                 >
                   <FlaskConical className="w-3.5 h-3.5" />
                   <span>Lab Test Advice (A4)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPrintDocType('A4_PATIENT_INVOICE')}
+                  className={`px-3 py-1 text-xs font-bold rounded-md transition flex items-center space-x-1 cursor-pointer ${
+                    printDocType === 'A4_PATIENT_INVOICE'
+                      ? 'bg-purple-600 text-white shadow-sm'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-700'
+                  }`}
+                >
+                  <Receipt className="w-3.5 h-3.5" />
+                  <span>Patient Invoice (A4)</span>
                 </button>
               </div>
 
@@ -5294,7 +6926,7 @@ export default function PatientDesk({
                           </h1>
                           <p className="text-[10px] font-extrabold text-rose-700 tracking-widest uppercase mt-0.5">HEALING NATURALLY. RESTORING BALANCE.</p>
                           <div className="flex justify-center space-x-8 text-xs font-bold text-slate-800 mt-1">
-                            <span>PHC Reg. # <span className="underline decoration-slate-800">R-00188</span></span>
+                            <span>PHC Reg. # <span className="underline decoration-slate-800">R-__________</span></span>
                             <span>PHC License #: ___________________</span>
                           </div>
                           <p className="text-[10.5px] font-bold text-teal-950 mt-1 uppercase tracking-tight">Clinic Timings: Morning 8:30 AM to 12:00 PM &nbsp;|&nbsp; Evening 4:30 PM to 9:00 PM</p>
@@ -5587,7 +7219,7 @@ export default function PatientDesk({
                           </h1>
                           <p className="text-[10px] font-extrabold text-rose-700 tracking-widest uppercase mt-0.5">HEALING NATURALLY. RESTORING BALANCE.</p>
                           <div className="flex justify-center space-x-8 text-xs font-bold text-slate-800 mt-1">
-                            <span>PHC Reg. # <span className="underline decoration-slate-800">R-00188</span></span>
+                            <span>PHC Reg. # <span className="underline decoration-slate-800">R-__________</span></span>
                             <span>PHC License #: ___________________</span>
                           </div>
                           <p className="text-[10.5px] font-bold text-teal-950 mt-1 uppercase tracking-tight">Clinic Timings: Morning 8:30 AM to 12:00 PM &nbsp;|&nbsp; Evening 4:30 PM to 9:00 PM</p>
@@ -5725,6 +7357,284 @@ export default function PatientDesk({
                   </div>
                 )}
 
+                {/* ========================================================================= */}
+                {/* OPTION 4: PATIENT PAYMENT INVOICE / RECEIPT (A4 LETTERHEAD) */}
+                {/* ========================================================================= */}
+                {printDocType === 'A4_PATIENT_INVOICE' && (() => {
+                  const appt = (appointments || []).find(a => a.PatientID === selectedPvPatient?.PatientID && a.AppointmentDate && a.AppointmentDate.startsWith(pvVisitDate));
+                  const tokenFeeVal = Number(appt?.FeeCharged) || Number((selectedPvPatient as any)?.FeeCharged) || Number((selectedPvPatient as any)?.ConsultationFee) || 0;
+                  const clinFeeVal = Number(pvClinicalMedicinePkr) || 0;
+                  const fileFeeVal = Number(pvFilePkr) || 0;
+                  const cardFeeVal = Number(pvCardPkr) || 0;
+
+                  const validClinicalMeds = pvClinicalItems.filter(i => i.medicineName && i.medicineName.trim());
+                  const validPatientMeds = pvPatientItems.filter(i => i.medicineName && i.medicineName.trim());
+
+                  const totalPaidAmount = tokenFeeVal + clinFeeVal + fileFeeVal + cardFeeVal;
+
+                  return (
+                    <div className="w-full max-w-[210mm] h-[297mm] max-h-[297mm] mx-auto p-5 sm:p-6 print:p-5 border border-slate-300 print:border-none text-slate-900 font-sans space-y-3 flex flex-col justify-between bg-white box-border overflow-hidden print:overflow-hidden">
+                      <div className="space-y-3">
+                        {/* Top Header Section with PHC Official Logo & Letterhead */}
+                        <div className="flex items-center justify-between border-b-2 border-purple-900 pb-2 gap-2">
+                          <div className="flex items-center space-x-2 shrink-0">
+                            <img src={clinicSettings?.ClinicLogoImage || "/nhc_logo.svg"} alt="PHC Logo" className="w-20 h-20 object-contain" />
+                          </div>
+                          <div className="text-center flex-1 px-2">
+                            <h1 className="font-serif uppercase tracking-tight flex flex-col items-center justify-center">
+                              <span className="text-2xl sm:text-3xl font-serif text-red-900 font-black tracking-tight">{clinicSettings?.ClinicName || 'PUNJAB HOMEOPATHIC CLINIC'}</span>
+                            </h1>
+                            <p className="text-[10px] font-extrabold text-rose-700 tracking-widest uppercase mt-0.5">HEALING NATURALLY. RESTORING BALANCE.</p>
+                            <div className="flex justify-center space-x-8 text-xs font-bold text-slate-800 mt-1">
+                              <span>PHC Reg. # <span className="underline decoration-slate-800">R-__________</span></span>
+                              <span>Official Cash Receipt</span>
+                            </div>
+                            <p className="text-[10.5px] font-bold text-purple-950 mt-1 uppercase tracking-tight">Clinic Timings: Morning 8:30 AM to 12:00 PM &nbsp;|&nbsp; Evening 4:30 PM to 9:00 PM</p>
+                          </div>
+                          <div className="w-20 h-20 shrink-0 hidden sm:block"></div>
+                        </div>
+
+                        {/* Invoice Title Banner */}
+                        <div className="bg-purple-950 text-white px-4 py-2 rounded-lg flex items-center justify-between shadow-sm">
+                          <div>
+                            <h2 className="text-sm font-extrabold uppercase tracking-wider font-serif text-purple-200">
+                              PATIENT OFFICIAL PAYMENT INVOICE / RECEIPT
+                            </h2>
+                            <p className="text-[10px] text-purple-300 font-mono">Itemized Fee Breakdown & Acknowledged Payment</p>
+                          </div>
+                          <div className="text-right font-mono text-xs">
+                            <div className="font-bold text-amber-300">
+                              Invoice #: <span className="text-white">INV-{selectedPvPatient?.PatientID || '001'}-{pvVisitDate.replace(/[\/\-]/g, '')}</span>
+                            </div>
+                            <div className="text-[10px] text-slate-300">
+                              Date: {pvVisitDate} &nbsp;|&nbsp; {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Patient Information Block */}
+                        <div className="text-xs space-y-2 font-sans bg-purple-50/50 p-3 rounded-lg border border-purple-200">
+                          <div className="grid grid-cols-12 gap-2 items-baseline">
+                            <div className="col-span-6 flex items-baseline">
+                              <span className="font-bold text-slate-900 shrink-0 mr-1.5">Patient Name:</span>
+                              <span className="font-black text-purple-950 uppercase border-b border-purple-300 flex-1 pl-1 text-sm">
+                                {selectedPvPatient?.PatientName || 'N/A'}
+                              </span>
+                            </div>
+                            <div className="col-span-3 flex items-baseline">
+                              <span className="font-bold text-slate-900 shrink-0 mr-1.5">MR / PID #:</span>
+                              <span className="font-mono font-bold text-slate-900 border-b border-purple-300 flex-1 text-center">
+                                {selectedPvPatient?.PatientID}
+                              </span>
+                            </div>
+                            <div className="col-span-3 flex items-baseline">
+                              <span className="font-bold text-slate-900 shrink-0 mr-1.5">Visit Date:</span>
+                              <span className="font-semibold text-slate-900 border-b border-purple-300 flex-1 text-center font-mono">
+                                {pvVisitDate}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-12 gap-2 items-baseline pt-0.5">
+                            <div className="col-span-6 flex items-baseline">
+                              <span className="font-bold text-slate-900 shrink-0 mr-1.5">S/O, D/O, W/O:</span>
+                              <span className="font-bold text-slate-950 uppercase border-b border-purple-300 flex-1 pl-1">
+                                {(selectedPvPatient as any)?.Father_husband || selectedPvPatient?.Father_husband || '_________________________________'}
+                              </span>
+                            </div>
+                            <div className="col-span-3 flex items-baseline">
+                              <span className="font-bold text-slate-900 shrink-0 mr-1.5">Age / Gender:</span>
+                              <span className="font-semibold text-slate-900 border-b border-purple-300 flex-1 text-center">
+                                {selectedPvPatient?.AgeYears || 0}Y ({selectedPvPatient?.Sex || 'M'})
+                              </span>
+                            </div>
+                            <div className="col-span-3 flex items-baseline">
+                              <span className="font-bold text-slate-900 shrink-0 mr-1.5">City:</span>
+                              <span className="font-mono font-bold text-purple-900 border-b border-purple-300 flex-1 text-center">
+                                {cities.find(c => c.CityID === selectedPvPatient?.CityID)?.CityName || 'Lahore'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Itemized Services & Payments Table */}
+                        <div className="pt-1">
+                          <h3 className="text-xs font-black uppercase text-purple-950 mb-2 flex items-center">
+                            <Coins className="w-3.5 h-3.5 text-purple-700 mr-1.5" />
+                            Itemized Services & Payment Summary
+                          </h3>
+
+                          <table className="w-full text-left text-xs border-collapse border border-slate-300 font-sans">
+                            <thead>
+                              <tr className="bg-purple-900 text-white font-bold text-[11px] uppercase tracking-wider">
+                                <th className="p-2 border border-purple-800 text-center w-10">#</th>
+                                <th className="p-2 border border-purple-800">Particulars / Service Description</th>
+                                <th className="p-2 border border-purple-800 text-center w-24">Status</th>
+                                <th className="p-2 border border-purple-800 text-right w-28">Amount (PKR)</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-200 text-slate-800 text-xs">
+                              {/* Row 1: Consultation / Token Fee */}
+                              <tr className="hover:bg-purple-50/30">
+                                <td className="p-2 border border-slate-300 text-center font-bold font-mono">1</td>
+                                <td className="p-2 border border-slate-300 font-bold text-slate-900">
+                                  Appointment / Token Consultation Fee
+                                </td>
+                                <td className="p-2 border border-slate-300 text-center">
+                                  <span className="bg-emerald-100 text-emerald-800 font-bold text-[10px] px-2 py-0.5 rounded border border-emerald-300">
+                                    PAID
+                                  </span>
+                                </td>
+                                <td className="p-2 border border-slate-300 text-right font-mono font-bold text-slate-900">
+                                  {tokenFeeVal > 0 ? tokenFeeVal.toLocaleString() : '0'}
+                                </td>
+                              </tr>
+
+                              {/* Row 2: Clinical Formulated Medicine */}
+                              <tr className="hover:bg-purple-50/30">
+                                <td className="p-2 border border-slate-300 text-center font-bold font-mono">2</td>
+                                <td className="p-2 border border-slate-300 font-bold text-slate-900">
+                                  Clinical Formulated Medicine
+                                </td>
+                                <td className="p-2 border border-slate-300 text-center">
+                                  <span className="bg-emerald-100 text-emerald-800 font-bold text-[10px] px-2 py-0.5 rounded border border-emerald-300">
+                                    PAID
+                                  </span>
+                                </td>
+                                <td className="p-2 border border-slate-300 text-right font-mono font-bold text-slate-900">
+                                  {clinFeeVal > 0 ? clinFeeVal.toLocaleString() : '0'}
+                                </td>
+                              </tr>
+
+                              {/* Row 3: Commercial / Patient Store Medicine */}
+                              {validPatientMeds.length > 0 && (
+                                <tr className="hover:bg-purple-50/30">
+                                  <td className="p-2 border border-slate-300 text-center font-bold font-mono">3</td>
+                                  <td className="p-2 border border-slate-300 font-bold text-slate-900">
+                                    Store / Commercial Patent Medicine
+                                  </td>
+                                  <td className="p-2 border border-slate-300 text-center">
+                                    <span className="bg-blue-100 text-blue-800 font-bold text-[10px] px-2 py-0.5 rounded border border-blue-300">
+                                      ISSUED
+                                    </span>
+                                  </td>
+                                  <td className="p-2 border border-slate-300 text-right font-mono font-bold text-slate-900">
+                                    0
+                                  </td>
+                                </tr>
+                              )}
+
+                              {/* Row 4: File Registration Fee */}
+                              <tr className="hover:bg-purple-50/30">
+                                <td className="p-2 border border-slate-300 text-center font-bold font-mono">{validPatientMeds.length > 0 ? 4 : 3}</td>
+                                <td className="p-2 border border-slate-300 font-bold text-slate-900">
+                                  File Registration & Folder Charges
+                                </td>
+                                <td className="p-2 border border-slate-300 text-center">
+                                  <span className="bg-emerald-100 text-emerald-800 font-bold text-[10px] px-2 py-0.5 rounded border border-emerald-300">
+                                    PAID
+                                  </span>
+                                </td>
+                                <td className="p-2 border border-slate-300 text-right font-mono font-bold text-slate-900">
+                                  {fileFeeVal > 0 ? fileFeeVal.toLocaleString() : '0'}
+                                </td>
+                              </tr>
+
+                              {/* Row 5: Card Fee */}
+                              <tr className="hover:bg-purple-50/30">
+                                <td className="p-2 border border-slate-300 text-center font-bold font-mono">{validPatientMeds.length > 0 ? 5 : 4}</td>
+                                <td className="p-2 border border-slate-300 font-bold text-slate-900">
+                                  Patient Card & Membership Fee
+                                </td>
+                                <td className="p-2 border border-slate-300 text-center">
+                                  <span className="bg-emerald-100 text-emerald-800 font-bold text-[10px] px-2 py-0.5 rounded border border-emerald-300">
+                                    PAID
+                                  </span>
+                                </td>
+                                <td className="p-2 border border-slate-300 text-right font-mono font-bold text-slate-900">
+                                  {cardFeeVal > 0 ? cardFeeVal.toLocaleString() : '0'}
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Invoice Summary Totals & Paid Stamp */}
+                        <div className="grid grid-cols-12 gap-4 pt-2 items-start">
+                          <div className="col-span-7 bg-emerald-50/60 p-3 rounded-lg border border-emerald-200/90 space-y-2">
+                            <div className="flex items-center space-x-2">
+                              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                              <span className="font-black text-emerald-950 uppercase text-xs tracking-wide">Payment Status & Acknowledgment</span>
+                            </div>
+                            <p className="text-[11px] text-emerald-900 font-medium leading-relaxed">
+                              Received total sum of <strong className="font-bold text-emerald-950 underline">PKR {totalPaidAmount.toLocaleString()}</strong> towards patient visit charges, and medicines. Payment acknowledged in cash at clinic reception.
+                            </p>
+                            <div className="pt-1 flex items-center justify-between border-t border-emerald-200 text-[10px] text-emerald-800 font-bold font-mono">
+                              <span>Cashier / Collector: Reception Desk</span>
+                              <span>Mode: Cash Counter</span>
+                            </div>
+                          </div>
+
+                          <div className="col-span-5 bg-slate-50 p-3 rounded-lg border border-slate-300 space-y-1.5 font-mono text-xs">
+                            <div className="flex justify-between text-slate-600 pb-1 border-b border-slate-200">
+                              <span>Sub Total:</span>
+                              <span className="font-bold text-slate-900">PKR {totalPaidAmount.toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between text-slate-600 pb-1 border-b border-slate-200">
+                              <span>Discount Allowed:</span>
+                              <span className="font-bold text-slate-900">PKR 0</span>
+                            </div>
+                            <div className="flex justify-between text-sm font-black text-purple-950 bg-purple-100/80 p-1.5 rounded border border-purple-200">
+                              <span>TOTAL PAYABLE:</span>
+                              <span>PKR {totalPaidAmount.toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between font-bold text-emerald-700 pt-0.5">
+                              <span>Total Received:</span>
+                              <span>PKR {totalPaidAmount.toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between font-bold text-slate-500 text-[11px]">
+                              <span>Balance Remaining:</span>
+                              <span className="text-emerald-700">PKR 0 (PAID)</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Bottom Footer Section with Doctor Signature & Stamp */}
+                      <div className="space-y-3 pt-3 border-t-2 border-slate-900 mt-auto">
+                        <div className="flex justify-between items-end text-xs">
+                          <div className="text-[10px] text-red-900 pr-2">
+                            <div className="space-y-0.5">
+                              <h5 className="font-black text-red-900 text-sm italic font-serif">Dr. Ejaz Ahmad <span className="text-xs font-sans not-italic font-bold text-red-900">(PUNJAB HOMEOPATHIC)</span></h5>
+                              <p className="text-red-900 font-bold text-xs">Consultant Homeopathic Medical Practitioner</p>
+                              <p className="text-red-900 font-semibold text-xs">D.H.M.S (Pak)</p>
+                              <p className="text-[10px] text-red-900 font-medium">Registered Homeopathic Medical Practitioner No: <strong className="text-red-900 font-bold">48776</strong></p>
+                            </div>
+                          </div>
+
+                          {/* Stamp / Signature Block */}
+                          <div className="text-center w-48 space-y-1 shrink-0">
+                            <div className="h-10 border-b border-slate-800 flex items-end justify-center pb-1 font-serif italic text-slate-400 text-xs">
+                              Authorized Cashier / Doctor Stamp
+                            </div>
+                            <span className="text-[10px] font-bold text-slate-700 block uppercase">Accounts Stamp & Signature</span>
+                          </div>
+                        </div>
+
+                        {/* Footer Banner */}
+                        <div className="grid grid-cols-12 items-center border border-slate-300 rounded overflow-hidden text-[11px] font-sans">
+                          <div className="col-span-7 p-1.5 pl-3 italic font-serif text-slate-800 bg-white border-r border-slate-300 text-[10px]">
+                            Official receipt generated by Punjab Homeopathic Clinic. Please retain for your records.
+                          </div>
+                          <div className="col-span-5 p-1.5 text-center bg-purple-900 text-white font-bold text-[10px]">
+                            Timings: Morning 8:30 AM - 12:00 PM | Evening 4:30 - 9:00 PM (Sunday Closed)
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
               </div>
             </div>
 
@@ -5815,10 +7725,7 @@ export default function PatientDesk({
           });
 
           return (
-            String(pt.PatientName || '').toLowerCase().includes(term) ||
-            String(pt.PatientID || '').toLowerCase().includes(term) ||
-            (pt.PhoneMobile && String(pt.PhoneMobile).toLowerCase().includes(term)) ||
-            (pt.Address && String(pt.Address).toLowerCase().includes(term)) ||
+            matchPatientRecord(pt, term) ||
             matchedMeds ||
             matchedSymptoms
           );
@@ -6170,9 +8077,13 @@ export default function PatientDesk({
 
               {filteredPatients.length === 0 ? (
                 <div className="p-12 text-center text-slate-500 space-y-3">
-                  <AlertCircle className="w-10 h-10 text-slate-300 mx-auto" />
-                  <p className="text-sm font-semibold text-slate-700">No patient records found matching your search filter.</p>
-                  <p className="text-xs text-slate-500">Try clearing your search query or changing date filter settings.</p>
+                  <Search className="w-10 h-10 text-slate-300 mx-auto" />
+                  <p className="text-sm font-bold text-slate-700">
+                    No patient records found matching your search or filter settings.
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Try clearing your search query or changing date filter settings.
+                  </p>
                 </div>
               ) : (
                 <div className="w-full overflow-hidden rounded-lg border border-slate-300 shadow-sm bg-white overflow-x-auto">
@@ -6182,14 +8093,14 @@ export default function PatientDesk({
                         <th className="p-2 border border-slate-700 text-center whitespace-nowrap px-3">Patient ID</th>
                         <th className="p-2 border border-slate-700 whitespace-nowrap min-w-[140px] px-3">Patient Profile</th>
                         <th className="p-2 border border-slate-700 whitespace-nowrap min-w-[110px] px-3">Reg / Last Visit</th>
-                        <th className="p-2 border border-slate-700 min-w-[170px] px-3">Latest Symptoms</th>
-                        <th className="p-2 border border-slate-700 min-w-[200px] px-3">Prescribed Medicines</th>
                         <th className="p-2 border border-slate-700 text-right whitespace-nowrap px-3">Clinical Meds</th>
                         <th className="p-2 border border-slate-700 text-right whitespace-nowrap px-3">App./OPD</th>
                         <th className="p-2 border border-slate-700 text-right whitespace-nowrap px-3">Store</th>
                         <th className="p-2 border border-slate-700 text-right whitespace-nowrap px-3">Total</th>
-                        <th className="p-2 border border-slate-700 text-center whitespace-nowrap px-2">Visits</th>
                         <th className="p-2 border border-slate-700 text-center whitespace-nowrap px-2">Actions</th>
+                        <th className="p-2 border border-slate-700 text-center whitespace-nowrap px-2">Visits</th>
+                        <th className="p-2 border border-slate-700 min-w-[170px] px-3">Latest Symptoms</th>
+                        <th className="p-2 border border-slate-700 min-w-[200px] px-3">Prescribed Medicines</th>
                       </tr>
                     </thead>
                     <tbody className="text-slate-800">
@@ -6330,41 +8241,6 @@ export default function PatientDesk({
                               <span className="text-[8px] text-slate-400 uppercase block">Last Recorded</span>
                             </td>
 
-                            <td className="p-1.5 border border-slate-200 align-top text-[10px]">
-                              <div className="bg-slate-50 p-1 rounded border border-slate-200 font-medium text-slate-800 text-[9px] line-clamp-3">
-                                {symptomsDisplay}
-                              </div>
-                            </td>
-
-                            <td className="p-1.5 border border-slate-200 align-top space-y-1 text-[9px]">
-                              {matchedMedicines.length > 0 ? (
-                                <div className="space-y-1">
-                                  {clinicalMeds.length > 0 && (
-                                    <div className="bg-emerald-50/80 border border-emerald-200 p-1 rounded">
-                                      <strong className="text-emerald-900 font-bold block text-[8px] uppercase">Clinical:</strong>
-                                      {clinicalMeds.map((m, i) => (
-                                        <div key={i} className="text-emerald-950 font-medium truncate">
-                                          • {m.MedicineDetail} ({m.Dosage || '1-0-1'})
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                  {patentMeds.length > 0 && (
-                                    <div className="bg-blue-50/80 border border-blue-200 p-1 rounded">
-                                      <strong className="text-blue-900 font-bold block text-[8px] uppercase">Patent:</strong>
-                                      {patentMeds.map((m, i) => (
-                                        <div key={i} className="text-blue-950 font-medium truncate">
-                                          • {m.MedicineDetail} ({m.Dosage || 'As directed'})
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              ) : (
-                                <span className="text-slate-400 italic text-[9px]">No prescription</span>
-                              )}
-                            </td>
-
                             <td className="p-2 border border-slate-200 align-top text-right whitespace-nowrap px-3 space-y-0.5">
                               <div className="font-bold text-slate-900 text-[10px] font-mono" title="Clinical Medicine, File & Card Charges">
                                 PKR {clinMedsTotal.toLocaleString()}
@@ -6401,12 +8277,6 @@ export default function PatientDesk({
                                 paymentOpt === 'Cash Paid' ? 'bg-emerald-100 text-emerald-900 border-emerald-300' : 'bg-rose-100 text-rose-900 border-rose-300'
                               }`}>
                                 {paymentOpt}
-                              </span>
-                            </td>
-
-                            <td className="p-1.5 border border-slate-200 align-top text-center">
-                              <span className="bg-indigo-100 text-indigo-900 font-extrabold text-[10px] px-1.5 py-0.5 rounded-full border border-indigo-200 inline-block">
-                                {allPtVisits.length}
                               </span>
                             </td>
 
@@ -6456,6 +8326,47 @@ export default function PatientDesk({
                                 <Printer className="w-2.5 h-2.5 text-emerald-700" />
                                 <span>Print</span>
                               </button>
+                            </td>
+
+                            <td className="p-1.5 border border-slate-200 align-top text-center">
+                              <span className="bg-indigo-100 text-indigo-900 font-extrabold text-[10px] px-1.5 py-0.5 rounded-full border border-indigo-200 inline-block">
+                                {allPtVisits.length}
+                              </span>
+                            </td>
+
+                            <td className="p-1.5 border border-slate-200 align-top text-[10px]">
+                              <div className="bg-slate-50 p-1 rounded border border-slate-200 font-medium text-slate-800 text-[9px] line-clamp-3">
+                                {symptomsDisplay}
+                              </div>
+                            </td>
+
+                            <td className="p-1.5 border border-slate-200 align-top space-y-1 text-[9px]">
+                              {matchedMedicines.length > 0 ? (
+                                <div className="space-y-1">
+                                  {clinicalMeds.length > 0 && (
+                                    <div className="bg-emerald-50/80 border border-emerald-200 p-1 rounded">
+                                      <strong className="text-emerald-900 font-bold block text-[8px] uppercase">Clinical:</strong>
+                                      {clinicalMeds.map((m, i) => (
+                                        <div key={i} className="text-emerald-950 font-medium truncate">
+                                          • {m.MedicineDetail} ({m.Dosage || '1-0-1'})
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {patentMeds.length > 0 && (
+                                    <div className="bg-blue-50/80 border border-blue-200 p-1 rounded">
+                                      <strong className="text-blue-900 font-bold block text-[8px] uppercase">Patent:</strong>
+                                      {patentMeds.map((m, i) => (
+                                        <div key={i} className="text-blue-950 font-medium truncate">
+                                          • {m.MedicineDetail} ({m.Dosage || 'As directed'})
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-slate-400 italic text-[9px]">No prescription</span>
+                              )}
                             </td>
                           </tr>
                         );
@@ -7281,6 +9192,32 @@ export default function PatientDesk({
         </div>
       )}
 
+      {activeSubTab === 'certificates' && (
+        <EMRDesk
+          patients={patients}
+          appointments={appointments}
+          items={items}
+          labTests={labTests}
+          visits={visits}
+          visitMedicines={visitMedicines}
+          onAddVisit={onAddVisit}
+          onUpdateVisit={onUpdateVisit}
+          medicalCertificates={medicalCertificates || []}
+          onAddCertificate={onAddCertificate}
+          sbpCertificates={sbpCertificates || []}
+          onAddSbpCertificate={onAddSbpCertificate}
+          userRights={userRights}
+          clinicSettings={clinicSettings}
+          cities={cities}
+          nhcPatients={nhcPatients}
+          mongoDbSettings={mongoDbSettings}
+          onAddPatient={onAddPatient}
+          onUpdatePatient={onUpdatePatient}
+          smartLocatorMedicines={smartLocatorMedicines}
+          initialPatientId={initialPatientId}
+        />
+      )}
+
       {activeSubTab === 'queue' && (() => {
         const isTokenCompleted = (tok: Token) => {
           if (tok.Status === 2) return true;
@@ -7627,7 +9564,7 @@ export default function PatientDesk({
             <button
               type="button"
               onClick={() => {
-                setIsFullScreenMode(true);
+                setIsLcdFullScreenMode(true);
                 // Attempt native browser fullscreen on container
                 const container = document.getElementById('patients-large-screen-container');
                 if (container && container.requestFullscreen) {
@@ -7762,7 +9699,7 @@ export default function PatientDesk({
       )}
 
       {/* Full LCD Screen Overlay Modal */}
-      {isFullScreenMode && (
+      {isLcdFullScreenMode && (
         <div className="fixed inset-0 bg-slate-950 text-white p-12 z-[99999] flex flex-col justify-between overflow-y-auto font-sans" id="full-lcd-screen">
           {/* Controls overlay in top corner */}
           <div className="absolute top-4 right-4 flex items-center space-x-3 bg-slate-900 border border-slate-800 p-2.5 rounded-xl shadow-2xl z-[100000]">
@@ -7779,7 +9716,7 @@ export default function PatientDesk({
             <button
               type="button"
               onClick={() => {
-                setIsFullScreenMode(false);
+                setIsLcdFullScreenMode(false);
                 if (document.fullscreenElement) {
                   document.exitFullscreen().catch(() => {});
                 }
@@ -7945,119 +9882,9 @@ export default function PatientDesk({
             <div 
               className="p-2 bg-white text-black font-black space-y-2 overflow-y-auto flex-1 select-all mx-auto font-sans" 
               id="thermal-receipt"
-              style={{
-                width: clinicSettings?.ThermalWidthOffset && clinicSettings?.ThermalWidthOffset !== '+0in'
-                  ? `calc(${clinicSettings?.ThermalPaperWidth || '60mm'} + ${clinicSettings?.ThermalWidthOffset})`
-                  : (clinicSettings?.ThermalPaperWidth || '60mm'),
-                fontSize: clinicSettings?.ThermalFontSize || '11px',
-                fontFamily: "Arial, Helvetica, sans-serif",
-                padding: clinicSettings?.ThermalMargin || '0mm',
-                transform: clinicSettings?.ThermalScale && clinicSettings?.ThermalScale !== '100%' 
-                  ? `scale(${parseFloat(clinicSettings.ThermalScale) > 1 ? parseFloat(clinicSettings.ThermalScale)/100 : parseFloat(clinicSettings.ThermalScale) || 1})` 
-                  : undefined,
-                transformOrigin: 'top center'
-              }}
-            >
-              
-              {/* Optional Printer Header */}
-              {clinicSettings?.ThermalShowPrinterHeader !== false && (
-                <p className="text-[8px] font-black text-black uppercase tracking-widest bg-white py-0.5 border-b border-black mb-1 text-center m-0">
-                  PRINTER: {clinicSettings?.ThermalPrinterName || 'THERMAL PRINTER'} ({clinicSettings?.ThermalPaperWidth || '60mm'})
-                </p>
-              )}
+              dangerouslySetInnerHTML={{ __html: generateOPDThermalTokenHtml(thermalPrintData, clinicSettings) }}
+            />
 
-              {/* Top Header: Clinic Name, Document Type, Appointment Date, Doctor Info */}
-              <div className="text-center pt-1 pb-2.5 border-b border-dashed border-black space-y-2 m-0 font-black">
-                <h2 className="text-base font-black text-black tracking-wide uppercase leading-normal m-0">
-                  {clinicSettings?.ClinicName || 'PUNJAB HOMEOPATHIC CLINIC'}
-                </h2>
-                
-                <div className="py-1">
-                  <span className="text-xs font-black uppercase inline-block px-3 py-1 rounded-xs bg-black text-white tracking-widest">
-                    APPOINTMENT PAYMENT
-                  </span>
-                </div>
-
-                <div className="text-xs font-black text-black py-1.5 flex flex-col items-center justify-center border-t border-dotted border-black mt-1.5 space-y-0.5">
-                  <span className="font-black uppercase tracking-widest text-[11px] block">APPOINTMENT DATE</span>
-                  <span className="font-mono text-black font-black text-base underline decoration-2 tracking-widest block">
-                    {thermalPrintData.date || new Date().toISOString().split('T')[0]}
-                  </span>
-                </div>
-
-                <div className="text-xs font-black text-black pt-2 border-t border-dotted border-black mt-1.5 leading-relaxed space-y-1">
-                  <div className="text-xs font-black text-black uppercase tracking-wide">Dr. Ejaz Ahmad, D.H.M.S (Pak)</div>
-                  <div className="text-[10px] font-black text-black uppercase tracking-wide leading-normal">
-                    Registered Homeopathic Medical Practitioner No: 48776
-                  </div>
-                </div>
-              </div>
-
-              {/* Token Number & Patient ID Section */}
-              <div className="text-center py-3 border-b border-dashed border-black space-y-2 m-0 font-black">
-                <span className="text-xs font-black text-black uppercase tracking-widest block">OPD TOKEN NUMBER</span>
-                <span className="text-5xl font-black tracking-widest block leading-snug py-1 text-black font-mono">
-                  #{thermalPrintData.tokenNo}
-                </span>
-                <span className="text-xl font-black tracking-wider block leading-snug text-black font-mono py-0.5">
-                  PATIENT ID: {thermalPrintData.patientId}
-                </span>
-                {thermalPrintData.shiftName && (
-                  <span className={`text-xs font-black uppercase inline-block tracking-widest px-2.5 py-1 rounded-sm mt-1 ${
-                    clinicSettings?.ThermalBadgeStyle === 'black'
-                      ? 'bg-black text-white border border-black font-black'
-                      : clinicSettings?.ThermalBadgeStyle === 'outline'
-                      ? 'bg-transparent text-black border border-dashed border-black font-black'
-                      : 'bg-white text-black border border-black font-black'
-                  }`}>
-                    {thermalPrintData.shiftName}
-                  </span>
-                )}
-              </div>
-
-              {/* Patient Details: Patient Type, Patient Name, OPD Fee */}
-              <div className="space-y-2.5 py-3 border-b border-dashed border-black text-xs font-black text-black leading-relaxed">
-                <div className="flex justify-between items-center py-1">
-                  <span className="font-black text-black uppercase tracking-wider">PATIENT TYPE:</span>
-                  <span className={`font-black uppercase px-2.5 py-1 rounded border border-black text-xs tracking-wide ${
-                    clinicSettings?.ThermalBadgeStyle === 'black' ? 'bg-black text-white' : 'bg-white text-black'
-                  }`}>
-                    {thermalPrintData.patientType || 'New Patient'}
-                  </span>
-                </div>
-                <div className="flex justify-between py-1">
-                  <span className="font-black text-black uppercase tracking-wider">PATIENT ID:</span>
-                  <span className="font-black text-black font-mono text-xs tracking-wider">{thermalPrintData.patientId}</span>
-                </div>
-                <div className="flex justify-between py-1">
-                  <span className="font-black text-black uppercase tracking-wider">PATIENT NAME:</span>
-                  <span className="font-black text-black uppercase truncate max-w-[160px] text-xs tracking-wide">{thermalPrintData.patientName}</span>
-                </div>
-                <div className="flex justify-between py-1 items-center">
-                  <span className="font-black text-black uppercase tracking-wider">OPD / APP FEE:</span>
-                  <span className="font-black text-black font-mono text-xs tracking-wider">
-                    {thermalPrintData.fee === 0 ? (
-                      'PKR 0 (PREPAID)'
-                    ) : (
-                      `PKR ${thermalPrintData.fee !== undefined && thermalPrintData.fee !== null ? thermalPrintData.fee : (clinicSettings?.OPDFee || 1500)}`
-                    )}
-                  </span>
-                </div>
-                {thermalPrintData.remarks && (
-                  <div className="flex justify-between py-1 items-center text-xs font-black">
-                    <span className="font-black text-black uppercase tracking-wider">REMARKS:</span>
-                    <span className="font-black text-black truncate max-w-[160px] uppercase tracking-wide">{thermalPrintData.remarks}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Footnote */}
-              <div className="text-center space-y-1.5 text-xs pt-2.5 pb-1 font-black text-black leading-relaxed">
-                <p className="font-black uppercase tracking-widest text-black">Please wait for your call.</p>
-                <p className="text-xs font-black text-black uppercase tracking-wider">Kindly keep this ticket with you.</p>
-              </div>
-
-            </div>
 
           </div>
         </div>
@@ -8480,6 +10307,57 @@ export default function PatientDesk({
           <div className="text-[8px] text-slate-500 flex justify-between items-center pt-1 border-t border-slate-800/60">
             <span>Provider HTTP Code: 200 OK</span>
             <span>Ref: {Math.floor(100000 + Math.random() * 900000)}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Follow-up Patient / Missing Payment Confirmation Modal Popup */}
+      {showFollowUpConfirmModal && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-scaleUp">
+            {/* Header */}
+            <div className="bg-amber-500 text-slate-950 p-4 flex items-center justify-between border-b border-amber-600">
+              <div className="flex items-center space-x-2">
+                <AlertCircle className="w-5 h-5 text-slate-950 shrink-0" />
+                <h3 className="font-extrabold text-base tracking-tight">Payment Not Entered</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowFollowUpConfirmModal(false)}
+                className="text-slate-950 hover:bg-amber-400/80 p-1.5 rounded-lg transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 space-y-3.5 text-slate-800">
+              <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs font-bold text-amber-950 leading-relaxed shadow-2xs">
+                Payment of Patient is not Enter. Is this a follow-up Patient?
+              </div>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Visit Charges & Fees (Clinical Med, File, Card) are currently empty or 0. If the patient came for follow-up advice or change of medicine, select <strong>Yes</strong> to save as a follow-up visit. Otherwise, select <strong>No</strong> to close this message and enter payment charges in the textboxes.
+              </p>
+            </div>
+
+            {/* Footer Buttons */}
+            <div className="bg-slate-50 p-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowFollowUpConfirmModal(false)}
+                className="w-full sm:w-auto px-4 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-800 font-extrabold text-xs rounded-xl transition cursor-pointer"
+              >
+                No (Enter Payment)
+              </button>
+              <button
+                type="button"
+                onClick={() => executeSavePatientVisit(true)}
+                className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-md transition cursor-pointer flex items-center justify-center space-x-1.5"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Yes (Follow-up Patient)</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -8930,6 +10808,313 @@ export default function PatientDesk({
         </div>
       )}
 
+      {/* POPUP MODAL: SEARCH TOKEN / PATIENT ID */}
+      {isNewPatientSearchModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-2xl flex flex-col overflow-hidden my-auto max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="bg-slate-900 text-white p-4 border-b border-slate-800 flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 bg-emerald-500/20 rounded-xl border border-emerald-400/30 text-emerald-400">
+                  <Search className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-white flex items-center space-x-2">
+                    <span>Search Token / Patient ID</span>
+                    <span className="text-[10px] bg-emerald-500/30 text-emerald-200 border border-emerald-400/30 px-2 py-0.5 rounded-full uppercase font-mono">
+                      Patient Desk
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-300 font-medium">
+                    Enter Token # or Patient ID to select and load patient record for consultation
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsNewPatientSearchModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 sm:p-5 overflow-y-auto space-y-4 bg-slate-50 flex-1">
+              {/* Search Input Card */}
+              <div className="bg-white p-3.5 rounded-xl border-2 border-emerald-500 shadow-sm space-y-2">
+                <label className="text-xs font-black text-slate-800 flex items-center justify-between">
+                  <span className="flex items-center space-x-1.5 text-emerald-950">
+                    <UserPlus className="w-4 h-4 text-emerald-600" />
+                    <span>Enter Token # or Patient ID:</span>
+                  </span>
+                  {newPatientSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setNewPatientSearchQuery('')}
+                      className="text-[11px] text-slate-500 hover:text-slate-800 underline font-medium cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </label>
+                <div className="relative">
+                  <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    autoFocus
+                    placeholder="Search by Token # (e.g. 1, 2), Patient ID (PAT-101), Name, or Phone..."
+                    value={newPatientSearchQuery}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setNewPatientSearchQuery(val);
+                      if (val.trim().length >= 2) {
+                        fetchNhcArchive(val.trim());
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const query = newPatientSearchQuery.trim().toLowerCase();
+                        if (!query) return;
+                        const cleanNum = query.replace(/\D/g, '');
+
+                        const tokMatch = (tokens || []).find(t => 
+                          String(t.TokenNo) === cleanNum || 
+                          String(t.PatientID).toLowerCase() === query ||
+                          `token-${t.TokenNo}` === query ||
+                          `#${t.TokenNo}` === query
+                        );
+                        if (tokMatch) {
+                          handleSelectPatientFromModal(tokMatch.PatientID);
+                          return;
+                        }
+
+                        const patMatch = patients.find(p => matchPatientRecord(p, query)) 
+                          || [...(nhcPatients || []), ...nhcArchiveList, ...pvNhcHistory].find(p => matchPatientRecord(p, query));
+                        if (patMatch) {
+                          handleSelectPatientFromModal(patMatch.PatientID);
+                          return;
+                        }
+                      }
+                    }}
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 text-slate-900 text-sm font-semibold rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
+                  />
+                </div>
+              </div>
+
+              {/* Database Fetching Progress Bar & Status Message */}
+              {(isSearchingArchive || isSearchLoadingModal) && (
+                <div className="bg-emerald-50 border-2 border-emerald-400 rounded-xl p-3 shadow-2xs space-y-2">
+                  <div className="flex items-center justify-between text-xs font-black text-emerald-950">
+                    <span className="flex items-center space-x-2">
+                      <div className="w-4 h-4 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin"></div>
+                      <span>Fetching patient records from database archive...</span>
+                    </span>
+                    <span className="font-mono text-[10px] text-emerald-800 font-extrabold uppercase bg-emerald-100 px-2 py-0.5 rounded border border-emerald-300">
+                      Loading Database Records
+                    </span>
+                  </div>
+                  <div className="w-full bg-emerald-200 h-2 rounded-full overflow-hidden">
+                    <div className="bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 h-full w-full animate-pulse rounded-full"></div>
+                  </div>
+                </div>
+              )}
+
+              {/* Results List */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
+                <div className="bg-slate-100 px-3.5 py-2 border-b border-slate-200 flex items-center justify-between text-xs font-bold text-slate-700">
+                  <span>
+                    {newPatientSearchQuery.trim() ? 'Matching Tokens & Patient Records' : "Today's Issued Tokens & Patient Queue"}
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-mono">Click record to select & show</span>
+                </div>
+
+                <div className="max-h-[320px] overflow-y-auto divide-y divide-slate-100">
+                  {(() => {
+                    const query = newPatientSearchQuery.trim().toLowerCase();
+                    const cleanNum = query.replace(/\D/g, '');
+
+                    const matchedItems: {
+                      patientId: string;
+                      patientName: string;
+                      tokenNo?: number;
+                      tokenShift?: number;
+                      tokenStatus?: number;
+                      phone?: string;
+                      gender?: string;
+                      age?: string | number;
+                      isNhc?: boolean;
+                      source: string;
+                    }[] = [];
+
+                    const seenIds = new Set<string>();
+
+                    // 1. Check today's active tokens first
+                    (tokens || []).forEach(tok => {
+                      if (!tok || !tok.PatientID) return;
+                      const pid = String(tok.PatientID).trim();
+                      const tokNoStr = String(tok.TokenNo);
+                      const isTokMatch = !query || tokNoStr === query || tokNoStr === cleanNum || `token-${tokNoStr}` === query || `#${tokNoStr}` === query;
+
+                      const allNhc = [...(nhcPatients || []), ...nhcArchiveList, ...pvNhcHistory];
+                      const pObj = patients.find(p => String(p.PatientID).trim().toLowerCase() === pid.toLowerCase()) || allNhc.find(p => String(p.PatientID).trim().toLowerCase() === pid.toLowerCase());
+                      const isPatMatch = pObj ? matchPatientRecord(pObj, query) : pid.toLowerCase().includes(query);
+
+                      if (isTokMatch || isPatMatch) {
+                        seenIds.add(pid.toLowerCase());
+                        matchedItems.push({
+                          patientId: pid,
+                          patientName: pObj ? (pObj.PatientName || `Patient ${pid}`) : `Patient ${pid}`,
+                          tokenNo: tok.TokenNo,
+                          tokenShift: tok.Shift,
+                          tokenStatus: tok.Status,
+                          phone: pObj?.PhoneMobile || '',
+                          gender: (pObj as any)?.Gender || (pObj as any)?.Sex,
+                          age: (pObj as any)?.Age || (pObj as any)?.AgeYears,
+                          isNhc: false,
+                          source: 'Issued Token'
+                        });
+                      }
+                    });
+
+                    // 2. Check local EMR patients
+                    patients.forEach(p => {
+                      if (!p || !p.PatientID) return;
+                      const pid = String(p.PatientID).trim();
+                      if (seenIds.has(pid.toLowerCase())) return;
+
+                      const isMatch = !query || matchPatientRecord(p, query);
+
+                      if (isMatch) {
+                        seenIds.add(pid.toLowerCase());
+                        matchedItems.push({
+                          patientId: pid,
+                          patientName: p.PatientName,
+                          phone: p.PhoneMobile,
+                          gender: (p as any)?.Gender || (p as any)?.Sex,
+                          age: (p as any)?.Age || (p as any)?.AgeYears,
+                          isNhc: false,
+                          source: 'EMR Patient'
+                        });
+                      }
+                    });
+
+                    // 3. Check NHC archive patients
+                    const allNhc = [...(nhcPatients || []), ...nhcArchiveList, ...pvNhcHistory];
+                    allNhc.forEach(nhc => {
+                      if (!nhc || !nhc.PatientID) return;
+                      const pid = String(nhc.PatientID).trim();
+                      if (seenIds.has(pid.toLowerCase())) return;
+
+                      const isMatch = !query || matchPatientRecord(nhc, query);
+
+                      if (isMatch) {
+                        seenIds.add(pid.toLowerCase());
+                        matchedItems.push({
+                          patientId: pid,
+                          patientName: getResolvedNhcPatientName(nhc, patients, allNhc),
+                          phone: nhc.PhoneMobile || '',
+                          gender: (nhc as any)?.Gender || (nhc as any)?.Sex,
+                          age: (nhc as any)?.Age || (nhc as any)?.AgeYears,
+                          isNhc: true,
+                          source: 'Patient History'
+                        });
+                      }
+                    });
+
+                    if (matchedItems.length === 0) {
+                      return (
+                        <div className="p-6 text-center text-slate-500 text-xs">
+                          <p className="font-semibold text-slate-700 mb-1">No matching Token or Patient ID found</p>
+                          <p className="text-[11px] text-slate-500">
+                            You can click "Create Blank Walk-in Form" below to write a new consultation record from scratch.
+                          </p>
+                        </div>
+                      );
+                    }
+
+                    return matchedItems.slice(0, 25).map((item, idx) => (
+                      <div
+                        key={`tok-search-${item.patientId}-${idx}`}
+                        onClick={() => handleSelectPatientFromModal(item.patientId)}
+                        className="p-3 hover:bg-emerald-50/80 transition flex items-center justify-between cursor-pointer group"
+                      >
+                        <div className="flex items-center space-x-3">
+                          {item.tokenNo !== undefined ? (
+                            <div className="w-10 h-10 rounded-xl bg-amber-500 text-slate-900 font-black text-sm flex flex-col items-center justify-center shrink-0 border border-amber-400 shadow-2xs">
+                              <span className="text-[8px] font-extrabold uppercase text-slate-800 leading-none">Token</span>
+                              <span className="leading-tight">#{item.tokenNo}</span>
+                            </div>
+                          ) : (
+                            <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 font-extrabold text-xs flex items-center justify-center shrink-0 border border-emerald-200">
+                              {item.patientName.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+
+                          <div>
+                            <div className="flex items-center space-x-2">
+                              <span className="font-bold text-xs text-slate-900 group-hover:text-emerald-700 transition">
+                                {item.patientName}
+                              </span>
+                              <span className="text-[10px] font-mono bg-slate-100 text-slate-700 px-1.5 py-0.2 rounded border border-slate-200 font-bold">
+                                {item.patientId}
+                              </span>
+                              {item.tokenNo !== undefined && (
+                                <span className="text-[9px] bg-amber-100 text-amber-900 px-1.5 py-0.2 rounded font-extrabold border border-amber-200">
+                                  {item.tokenShift === 1 ? 'Morning' : 'Evening'}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[10px] text-slate-500 flex items-center space-x-2 mt-0.5">
+                              {item.phone && <span>Mobile: {item.phone}</span>}
+                              {item.gender && <span>• {item.gender}</span>}
+                              {item.age && <span>• {item.age} Yrs</span>}
+                              <span className="text-emerald-600 font-bold">• {item.source}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelectPatientFromModal(item.patientId);
+                          }}
+                          className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md shadow-2xs transition shrink-0 cursor-pointer"
+                        >
+                          Show Record
+                        </button>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-slate-100 p-3 sm:p-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => handleSelectPatientFromModal('')}
+                className="w-full sm:w-auto px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-2xs"
+              >
+                <UserPlus className="w-4 h-4 text-emerald-400" />
+                <span>+ Create Blank / Walk-in Patient Form</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsNewPatientSearchModalOpen(false)}
+                className="w-full sm:w-auto px-4 py-2 bg-white hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl border border-slate-300 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* POPUP MODAL: GRID-VIEW EDIT RECENT PATIENT MEDICAL RECORDS */}
       {isRecentVisitsModalOpen && (
         <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs z-50 flex items-center justify-center p-2 sm:p-4 overflow-y-auto animate-fadeIn">
@@ -9000,22 +11185,40 @@ export default function PatientDesk({
                     <tbody className="divide-y divide-slate-200 text-slate-800 text-[11px]">
                       {(() => {
                         const rawRecentVisits: (Visit | NhcPatientHistory)[] = [...(visits || []), ...(pvNhcHistory || [])];
+                        // Sort rawRecentVisits descending by visit date, then by VisitID descending
+                        const sortedRecentVisits = [...rawRecentVisits].sort((a, b) => {
+                          const dateA = parseCleanVisitDate('VisitDate' in a ? a.VisitDate : ('date' in a ? (a as any).date : ''));
+                          const dateB = parseCleanVisitDate('VisitDate' in b ? b.VisitDate : ('date' in b ? (b as any).date : ''));
+                          if (dateA !== dateB) {
+                            return dateB.localeCompare(dateA);
+                          }
+                          const idA = ('VisitID' in a && a.VisitID) ? Number(a.VisitID) || 0 : 0;
+                          const idB = ('VisitID' in b && b.VisitID) ? Number(b.VisitID) || 0 : 0;
+                          return idB - idA;
+                        });
+
                         const seenKeys = new Set<string>();
+                        const seenPatientIds = new Set<string>();
                         const allRecentVisits: (Visit | NhcPatientHistory)[] = [];
 
-                        for (const v of rawRecentVisits) {
+                        for (const v of sortedRecentVisits) {
                           const vId = ('VisitID' in v && v.VisitID) ? v.VisitID : ('date' in v ? `NHC-${v.date}` : '');
-                          const pId = v.PatientID || '';
+                          const pId = String(v.PatientID || '').trim();
                           const vDate = 'VisitDate' in v && v.VisitDate ? v.VisitDate.split('T')[0] : ('date' in v ? (v as any).date : '');
                           const key = vId || (pId && vDate ? `${pId}_${vDate}` : '');
 
-                          if (key) {
-                            if (!seenKeys.has(key)) {
-                              seenKeys.add(key);
+                          if (pId) {
+                            // Show only the latest record for each individual patient
+                            if (!seenPatientIds.has(pId)) {
+                              seenPatientIds.add(pId);
+                              if (key) seenKeys.add(key);
                               allRecentVisits.push(v);
                             }
                           } else {
-                            allRecentVisits.push(v);
+                            if (!key || !seenKeys.has(key)) {
+                              if (key) seenKeys.add(key);
+                              allRecentVisits.push(v);
+                            }
                           }
                         }
                         const filteredRecent = allRecentVisits.filter((v) => {
@@ -9190,11 +11393,27 @@ export default function PatientDesk({
                           Visit Charges & Fees (PKR)
                         </label>
                         <div className="text-xs font-black text-emerald-950 bg-emerald-100 px-2.5 py-0.5 rounded-md border border-emerald-300 font-mono shadow-2xs">
-                          Total: PKR {(Number(modalClinicalMedicinePkr) || 0) + (Number(modalFilePkr) || 0) + (Number(modalCardPkr) || 0)}
+                          Total: PKR {(Number(modalConsultationFee) || 0) + (Number(modalClinicalMedicinePkr) || 0) + (Number(modalFilePkr) || 0) + (Number(modalCardPkr) || 0)}
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-3 gap-2 pt-0.5">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-0.5">
+                        <div>
+                          <label className="block text-[9px] font-extrabold text-slate-600 uppercase mb-0.5 truncate">OPD / App (PKR):</label>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            maxLength={5}
+                            placeholder="0"
+                            value={modalConsultationFee}
+                            onChange={(e) => {
+                              const val = e.target.value.replace(/\D/g, '').slice(0, 5);
+                              setModalConsultationFee(val);
+                            }}
+                            className="w-full text-xs border border-slate-300 rounded px-2 py-1.5 bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none font-mono text-center font-bold text-slate-900 shadow-inner"
+                          />
+                        </div>
+
                         <div>
                           <label className="block text-[9px] font-extrabold text-slate-600 uppercase mb-0.5 truncate">Clinical Med (PKR):</label>
                           <input
@@ -9992,6 +12211,590 @@ export default function PatientDesk({
                 Close Modal
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ORGANIZATION CLAIM BILL / INVOICE MODAL */}
+      {isClaimBillModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="bg-slate-900 px-5 py-3.5 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shrink-0">
+                  <Building2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black tracking-tight text-white">
+                    Organization Reimbursement Claim Bill
+                  </h3>
+                  <p className="text-[10px] text-blue-200 font-medium">
+                    Generate official itemized invoice for employer / corporate medical claim
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsClaimBillModalOpen(false)}
+                className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 overflow-y-auto space-y-4">
+              {selectedPvPatient ? (
+                <>
+                  {/* Selected Patient Banner */}
+                  <div className="bg-blue-50/70 p-3 rounded-xl border border-blue-200 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold text-blue-700 uppercase tracking-wider block">Claim Patient</span>
+                      <span className="text-sm font-black text-slate-900">{selectedPvPatient.PatientName}</span>
+                      <span className="text-xs font-mono font-bold text-blue-900 ml-2">({selectedPvPatient.PatientID})</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] font-bold text-slate-500 block uppercase">Visit Date</span>
+                      <span className="text-xs font-mono font-extrabold text-slate-900">{formatDisplayDate(pvVisitDate)}</span>
+                    </div>
+                  </div>
+
+                  {/* Organization Selection Presets */}
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-extrabold text-slate-800 uppercase tracking-wider">
+                      Select Organization / Employer:
+                    </label>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {['WAPDA', 'SNGPL', 'State Bank', 'Pakistan Railways', 'Police / Govt', 'Custom'].map((org) => {
+                        const isSelected = claimBillOrg === org;
+                        return (
+                          <button
+                            key={org}
+                            type="button"
+                            onClick={() => setClaimBillOrg(org)}
+                            className={`py-2 px-2.5 rounded-xl text-xs font-black transition cursor-pointer text-center border ${
+                              isSelected
+                                ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                                : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                            }`}
+                          >
+                            {org === 'Custom' ? '✏️ Custom / Other' : org}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Custom Organization Name Field */}
+                    {claimBillOrg === 'Custom' && (
+                      <div className="pt-1 animate-in fade-in duration-100">
+                        <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                          Custom Organization / Company Name:
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Nishat Mills, PTCL, Askari Bank..."
+                          value={claimBillCustomOrg}
+                          onChange={(e) => setClaimBillCustomOrg(e.target.value)}
+                          className="w-full text-xs font-bold border border-blue-300 rounded-lg p-2.5 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Employee ID & Designation Fields */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                        Employee ID / Token #:
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. EMP-9821 / Token #45"
+                        value={claimBillEmployeeId}
+                        onChange={(e) => setClaimBillEmployeeId(e.target.value)}
+                        className="w-full text-xs font-bold border border-slate-300 rounded-lg p-2 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                        Designation / Department:
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Senior Clerk / Technical"
+                        value={claimBillDesignation}
+                        onChange={(e) => setClaimBillDesignation(e.target.value)}
+                        className="w-full text-xs font-bold border border-slate-300 rounded-lg p-2 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Financial Summary Preview Box */}
+                  {(() => {
+                    const claimAppt = (appointments || []).find(a => a.PatientID === selectedPvPatient.PatientID && a.AppointmentDate.startsWith(pvVisitDate));
+                    const consultationFeeNum = Number(claimAppt?.FeeCharged) || 0;
+                    const clinFeeNum = Number(pvClinicalMedicinePkr) || 0;
+                    const fileFeeNum = Number(pvFilePkr) || 0;
+                    const cardFeeNum = Number(pvCardPkr) || 0;
+                    const grandTotalNum = consultationFeeNum + clinFeeNum + fileFeeNum + cardFeeNum;
+
+                    return (
+                      <div className="bg-slate-900 text-white p-3.5 rounded-xl space-y-2 border border-slate-800">
+                        <span className="block text-[10px] font-black uppercase text-amber-400 tracking-wider">
+                          Itemized Claim Amount Breakdown (PKR)
+                        </span>
+                        <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                          <div className="bg-slate-800 p-2 rounded-lg border border-slate-700">
+                            <span className="block text-[9px] text-slate-400 font-bold uppercase">Consultation</span>
+                            <span className="font-mono font-bold text-emerald-400">PKR {consultationFeeNum}</span>
+                          </div>
+                          <div className="bg-slate-800 p-2 rounded-lg border border-slate-700">
+                            <span className="block text-[9px] text-slate-400 font-bold uppercase">Clinical Meds</span>
+                            <span className="font-mono font-bold text-blue-400">PKR {clinFeeNum}</span>
+                          </div>
+                          <div className="bg-slate-800 p-2 rounded-lg border border-slate-700">
+                            <span className="block text-[9px] text-slate-400 font-bold uppercase">File Fee</span>
+                            <span className="font-mono font-bold text-purple-400">PKR {fileFeeNum}</span>
+                          </div>
+                          <div className="bg-slate-800 p-2 rounded-lg border border-slate-700">
+                            <span className="block text-[9px] text-slate-400 font-bold uppercase">Card Fee</span>
+                            <span className="font-mono font-bold text-amber-400">PKR {cardFeeNum}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between pt-1 border-t border-slate-800">
+                          <span className="text-xs font-bold uppercase text-slate-300">Total Claimable Amount:</span>
+                          <span className="text-base font-black font-mono text-emerald-400">
+                            PKR {grandTotalNum.toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Claim Remarks Field */}
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                      Official Remarks / Claim Note (Optional):
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Official Medical Reimbursement for OPD Treatment"
+                      value={claimBillRemarks}
+                      onChange={(e) => setClaimBillRemarks(e.target.value)}
+                      className="w-full text-xs font-semibold border border-slate-300 rounded-lg p-2 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="p-8 text-center text-slate-500">
+                  <p className="text-sm font-bold">No patient selected for claim bill.</p>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsClaimBillModalOpen(false)}
+                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs rounded-xl transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  handlePrintClaimBill();
+                  setIsClaimBillModalOpen(false);
+                }}
+                disabled={!selectedPvPatient}
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-extrabold text-xs rounded-xl transition flex items-center space-x-1.5 cursor-pointer shadow-md"
+              >
+                <Printer className="w-4 h-4 text-white" />
+                <span>Print Official Claim Bill</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DAILY COLLECTION REPORT MODAL (Matching Financials Tab Format) */}
+      {isDailyCollectionReportModalOpen && dailyCollectionReportData && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 overflow-y-auto print:absolute print:inset-0 print:bg-white print:p-0">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-5xl w-full flex flex-col h-[90vh] print:h-auto print:border-0 print:shadow-none animate-fadeIn">
+            {/* Modal Top Control Bar */}
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between print:hidden bg-slate-50 rounded-t-2xl">
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setDailyCollectionReportFormat('pdf')}
+                  className={`px-3 py-1 rounded-md text-xxs font-black uppercase transition cursor-pointer flex items-center ${
+                    dailyCollectionReportFormat === 'pdf' ? 'bg-purple-700 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <FileText className="w-3 h-3 mr-1" />
+                  PDF Report Format
+                </button>
+                <button
+                  onClick={() => setDailyCollectionReportFormat('grid')}
+                  className={`px-3 py-1 rounded-md text-xxs font-black uppercase transition cursor-pointer flex items-center ${
+                    dailyCollectionReportFormat === 'grid' ? 'bg-purple-700 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Grid className="w-3 h-3 mr-1" />
+                  Grid-View Summary
+                </button>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => handleCleanPrintDailyCollectionReport(dailyCollectionReportData, dailyCollectionReportFormat)}
+                  className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded-lg text-xxs font-black uppercase tracking-wider transition flex items-center shadow-xs cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5 mr-1" />
+                  Send to Printer / Save PDF
+                </button>
+                <button
+                  onClick={() => {
+                    setDailyCollectionReportData(null);
+                    setIsDailyCollectionReportModalOpen(false);
+                  }}
+                  className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-1.5 rounded-lg text-xxs font-black uppercase tracking-wider transition cursor-pointer"
+                >
+                  Close Preview
+                </button>
+              </div>
+            </div>
+
+            {/* VIEW 1: PDF REPORT FORMAT */}
+            {dailyCollectionReportFormat === 'pdf' ? (
+              <div className="flex-1 overflow-y-auto p-8 space-y-4 print:overflow-visible print:p-0 bg-white font-sans text-slate-900">
+                <div className="text-center space-y-0.5">
+                  <h1 className="text-base font-black tracking-wide uppercase text-slate-950">
+                    {clinicSettings?.ClinicName || 'Punjab Homoeopathic Clinic'}
+                  </h1>
+                  <p className="text-[11px] font-semibold text-slate-700">
+                    {clinicSettings?.ClinicAddress || '39-Shalimar Road, Garhi Shahu, Lahore-39'}
+                  </p>
+                </div>
+
+                <div className="border-t-2 border-slate-950 my-2"></div>
+
+                <div className="text-center space-y-1">
+                  <h2 className="text-sm font-black uppercase tracking-widest text-slate-950">
+                    Payment Collection Report
+                  </h2>
+                  <div className="flex justify-center items-center space-x-8 text-xs font-bold text-slate-800 pt-0.5">
+                    <span>From: <span className="underline ml-1 font-extrabold">{formatReportDate(dailyCollectionReportData.startDate)}</span></span>
+                    <span>To: <span className="underline ml-1 font-extrabold">{formatReportDate(dailyCollectionReportData.endDate)}</span></span>
+                  </div>
+                </div>
+
+                <div className="border-t-2 border-slate-950 my-2"></div>
+
+                <div className="overflow-x-auto pt-1">
+                  <table className="w-full border-collapse text-xs">
+                    <thead>
+                      <tr className="border-b-2 border-slate-950 text-slate-950 font-black uppercase text-[11px] bg-slate-50 text-left">
+                        <th className="py-2 px-2 w-[22%]">Date & Shift</th>
+                        <th className="py-2 px-2 w-[16%] text-center">Patients Visited</th>
+                        <th className="py-2 px-2 w-[16%] text-center">No of Patients</th>
+                        <th className="py-2 px-2 w-[31%] text-left">Payment Description</th>
+                        <th className="py-2 px-2 w-[15%] text-right">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 font-medium text-slate-900">
+                      {dailyCollectionReportData.pdfRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="py-8 text-center text-slate-400 font-bold italic">
+                            No collection records found.
+                          </td>
+                        </tr>
+                      ) : (
+                        dailyCollectionReportData.pdfRows.map((dateBlock: any, dateIdx: number) => (
+                          <React.Fragment key={dateBlock.rawDate || dateIdx}>
+                            {dateBlock.shiftBlocks.map((shiftBlock: any, shiftIdx: number) => (
+                              <React.Fragment key={shiftIdx}>
+                                {shiftBlock.items.map((item: any, itemIdx: number) => (
+                                  <tr key={itemIdx} className="hover:bg-slate-50/50">
+                                    <td className="py-1 px-2 font-bold text-slate-950">
+                                      {itemIdx === 0 ? `${dateBlock.date} ${shiftBlock.shiftLabel}` : ''}
+                                    </td>
+                                    <td className="py-1 px-2 text-center font-bold text-slate-950">
+                                      {itemIdx === 0 ? shiftBlock.visitedCount : ''}
+                                    </td>
+                                    <td className="py-1 px-2 text-center font-mono font-semibold">
+                                      {item.count || '-'}
+                                    </td>
+                                    <td className="py-1 px-2 text-left text-slate-900">
+                                      {item.description}
+                                    </td>
+                                    <td className="py-1 px-2 text-right font-mono font-semibold">
+                                      {item.amount.toLocaleString()}
+                                    </td>
+                                  </tr>
+                                ))}
+
+                                <tr className="bg-slate-50/60 font-bold">
+                                  <td className="py-1 px-2"></td>
+                                  <td className="py-1 px-2"></td>
+                                  <td className="py-1 px-2"></td>
+                                  <td className="py-1.5 px-2 text-left font-bold text-slate-950">
+                                    Shift Total
+                                  </td>
+                                  <td className="py-1.5 px-2 text-right font-mono font-bold text-slate-950 border-t border-slate-300">
+                                    {shiftBlock.shiftTotal.toLocaleString()}
+                                  </td>
+                                </tr>
+                              </React.Fragment>
+                            ))}
+
+                            <tr className="border-b-2 border-slate-900 font-extrabold bg-slate-100/70">
+                              <td className="py-2 px-2"></td>
+                              <td className="py-2 px-2"></td>
+                              <td className="py-2 px-2"></td>
+                              <td className="py-2 px-2 text-left text-slate-950 uppercase tracking-wide">
+                                Today Closing
+                              </td>
+                              <td className="py-2 px-2 text-right font-mono text-slate-950 font-black border-t-2 border-slate-900">
+                                {dateBlock.todayClosing.toLocaleString()}
+                              </td>
+                            </tr>
+                          </React.Fragment>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="border-t-2 border-b-2 border-slate-950 py-3 my-4 flex justify-between items-center text-sm font-black">
+                  <span className="uppercase tracking-widest text-slate-950">Grand Total</span>
+                  <span className="font-mono text-base text-slate-950">{dailyCollectionReportData.pdfGrandTotal.toLocaleString()}</span>
+                </div>
+
+                <div className="pt-4 flex justify-between items-center text-[10px] font-bold text-slate-600 border-t border-slate-300">
+                  <span>
+                    Print Date: {new Date().toLocaleDateString('en-GB')} {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  <span>User: {currentUser?.FullName || currentUser?.LoginName || 'ADMIN'}</span>
+                </div>
+              </div>
+            ) : (
+              /* VIEW 2: GRID-VIEW TABLE */
+              <div className="flex-1 overflow-y-auto p-8 space-y-6 print:overflow-visible print:p-0 bg-white">
+                <div className="text-center space-y-1">
+                  <h1 className="text-base font-black tracking-wide text-slate-950 uppercase">{clinicSettings?.ClinicName || 'Punjab Homeopathic Clinic'}</h1>
+                  <h2 className="text-sm font-bold text-slate-900">Daily Collection Report (Clinic & Store)</h2>
+                  <div className="flex justify-center items-center space-x-4 text-xxs font-semibold text-slate-700 pt-1">
+                    <span>From: <span className="font-bold underline">{formatReportDate(dailyCollectionReportData.startDate)}</span></span>
+                    <span>To: <span className="font-bold underline">{formatReportDate(dailyCollectionReportData.endDate)}</span></span>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto pt-2">
+                  <table className="min-w-full border-collapse border border-slate-400 text-[10px]">
+                    <thead>
+                      <tr className="bg-white">
+                        <th rowSpan={2} className="border border-slate-400 px-2 py-1.5 text-center font-bold text-slate-900 bg-slate-50">
+                          Date
+                        </th>
+                        <th colSpan={6} className="border border-blue-500 px-2 py-1 text-center font-black text-blue-700 uppercase tracking-wide">
+                          Morning
+                        </th>
+                        <th colSpan={6} className="border border-blue-500 px-2 py-1 text-center font-black text-blue-700 uppercase tracking-wide">
+                          Evening
+                        </th>
+                        <th rowSpan={2} className="border border-slate-400 px-2 py-1.5 text-center font-bold text-slate-900 bg-slate-50">
+                          Total
+                        </th>
+                      </tr>
+                      <tr className="bg-slate-50 text-slate-700 font-bold">
+                        <th className="border border-slate-400 px-1.5 py-1 text-center">App</th>
+                        <th className="border border-slate-400 px-1.5 py-1 text-center">C.med</th>
+                        <th className="border border-slate-400 px-1.5 py-1 text-center">Cards</th>
+                        <th className="border border-slate-400 px-1.5 py-1 text-center">File</th>
+                        <th className="border border-slate-400 px-1.5 py-1 text-center">Store</th>
+                        <th className="border border-slate-400 px-1.5 py-1 text-center bg-blue-50 text-blue-900">Total</th>
+                        <th className="border border-slate-400 px-1.5 py-1 text-center">App</th>
+                        <th className="border border-slate-400 px-1.5 py-1 text-center">C.med</th>
+                        <th className="border border-slate-400 px-1.5 py-1 text-center">Cards</th>
+                        <th className="border border-slate-400 px-1.5 py-1 text-center">File</th>
+                        <th className="border border-slate-400 px-1.5 py-1 text-center">Store</th>
+                        <th className="border border-slate-400 px-1.5 py-1 text-center bg-blue-50 text-blue-900">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dailyCollectionReportData.rows.length === 0 ? (
+                        <tr>
+                          <td colSpan={14} className="border border-slate-400 px-4 py-8 text-center text-slate-400 font-bold italic">
+                            No transaction records found.
+                          </td>
+                        </tr>
+                      ) : (
+                        dailyCollectionReportData.rows.map((row: any) => (
+                          <tr key={row.date} className="hover:bg-slate-50 font-mono text-slate-800">
+                            <td className="border border-slate-400 px-2 py-1 text-center font-sans font-bold">
+                              {(() => {
+                                const pts = row.date.split('-');
+                                if (pts.length === 3) {
+                                  return `${pts[2]}-${pts[1]}-${pts[0].substring(2)}`;
+                                }
+                                return row.date;
+                              })()}
+                            </td>
+                            <td className="border border-slate-400 px-1.5 py-1 text-right">{row.morning.app || '-'}</td>
+                            <td className="border border-slate-400 px-1.5 py-1 text-right">{row.morning.cmed || '-'}</td>
+                            <td className="border border-slate-400 px-1.5 py-1 text-right">{row.morning.cards || '-'}</td>
+                            <td className="border border-slate-400 px-1.5 py-1 text-right">{row.morning.file || '-'}</td>
+                            <td className="border border-slate-400 px-1.5 py-1 text-right">{row.morning.store || '-'}</td>
+                            <td className="border border-slate-400 px-1.5 py-1 text-right bg-blue-50/40 font-bold text-slate-950">{row.morning.total || '-'}</td>
+                            <td className="border border-slate-400 px-1.5 py-1 text-right">{row.evening.app || '-'}</td>
+                            <td className="border border-slate-400 px-1.5 py-1 text-right">{row.evening.cmed || '-'}</td>
+                            <td className="border border-slate-400 px-1.5 py-1 text-right">{row.evening.cards || '-'}</td>
+                            <td className="border border-slate-400 px-1.5 py-1 text-right">{row.evening.file || '-'}</td>
+                            <td className="border border-slate-400 px-1.5 py-1 text-right">{row.evening.store || '-'}</td>
+                            <td className="border border-slate-400 px-1.5 py-1 text-right bg-blue-50/40 font-bold text-slate-950">{row.evening.total || '-'}</td>
+                            <td className="border border-slate-400 px-2 py-1 text-right font-sans font-black bg-slate-50 text-slate-950">
+                              {row.dayTotal.toLocaleString()}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+
+                      {dailyCollectionReportData.rows.length > 0 && (
+                        <tr className="bg-slate-50 font-sans font-extrabold text-slate-950 border-t-2 border-slate-900">
+                          <td className="border border-slate-400 px-2 py-1.5 text-center uppercase tracking-wide text-[9px]">
+                            Total
+                          </td>
+                          <td className="border border-slate-400 px-1.5 py-1.5 text-right font-mono text-[9px]">{dailyCollectionReportData.morningTotals.app || '-'}</td>
+                          <td className="border border-slate-400 px-1.5 py-1.5 text-right font-mono text-[9px]">{dailyCollectionReportData.morningTotals.cmed || '-'}</td>
+                          <td className="border border-slate-400 px-1.5 py-1.5 text-right font-mono text-[9px]">{dailyCollectionReportData.morningTotals.cards || '-'}</td>
+                          <td className="border border-slate-400 px-1.5 py-1.5 text-right font-mono text-[9px]">{dailyCollectionReportData.morningTotals.file || '-'}</td>
+                          <td className="border border-slate-400 px-1.5 py-1.5 text-right font-mono text-[9px]">{dailyCollectionReportData.morningTotals.store || '-'}</td>
+                          <td className="border border-slate-400 px-1.5 py-1.5 text-right font-mono text-[9px] bg-blue-50 text-blue-900">{dailyCollectionReportData.morningTotals.total || '-'}</td>
+                          <td className="border border-slate-400 px-1.5 py-1.5 text-right font-mono text-[9px]">{dailyCollectionReportData.eveningTotals.app || '-'}</td>
+                          <td className="border border-slate-400 px-1.5 py-1.5 text-right font-mono text-[9px]">{dailyCollectionReportData.eveningTotals.cmed || '-'}</td>
+                          <td className="border border-slate-400 px-1.5 py-1.5 text-right font-mono text-[9px]">{dailyCollectionReportData.eveningTotals.cards || '-'}</td>
+                          <td className="border border-slate-400 px-1.5 py-1.5 text-right font-mono text-[9px]">{dailyCollectionReportData.eveningTotals.file || '-'}</td>
+                          <td className="border border-slate-400 px-1.5 py-1.5 text-right font-mono text-[9px]">{dailyCollectionReportData.eveningTotals.store || '-'}</td>
+                          <td className="border border-slate-400 px-1.5 py-1.5 text-right font-mono text-[9px] bg-blue-50 text-blue-900">{dailyCollectionReportData.eveningTotals.total || '-'}</td>
+                          <td className="border border-slate-400 px-2 py-1.5 text-right font-sans font-black bg-blue-100 text-blue-950 text-[9.5px]">
+                            {dailyCollectionReportData.grandTotals.total.toLocaleString()}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="grid grid-cols-2 gap-8 pt-4 bg-white">
+                  <div className="space-y-2">
+                    <h3 className="text-xxs font-black uppercase text-slate-900 tracking-wider">Summary 1</h3>
+                    <table className="min-w-full border border-slate-400 text-xxs text-left">
+                      <thead>
+                        <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-400">
+                          <th className="border border-slate-400 px-3 py-1.5">Category</th>
+                          <th className="border border-slate-400 px-3 py-1.5 text-right">Morning</th>
+                          <th className="border border-slate-400 px-3 py-1.5 text-right">Evening</th>
+                          <th className="border border-slate-400 px-3 py-1.5 text-right bg-slate-50">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-300 font-mono text-slate-800">
+                        <tr>
+                          <td className="border border-slate-400 px-3 py-1.5 font-sans font-bold">App</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right">{dailyCollectionReportData.morningTotals.app || '-'}</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right">{dailyCollectionReportData.eveningTotals.app || '-'}</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right font-sans font-extrabold bg-slate-50">{dailyCollectionReportData.grandTotals.app || '-'}</td>
+                        </tr>
+                        <tr>
+                          <td className="border border-slate-400 px-3 py-1.5 font-sans font-bold">C.med</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right">{dailyCollectionReportData.morningTotals.cmed || '-'}</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right">{dailyCollectionReportData.eveningTotals.cmed || '-'}</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right font-sans font-extrabold bg-slate-50">{dailyCollectionReportData.grandTotals.cmed || '-'}</td>
+                        </tr>
+                        <tr>
+                          <td className="border border-slate-400 px-3 py-1.5 font-sans font-bold">Cards</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right">{dailyCollectionReportData.morningTotals.cards || '-'}</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right">{dailyCollectionReportData.eveningTotals.cards || '-'}</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right font-sans font-extrabold bg-slate-50">{dailyCollectionReportData.grandTotals.cards || '-'}</td>
+                        </tr>
+                        <tr>
+                          <td className="border border-slate-400 px-3 py-1.5 font-sans font-bold">File</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right">{dailyCollectionReportData.morningTotals.file || '-'}</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right">{dailyCollectionReportData.eveningTotals.file || '-'}</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right font-sans font-extrabold bg-slate-50">{dailyCollectionReportData.grandTotals.file || '-'}</td>
+                        </tr>
+                        <tr>
+                          <td className="border border-slate-400 px-3 py-1.5 font-sans font-bold">Store</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right">{dailyCollectionReportData.morningTotals.store || '-'}</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right">{dailyCollectionReportData.eveningTotals.store || '-'}</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right font-sans font-extrabold bg-slate-50">{dailyCollectionReportData.grandTotals.store || '-'}</td>
+                        </tr>
+                        <tr className="bg-slate-50 font-sans font-black border-t border-slate-900 text-slate-950">
+                          <td className="border border-slate-400 px-3 py-1.5 uppercase">Total</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right font-mono">{dailyCollectionReportData.morningTotals.total || '-'}</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right font-mono">{dailyCollectionReportData.eveningTotals.total || '-'}</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right font-mono bg-blue-50 text-blue-900">{dailyCollectionReportData.grandTotals.total || '-'}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="space-y-2">
+                    <h3 className="text-xxs font-black uppercase text-slate-900 tracking-wider">Summary 2</h3>
+                    <table className="min-w-full border border-slate-400 text-xxs text-left">
+                      <thead>
+                        <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-400">
+                          <th className="border border-slate-400 px-3 py-1.5">Grouping</th>
+                          <th className="border border-slate-400 px-3 py-1.5 text-right">Morning</th>
+                          <th className="border border-slate-400 px-3 py-1.5 text-right">Evening</th>
+                          <th className="border border-slate-400 px-3 py-1.5 text-right bg-slate-50">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-300 font-mono text-slate-800">
+                        <tr>
+                          <td className="border border-slate-400 px-3 py-1.5 font-sans font-bold">App & C.med</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right">{(dailyCollectionReportData.morningTotals.app + dailyCollectionReportData.morningTotals.cmed) || '-'}</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right">{(dailyCollectionReportData.eveningTotals.app + dailyCollectionReportData.eveningTotals.cmed) || '-'}</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right font-sans font-extrabold bg-slate-50">{(dailyCollectionReportData.grandTotals.app + dailyCollectionReportData.grandTotals.cmed) || '-'}</td>
+                        </tr>
+                        <tr>
+                          <td className="border border-slate-400 px-3 py-1.5 font-sans font-bold">Cards & File</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right">{(dailyCollectionReportData.morningTotals.cards + dailyCollectionReportData.morningTotals.file) || '-'}</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right">{(dailyCollectionReportData.eveningTotals.cards + dailyCollectionReportData.eveningTotals.file) || '-'}</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right font-sans font-extrabold bg-slate-50">{(dailyCollectionReportData.grandTotals.cards + dailyCollectionReportData.grandTotals.file) || '-'}</td>
+                        </tr>
+                        <tr>
+                          <td className="border border-slate-400 px-3 py-1.5 font-sans font-bold">Store</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right">{dailyCollectionReportData.morningTotals.store || '-'}</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right">{dailyCollectionReportData.eveningTotals.store || '-'}</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right font-sans font-extrabold bg-slate-50">{dailyCollectionReportData.grandTotals.store || '-'}</td>
+                        </tr>
+                        <tr className="bg-slate-50 font-sans font-black border-t border-slate-900 text-slate-950">
+                          <td className="border border-slate-400 px-3 py-1.5 uppercase">Total</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right font-mono">{dailyCollectionReportData.morningTotals.total || '-'}</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right font-mono">{dailyCollectionReportData.eveningTotals.total || '-'}</td>
+                          <td className="border border-slate-400 px-3 py-1.5 text-right font-mono bg-blue-50 text-blue-900">{dailyCollectionReportData.grandTotals.total || '-'}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-8 pt-12 mt-12 text-center text-[9px] font-black uppercase tracking-wider text-slate-500">
+                  <div className="border-t border-slate-300 pt-2">
+                    <p>PREPARED BY (ACCOUNTANT)</p>
+                  </div>
+                  <div className="border-t border-slate-300 pt-2">
+                    <p>AUDITED BY</p>
+                  </div>
+                  <div className="border-t border-slate-300 pt-2">
+                    <p>APPROVED BY</p>
+                  </div>
+                </div>
+
+              </div>
+            )}
           </div>
         </div>
       )}

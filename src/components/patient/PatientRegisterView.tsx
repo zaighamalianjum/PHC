@@ -153,24 +153,26 @@ export default function PatientRegisterView({
           </div>
 
           <div>
-            <label className="block text-xxs font-bold text-slate-500 uppercase">Age (Years)</label>
+            <label className="block text-xxs font-bold text-slate-500 uppercase">Age (Years) *</label>
             <input
               type="number"
               min="0"
               max="125"
-              value={ageYears}
-              onChange={(e) => setAgeYears(parseInt(e.target.value) || 0)}
+              placeholder="e.g. 30"
+              value={ageYears || ''}
+              onChange={(e) => setAgeYears(e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
               className="mt-1 w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
             />
           </div>
 
           <div>
-            <label className="block text-xxs font-bold text-slate-500 uppercase">Gender / Sex</label>
+            <label className="block text-xxs font-bold text-slate-500 uppercase">Gender / Sex *</label>
             <select
               value={sex}
               onChange={(e) => setSex(e.target.value as any)}
               className="mt-1 w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
             >
+              <option value="">-- Select Gender --</option>
               <option value="Male">Male</option>
               <option value="Female">Female</option>
               <option value="Other">Other</option>

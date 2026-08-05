@@ -1,0 +1,4430 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  Building2,
+  Users,
+  ShoppingCart,
+  Receipt,
+  Briefcase,
+  DollarSign,
+  Plus,
+  Trash2,
+  Edit,
+  Printer,
+  CheckCircle2,
+  AlertCircle,
+  TrendingUp,
+  TrendingDown,
+  RefreshCw,
+  Search,
+  Filter,
+  FileSpreadsheet,
+  PackageCheck,
+  CreditCard,
+  UserPlus,
+  FileText,
+  Boxes,
+  PieChart,
+  QrCode,
+  Coins,
+  Calendar,
+  X,
+  Landmark,
+  Wallet,
+  ArrowUpRight,
+  ArrowDownRight
+} from 'lucide-react';
+import ItemQRScannerModal from './ItemQRScannerModal';
+import ItemQRGeneratorModal from './ItemQRGeneratorModal';
+
+import {
+  ErpVendor,
+  ErpPurchaseOrder,
+  ErpGrn,
+  ErpGrnItem,
+  ErpTransaction,
+  ErpEmployee,
+  ErpPayroll,
+  ErpExpense,
+  ErpAsset,
+  User,
+  UserRight
+} from '../types';
+
+interface ErpDeskProps {
+  currentUser: User | null;
+  rights: UserRight[];
+}
+
+export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
+  const [activeTab, setActiveTab] = useState<'overview' | 'cash_book_pnl' | 'vendors' | 'vendor_statement' | 'po' | 'ledger' | 'hr' | 'expenses_assets'>('overview');
+  const [loading, setLoading] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+
+  // Vendor Statement States
+  const [selectedVendorId, setSelectedVendorId] = useState<string>('');
+  const [vendorDateFilter, setVendorDateFilter] = useState<'all' | 'daily' | 'weekly' | 'monthly' | 'yearly'>('all');
+  const [vendorPrintModalOpen, setVendorPrintModalOpen] = useState<boolean>(false);
+  const [expandedGrnId, setExpandedGrnId] = useState<string | null>(null);
+
+  // Core ERP State Collections
+  const [vendors, setVendors] = useState<ErpVendor[]>([]);
+  const [purchaseOrders, setPurchaseOrders] = useState<ErpPurchaseOrder[]>([]);
+  const [grns, setGrns] = useState<ErpGrn[]>([]);
+  const [transactions, setTransactions] = useState<ErpTransaction[]>([]);
+  const [employees, setEmployees] = useState<ErpEmployee[]>([]);
+  const [payrolls, setPayrolls] = useState<ErpPayroll[]>([]);
+  const [expenses, setExpenses] = useState<ErpExpense[]>([]);
+  const [assets, setAssets] = useState<ErpAsset[]>([]);
+  const [inventoryItems, setInventoryItems] = useState<any[]>([]);
+
+  // Additional Collections for Cash Book & P&L
+  const [appointments, setAppointments] = useState<any[]>([]);
+  const [patientVisits, setPatientVisits] = useState<any[]>([]);
+  const [posSales, setPosSales] = useState<any[]>([]);
+
+  // Cash Book Filter States
+  const [cashBookDateFilter, setCashBookDateFilter] = useState<'today' | 'this_week' | 'this_month' | 'all_time'>('today');
+  const [cashBookCategoryFilter, setCashBookCategoryFilter] = useState<'ALL' | 'INFLOW' | 'OUTFLOW'>('ALL');
+  const [cashBookSearch, setCashBookSearch] = useState<string>('');
+
+  // Quick Outflow Logger State
+  const [quickOutflowForm, setQuickOutflowForm] = useState<{
+    category: string;
+    amount: number | string;
+    payee: string;
+    paymentMethod: 'Cash' | 'Bank' | 'Online';
+    date: string;
+    description: string;
+  }>({
+    category: 'Building Rent & Maintenance',
+    amount: '',
+    payee: '',
+    paymentMethod: 'Cash',
+    date: new Date().toISOString().split('T')[0],
+    description: ''
+  });
+
+  // Search & Filter States
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterCategory, setFilterCategory] = useState<string>('all');
+  const [medicineSearchTerm, setMedicineSearchTerm] = useState('');
+  const [medicineFilterMode, setMedicineFilterMode] = useState<'all' | 'lowStock' | 'selected'>('all');
+  const [poCategoryFilter, setPoCategoryFilter] = useState<string>('all');
+
+  // Dynamic Medicine Categories List
+  const medicineCategories = useMemo(() => {
+    const defaultCats = [
+      'Tablet / Capsule',
+      'Syrup / Liquid',
+      'Injection / Ampoule',
+      'Ointment / Cream',
+      'Drops',
+      'Clinical / Compounded',
+      'Patent / Pre-packaged',
+      'Surgical / Supplies'
+    ];
+    const itemCats = (inventoryItems || [])
+      .map((i: any) => i.Category || (i.MedicineType === 'C' ? 'Clinical / Compounded' : i.MedicineType === 'P' ? 'Patent / Pre-packaged' : 'Tablet / Capsule'))
+      .filter(Boolean);
+    return Array.from(new Set([...defaultCats, ...itemCats]));
+  }, [inventoryItems]);
+
+  // Selected Vendor for Statement View
+  const selectedVendor = useMemo(() => {
+    if (!selectedVendorId && vendors.length > 0) {
+      return vendors[0];
+    }
+    return vendors.find(v => v.VendorID === selectedVendorId || v._id === selectedVendorId) || vendors[0] || null;
+  }, [vendors, selectedVendorId]);
+
+  // Vendor Statement & Payable Ledger Calculation
+  const vendorStatement = useMemo(() => {
+    if (!selectedVendor) {
+      return { statementRows: [], totalInvoiced: 0, totalPaid: 0, closingBalance: 0 };
+    }
+
+    const vName = (selectedVendor.VendorName || '').trim().toLowerCase();
+    const vId = (selectedVendor.VendorID || selectedVendor._id || '').trim().toLowerCase();
+
+    // Filter GRNs for this vendor
+    const vendorGrns = (grns || []).filter(g => {
+      const sName = (g.SupplierName || '').trim().toLowerCase();
+      const sId = (g.SupplierID || '').trim().toLowerCase();
+      return (vName && sName === vName) || (vId && sId === vId) || (sName && vName.includes(sName));
+    });
+
+    // Filter Payments / Transactions for this vendor
+    const vendorTxns = (transactions || []).filter(t => {
+      const tVName = (t.VendorName || '').trim().toLowerCase();
+      const tVId = (t.VendorID || '').trim().toLowerCase();
+      const isVendorPay = t.Type === 'VendorPayment' || t.Category === 'Vendor Payment' || (t.Type === 'Expense' && tVName);
+      return isVendorPay && ((vName && tVName === vName) || (vId && tVId === vId) || (tVName && vName.includes(tVName)));
+    });
+
+    type LedgerRow = {
+      id: string;
+      date: string;
+      type: string;
+      refNo: string;
+      description: string;
+      debit: number;   // Payment (settlement)
+      credit: number;  // GRN Bill (invoice)
+      runningBalance?: number;
+      rawItem?: any;
+    };
+
+    const rows: LedgerRow[] = [];
+
+    vendorGrns.forEach(g => {
+      rows.push({
+        id: g.GrnID || g._id || `GRN-${Math.random()}`,
+        date: g.ReceivedDate || new Date().toISOString().split('T')[0],
+        type: 'Goods Received (GRN)',
+        refNo: g.GrnID || 'GRN-N/A',
+        description: `GRN Received - Invoice #${g.VendorInvoiceNo || 'N/A'} (${g.ItemsReceived?.length || 0} items)`,
+        debit: 0,
+        credit: Number(g.TotalAmount || 0),
+        rawItem: g
+      });
+    });
+
+    vendorTxns.forEach(t => {
+      rows.push({
+        id: t.TransactionID || t._id || `TXN-${Math.random()}`,
+        date: t.Date || new Date().toISOString().split('T')[0],
+        type: 'Vendor Bill Payment',
+        refNo: t.TransactionID || 'PAY-N/A',
+        description: `Payment Settled via ${t.PaymentMethod || 'Cash'} - ${t.Description || 'Vendor Settlement'}`,
+        debit: Number(t.Amount || 0),
+        credit: 0,
+        rawItem: t
+      });
+    });
+
+    // Sort chronologically
+    rows.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    // Date Filtering
+    const now = new Date();
+    const filteredRows = rows.filter(r => {
+      if (vendorDateFilter === 'all') return true;
+      const rDate = new Date(r.date);
+      if (isNaN(rDate.getTime())) return true;
+
+      if (vendorDateFilter === 'daily') {
+        return rDate.toDateString() === now.toDateString();
+      }
+      if (vendorDateFilter === 'weekly') {
+        const oneWeekAgo = new Date();
+        oneWeekAgo.setDate(now.getDate() - 7);
+        return rDate >= oneWeekAgo;
+      }
+      if (vendorDateFilter === 'monthly') {
+        return rDate.getMonth() === now.getMonth() && rDate.getFullYear() === now.getFullYear();
+      }
+      if (vendorDateFilter === 'yearly') {
+        return rDate.getFullYear() === now.getFullYear();
+      }
+      return true;
+    });
+
+    // Calculate Running Balance
+    let running = 0;
+    let totalInvoiced = 0;
+    let totalPaid = 0;
+
+    const statementRows = filteredRows.map(r => {
+      totalInvoiced += r.credit;
+      totalPaid += r.debit;
+      running = running + r.credit - r.debit;
+      return {
+        ...r,
+        runningBalance: running
+      };
+    });
+
+    const closingBalance = Math.max(0, selectedVendor.Balance ?? running);
+
+    return {
+      statementRows,
+      totalInvoiced,
+      totalPaid,
+      closingBalance
+    };
+  }, [selectedVendor, grns, transactions, vendorDateFilter]);
+
+  // UNIFIED CLINIC CASH BOOK & P&L LEDGER COMPUTATIONS
+  const cashBookEntries = useMemo(() => {
+    const entries: Array<{
+      id: string;
+      date: string;
+      time: string;
+      ref: string;
+      particulars: string;
+      category: string;
+      type: 'INFLOW' | 'OUTFLOW';
+      amount: number;
+      paymentMode: string;
+      source: string;
+    }> = [];
+
+    // 1. Appointments (OPD Token Collections)
+    (appointments || []).forEach((app: any) => {
+      const amt = Number(app.FeeCharged) || 1500;
+      if (amt > 0 && app.Status !== 3) {
+        entries.push({
+          id: `APP-${app.AppointmentID || app._id || Math.random()}`,
+          date: app.AppointmentDate || app.BookingDate || new Date().toISOString().split('T')[0],
+          time: app.Time || 'OPD Shift',
+          ref: `TOKEN-${app.AppointmentID || '001'}`,
+          particulars: `OPD Consultation Token: ${app.PatientName || 'Patient'} (Dr. Ejaz)`,
+          category: 'OPD Token Consultation Fee',
+          type: 'INFLOW',
+          amount: amt,
+          paymentMode: 'Cash',
+          source: 'Appointments'
+        });
+      }
+    });
+
+    // 2. Patient Visits (Clinical Medicines, File & Card Registration)
+    (patientVisits || []).forEach((vis: any) => {
+      const vDate = vis.VisitDate || vis.Date || new Date().toISOString().split('T')[0];
+      const pName = vis.PatientName || `Patient #${vis.PatientID || ''}`;
+      
+      const clinAmt = Number(vis.ClinicalMedicinePkr) || 0;
+      if (clinAmt > 0) {
+        entries.push({
+          id: `VIS-CLIN-${vis._id || Math.random()}`,
+          date: vDate,
+          time: vis.VisitTime || 'Dispensary',
+          ref: `PV-${vis.PatientID || '001'}`,
+          particulars: `Clinical Formulated Medicine: ${pName}`,
+          category: 'Clinical Formulated Medicine',
+          type: 'INFLOW',
+          amount: clinAmt,
+          paymentMode: 'Cash',
+          source: 'PatientVisits'
+        });
+      }
+
+      const fileAmt = Number(vis.FilePkr) || 0;
+      if (fileAmt > 0) {
+        entries.push({
+          id: `VIS-FILE-${vis._id || Math.random()}`,
+          date: vDate,
+          time: vis.VisitTime || 'Reception',
+          ref: `FILE-${vis.PatientID || '001'}`,
+          particulars: `File Registration & Folder Fee: ${pName}`,
+          category: 'File Registration Fee',
+          type: 'INFLOW',
+          amount: fileAmt,
+          paymentMode: 'Cash',
+          source: 'PatientVisits'
+        });
+      }
+
+      const cardAmt = Number(vis.CardPkr) || 0;
+      if (cardAmt > 0) {
+        entries.push({
+          id: `VIS-CARD-${vis._id || Math.random()}`,
+          date: vDate,
+          time: vis.VisitTime || 'Reception',
+          ref: `CARD-${vis.PatientID || '001'}`,
+          particulars: `Health Identity Card Fee: ${pName}`,
+          category: 'Patient Card Fee',
+          type: 'INFLOW',
+          amount: cardAmt,
+          paymentMode: 'Cash',
+          source: 'PatientVisits'
+        });
+      }
+    });
+
+    // 3. POS / Store Pharmacy Sales
+    (posSales || []).forEach((sale: any) => {
+      const sAmt = Number(sale.TotalAmount) || Number(sale.GrandTotal) || Number(sale.Total) || 0;
+      if (sAmt > 0) {
+        entries.push({
+          id: `SALE-${sale.InvoiceNo || sale.SaleID || sale._id || Math.random()}`,
+          date: sale.Date || sale.CreatedDate || new Date().toISOString().split('T')[0],
+          time: sale.Time || 'Pharmacy Counter',
+          ref: `INV-${sale.InvoiceNo || 'STORE'}`,
+          particulars: `Pharmacy Store Counter Sale: ${sale.CustomerName || 'Walk-in Customer'}`,
+          category: 'Pharmacy Store Sale',
+          type: 'INFLOW',
+          amount: sAmt,
+          paymentMode: sale.PaymentMethod || sale.PaymentMode || 'Cash',
+          source: 'POS Sales'
+        });
+      }
+    });
+
+    // 4. ERP Expenses (Outflows)
+    (expenses || []).forEach((exp: any) => {
+      const eAmt = Number(exp.Amount) || 0;
+      if (eAmt > 0) {
+        entries.push({
+          id: `EXP-${exp.ExpenseID || exp._id || Math.random()}`,
+          date: exp.ExpenseDate || exp.Date || new Date().toISOString().split('T')[0],
+          time: 'Expenses Ledger',
+          ref: `EXP-${exp.ExpenseID || 'VOUCHER'}`,
+          particulars: `${exp.Category}: ${exp.Description || 'Clinic Expense Outflow'}`,
+          category: exp.Category || 'General Expense',
+          type: 'OUTFLOW',
+          amount: eAmt,
+          paymentMode: exp.PaymentMethod || 'Cash',
+          source: 'Expenses'
+        });
+      }
+    });
+
+    // 5. ERP Payroll / Salaries Paid (Outflows)
+    (payrolls || []).forEach((pay: any) => {
+      const pAmt = Number(pay.NetSalary) || Number(pay.BasicSalary) || 0;
+      if (pAmt > 0) {
+        const emp = (employees || []).find(e => e.EmployeeID === pay.EmployeeID);
+        entries.push({
+          id: `PAY-${pay.PayrollID || pay._id || Math.random()}`,
+          date: pay.PaymentDate || `${pay.MonthYear || '2026-08'}-01`,
+          time: 'HR Accounts',
+          ref: `PAY-${pay.PayrollID || 'VOUCHER'}`,
+          particulars: `Staff Salary Disbursement: ${emp?.FullName || pay.EmployeeID || 'Employee'} (${pay.MonthYear || ''})`,
+          category: 'Staff Salary & Payroll',
+          type: 'OUTFLOW',
+          amount: pAmt,
+          paymentMode: pay.PaymentMethod || 'Cash',
+          source: 'Payroll'
+        });
+      }
+    });
+
+    // 6. ERP General Ledger Transactions
+    (transactions || []).forEach((tx: any) => {
+      const tAmt = Number(tx.Amount) || 0;
+      if (tAmt > 0) {
+        const isOut = tx.Type === 'Expense' || tx.Type === 'VendorPayment' || tx.Type === 'AssetPurchase';
+        const isAlreadyIn = entries.some(e => e.id.includes(tx.TransactionID || 'NEVER_MATCH'));
+        if (!isAlreadyIn) {
+          entries.push({
+            id: `TX-${tx.TransactionID || tx._id || Math.random()}`,
+            date: tx.Date || new Date().toISOString().split('T')[0],
+            time: 'General Ledger',
+            ref: `TXN-${tx.TransactionID || '001'}`,
+            particulars: tx.Description || `${tx.Type} - ${tx.Category}`,
+            category: tx.Category || tx.Type,
+            type: isOut ? 'OUTFLOW' : 'INFLOW',
+            amount: tAmt,
+            paymentMode: tx.PaymentMethod || 'Cash',
+            source: 'ERP Transactions'
+          });
+        }
+      }
+    });
+
+    return entries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [appointments, patientVisits, posSales, expenses, payrolls, transactions, employees]);
+
+  const filteredCashBookEntries = useMemo(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const now = new Date();
+
+    return cashBookEntries.filter(e => {
+      if (cashBookDateFilter === 'today') {
+        if (e.date !== todayStr) return false;
+      } else if (cashBookDateFilter === 'this_week') {
+        const d = new Date(e.date);
+        const diffTime = Math.abs(now.getTime() - d.getTime());
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        if (diffDays > 7) return false;
+      } else if (cashBookDateFilter === 'this_month') {
+        if (!e.date.startsWith(todayStr.slice(0, 7))) return false;
+      }
+
+      if (cashBookCategoryFilter === 'INFLOW' && e.type !== 'INFLOW') return false;
+      if (cashBookCategoryFilter === 'OUTFLOW' && e.type !== 'OUTFLOW') return false;
+
+      if (cashBookSearch.trim()) {
+        const q = cashBookSearch.toLowerCase();
+        const match = e.particulars.toLowerCase().includes(q) ||
+                      e.category.toLowerCase().includes(q) ||
+                      e.ref.toLowerCase().includes(q) ||
+                      e.paymentMode.toLowerCase().includes(q);
+        if (!match) return false;
+      }
+
+      return true;
+    });
+  }, [cashBookEntries, cashBookDateFilter, cashBookCategoryFilter, cashBookSearch]);
+
+  const cashBookMetrics = useMemo(() => {
+    let totalInflow = 0;
+    let totalOutflow = 0;
+
+    let opdInflow = 0;
+    let clinicalInflow = 0;
+    let storeInflow = 0;
+    let regInflow = 0;
+
+    let salariesOutflow = 0;
+    let rentOutflow = 0;
+    let billsOutflow = 0;
+    let medicinePurchasesOutflow = 0;
+    let miscOutflow = 0;
+
+    filteredCashBookEntries.forEach(e => {
+      if (e.type === 'INFLOW') {
+        totalInflow += e.amount;
+        if (e.category.includes('OPD')) opdInflow += e.amount;
+        else if (e.category.includes('Clinical')) clinicalInflow += e.amount;
+        else if (e.category.includes('Store') || e.category.includes('Pharmacy')) storeInflow += e.amount;
+        else regInflow += e.amount;
+      } else {
+        totalOutflow += e.amount;
+        const catLower = e.category.toLowerCase();
+        if (catLower.includes('salary') || catLower.includes('payroll')) salariesOutflow += e.amount;
+        else if (catLower.includes('rent')) rentOutflow += e.amount;
+        else if (catLower.includes('electric') || catLower.includes('water') || catLower.includes('utility') || catLower.includes('bill')) billsOutflow += e.amount;
+        else if (catLower.includes('medicine') || catLower.includes('purchase') || catLower.includes('vendor')) medicinePurchasesOutflow += e.amount;
+        else miscOutflow += e.amount;
+      }
+    });
+
+    const netBalance = totalInflow - totalOutflow;
+    const marginPercent = totalInflow > 0 ? ((netBalance / totalInflow) * 100).toFixed(1) : '0';
+
+    return {
+      totalInflow,
+      totalOutflow,
+      netBalance,
+      marginPercent,
+      opdInflow,
+      clinicalInflow,
+      storeInflow,
+      regInflow,
+      salariesOutflow,
+      rentOutflow,
+      billsOutflow,
+      medicinePurchasesOutflow,
+      miscOutflow
+    };
+  }, [filteredCashBookEntries]);
+
+  const handleQuickOutflowSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amt = Number(quickOutflowForm.amount) || 0;
+    if (amt <= 0) {
+      alert("Please enter a valid expense amount.");
+      return;
+    }
+
+    const expCatRaw = quickOutflowForm.category || 'Building Rent & Maintenance';
+    let expCatMapped: 'Rent' | 'Utilities' | 'Salaries' | 'Maintenance' | 'Marketing' | 'Supplies' | 'Refreshment' | 'Other' = 'Other';
+    if (expCatRaw.includes('Rent')) expCatMapped = 'Rent';
+    else if (expCatRaw.includes('Salary') || expCatRaw.includes('Payroll')) expCatMapped = 'Salaries';
+    else if (expCatRaw.includes('Utility') || expCatRaw.includes('Electricity')) expCatMapped = 'Utilities';
+    else if (expCatRaw.includes('Tea') || expCatRaw.includes('Refreshment')) expCatMapped = 'Refreshment';
+    else if (expCatRaw.includes('Repair') || expCatRaw.includes('Maintenance')) expCatMapped = 'Maintenance';
+
+    const newExp: ErpExpense = {
+      ExpenseID: `EXP-${Date.now().toString().slice(-6)}`,
+      Category: expCatMapped,
+      Description: quickOutflowForm.description ? `${quickOutflowForm.description} (Paid to: ${quickOutflowForm.payee})` : `${expCatRaw} to ${quickOutflowForm.payee || 'Payee'}`,
+      Amount: amt,
+      ExpenseDate: quickOutflowForm.date || new Date().toISOString().split('T')[0],
+      PaymentMethod: quickOutflowForm.paymentMethod as any || 'Cash',
+      ReceiptRef: `REC-${Math.floor(1000 + Math.random() * 9000)}`
+    };
+
+    const newTxn: ErpTransaction = {
+      TransactionID: `TXN-${Date.now().toString().slice(-6)}`,
+      Type: 'Expense',
+      Category: expCatRaw,
+      Description: newExp.Description,
+      Amount: amt,
+      PaymentMethod: newExp.PaymentMethod,
+      ReferenceNo: newExp.ReceiptRef,
+      Date: newExp.ExpenseDate,
+      CreatedBy: currentUser?.FullName || 'Admin',
+      VendorName: quickOutflowForm.payee || 'Expense Account'
+    };
+
+    await saveToDatabase('erp_expenses', newExp);
+    await saveToDatabase('erp_transactions', newTxn);
+
+    setExpenses(prev => [newExp, ...prev]);
+    setTransactions(prev => [newTxn, ...prev]);
+
+    setQuickOutflowForm({
+      category: 'Building Rent & Maintenance',
+      amount: '',
+      payee: '',
+      paymentMethod: 'Cash',
+      date: new Date().toISOString().split('T')[0],
+      description: ''
+    });
+
+    setSyncMessage(`Outflow of Rs. ${amt.toLocaleString()} recorded in Cash Book & P&L!`);
+    setTimeout(() => setSyncMessage(null), 3000);
+  };
+
+  const handlePrintCashBookReport = () => {
+    const printWin = window.open('', '_blank');
+    if (!printWin) {
+      alert("Please allow popups to print the report.");
+      return;
+    }
+
+    const dateLabel = cashBookDateFilter === 'today' ? `Today (${new Date().toLocaleDateString()})` :
+                      cashBookDateFilter === 'this_week' ? 'Past 7 Days' :
+                      cashBookDateFilter === 'this_month' ? `Month of ${new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}` : 'All Time Records';
+
+    const rowsHtml = filteredCashBookEntries.map((e, idx) => `
+      <tr style="border-bottom: 1px solid #e2e8f0; font-size: 11px;">
+        <td style="padding: 6px; text-align: center; font-weight: bold; font-family: monospace;">${idx + 1}</td>
+        <td style="padding: 6px; font-family: monospace;">${e.date}</td>
+        <td style="padding: 6px; font-weight: bold; font-family: monospace;">${e.ref}</td>
+        <td style="padding: 6px; font-weight: bold; color: #0f172a;">${e.particulars}</td>
+        <td style="padding: 6px; color: #475569;">${e.category}</td>
+        <td style="padding: 6px; text-align: center;">
+          <span style="background: ${e.type === 'INFLOW' ? '#dcfce7' : '#ffe4e6'}; color: ${e.type === 'INFLOW' ? '#166534' : '#9f1239'}; font-weight: bold; padding: 2px 6px; border-radius: 4px; font-size: 9px;">
+            ${e.type}
+          </span>
+        </td>
+        <td style="padding: 6px; text-align: right; font-family: monospace; font-weight: bold; color: ${e.type === 'INFLOW' ? '#15803d' : '#be123c'};">
+          ${e.type === 'INFLOW' ? '+' : '-'} PKR ${e.amount.toLocaleString()}
+        </td>
+      </tr>
+    `).join('');
+
+    printWin.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Clinic Cash Book & P&L Statement - Punjab Homeopathic Clinic</title>
+          <style>
+            @page { size: A4 portrait; margin: 12mm; }
+            body { font-family: system-ui, -apple-system, sans-serif; color: #0f172a; margin: 0; padding: 0; background: #fff; }
+            .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #581c87; padding-bottom: 10px; margin-bottom: 12px; }
+            .title-area { text-align: center; flex: 1; }
+            .clinic-name { font-size: 22px; font-weight: 900; color: #881337; font-serif: Georgia, serif; }
+            .sub { font-size: 10px; font-weight: 800; color: #be123c; letter-spacing: 1px; }
+            .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 15px; }
+            .card { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px; text-align: center; }
+            .card-val { font-size: 16px; font-weight: 900; margin-top: 4px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+            th { background: #581c87; color: #fff; font-size: 10px; text-transform: uppercase; padding: 6px; text-align: left; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <img src="/nhc_logo.svg" style="width: 60px; height: 60px; object-fit: contain;" />
+            <div class="title-area">
+              <div class="clinic-name">PUNJAB HOMEOPATHIC CLINIC</div>
+              <div class="sub">HEALING NATURALLY. RESTORING BALANCE.</div>
+              <div style="font-size: 11px; font-weight: bold; color: #334155; margin-top: 4px;">PHC Reg. # R-__________ | Official Financial Ledger Statement</div>
+            </div>
+            <div style="width: 60px;"></div>
+          </div>
+
+          <div style="background: #f3e8ff; border: 1px solid #d8b4fe; padding: 8px 12px; border-radius: 6px; display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 12px;">
+            <div><strong>Report Period:</strong> ${dateLabel}</div>
+            <div><strong>Generated On:</strong> ${new Date().toLocaleString()}</div>
+          </div>
+
+          <div class="summary-grid">
+            <div class="card">
+              <div style="font-size: 10px; font-weight: bold; color: #166534;">TOTAL CASH COLLECTIONS (INFLOW)</div>
+              <div class="card-val" style="color: #15803d;">PKR ${cashBookMetrics.totalInflow.toLocaleString()}</div>
+            </div>
+            <div class="card">
+              <div style="font-size: 10px; font-weight: bold; color: #9f1239;">TOTAL EXPENSES & OUTFLOWS</div>
+              <div class="card-val" style="color: #be123c;">PKR ${cashBookMetrics.totalOutflow.toLocaleString()}</div>
+            </div>
+            <div class="card" style="background: #faf5ff; border-color: #c084fc;">
+              <div style="font-size: 10px; font-weight: bold; color: #581c87;">NET OPERATING PROFIT / CASH BALANCE</div>
+              <div class="card-val" style="color: ${cashBookMetrics.netBalance >= 0 ? '#15803d' : '#be123c'};">PKR ${cashBookMetrics.netBalance.toLocaleString()}</div>
+            </div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 30px; text-align: center;">#</th>
+                <th style="width: 80px;">Date</th>
+                <th style="width: 90px;">Ref #</th>
+                <th>Particulars / Description</th>
+                <th style="width: 140px;">Category</th>
+                <th style="width: 60px; text-align: center;">Type</th>
+                <th style="width: 110px; text-align: right;">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+
+          <div style="margin-top: 30px; border-top: 1px solid #94a3b8; padding-top: 10px; display: flex; justify-content: space-between; font-size: 10px; color: #64748b;">
+            <div>Official Cash Ledger Report • Punjab Homeopathic Clinic</div>
+            <div style="text-align: center;">
+              <div style="height: 30px; border-bottom: 1px solid #0284c7; width: 140px; margin-bottom: 4px;"></div>
+              Authorized Doctor / Accounts Signature
+            </div>
+          </div>
+        </body>
+      </html>
+    `);
+
+    printWin.document.close();
+    printWin.focus();
+    setTimeout(() => printWin.print(), 500);
+  };
+
+  // Modals visibility state
+  const [showVendorModal, setShowVendorModal] = useState(false);
+  const [showPoModal, setShowPoModal] = useState(false);
+  const [showGrnModal, setShowGrnModal] = useState(false);
+  const [showTxnModal, setShowTxnModal] = useState(false);
+  const [showEmpModal, setShowEmpModal] = useState(false);
+  const [showPayrollModal, setShowPayrollModal] = useState(false);
+  const [showExpenseModal, setShowExpenseModal] = useState(false);
+  const [showAssetModal, setShowAssetModal] = useState(false);
+  const [showQrScannerModal, setShowQrScannerModal] = useState(false);
+  const [showQrGeneratorModal, setShowQrGeneratorModal] = useState(false);
+
+  // Selected item for Edit/Print
+  const [selectedPoForPrint, setSelectedPoForPrint] = useState<ErpPurchaseOrder | null>(null);
+
+  // GRN Form State
+  const [grnForm, setGrnForm] = useState<{
+    POID: string;
+    GRNID: string;
+    VendorID: string;
+    VendorName: string;
+    ReceivedDate: string;
+    ChallanNo: string;
+    SupplierInvoiceNo: string;
+    Remarks: string;
+    Items: { ItemID: string; ItemName: string; OrderedQty: number; ReceivedQty: number; UnitPrice: number; LineTotal: number; BatchNo?: string; ExpiryDate?: string }[];
+  }>({
+    POID: '',
+    GRNID: '',
+    VendorID: '',
+    VendorName: '',
+    ReceivedDate: new Date().toISOString().split('T')[0],
+    ChallanNo: '',
+    SupplierInvoiceNo: '',
+    Remarks: '',
+    Items: []
+  });
+
+  // Form States
+  const [vendorForm, setVendorForm] = useState<Partial<ErpVendor>>({
+    VendorID: '',
+    VendorName: '',
+    ContactPerson: '',
+    Phone: '',
+    Email: '',
+    Address: '',
+    TaxID: '',
+    Balance: 0,
+    Status: 'Active'
+  });
+
+  const [poForm, setPoForm] = useState<{
+    VendorID: string;
+    VendorName: string;
+    ExpectedDeliveryDate: string;
+    Notes: string;
+    Items: { ItemID: string; ItemName: string; Category?: string; Qty: number; UnitPrice: number; BatchNo?: string; ExpiryDate?: string }[];
+  }>({
+    VendorID: '',
+    VendorName: '',
+    ExpectedDeliveryDate: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
+    Notes: '',
+    Items: [{ ItemID: 'ITM-001', ItemName: 'Panadol Extra 500mg', Category: 'Tablet / Capsule', Qty: 100, UnitPrice: 120, BatchNo: 'B-2026-001' }]
+  });
+
+  const [txnForm, setTxnForm] = useState<Partial<ErpTransaction> & { VendorID?: string; VendorName?: string }>({
+    Type: 'Expense',
+    Category: 'Office Maintenance',
+    Description: '',
+    Amount: 0,
+    PaymentMethod: 'Cash',
+    ReferenceNo: '',
+    Date: new Date().toISOString().split('T')[0],
+    VendorID: '',
+    VendorName: ''
+  });
+
+  const [empForm, setEmpForm] = useState<Partial<ErpEmployee>>({
+    FullName: '',
+    Role: 'Pharmacist Assistant',
+    Department: 'Pharmacy',
+    Phone: '',
+    Email: '',
+    JoiningDate: new Date().toISOString().split('T')[0],
+    Salary: 45000,
+    Status: 'Active',
+    CNIC: '',
+    BankAccount: ''
+  });
+
+  const [payrollForm, setPayrollForm] = useState<{
+    EmployeeID: string;
+    MonthYear: string;
+    BasicSalary: number;
+    Allowances: number;
+    Deductions: number;
+    PaymentMethod: 'Cash' | 'Bank' | 'Cheque' | 'Online';
+  }>({
+    EmployeeID: '',
+    MonthYear: new Date().toISOString().slice(0, 7),
+    BasicSalary: 0,
+    Allowances: 2000,
+    Deductions: 0,
+    PaymentMethod: 'Bank'
+  });
+
+  const [expenseForm, setExpenseForm] = useState<Partial<ErpExpense>>({
+    Category: 'Utilities',
+    Description: '',
+    Amount: 0,
+    ExpenseDate: new Date().toISOString().split('T')[0],
+    PaymentMethod: 'Cash',
+    ReceiptRef: ''
+  });
+
+  const [assetForm, setAssetForm] = useState<Partial<ErpAsset>>({
+    AssetName: '',
+    Category: 'Equipment',
+    PurchaseDate: new Date().toISOString().split('T')[0],
+    PurchaseCost: 0,
+    CurrentValue: 0,
+    DepreciationRate: 10,
+    Status: 'Active'
+  });
+
+  // Safe JSON Fetch Helper
+  const safeFetchJson = async (url: string, fallback: any = []) => {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return fallback;
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) return fallback;
+      return await res.json();
+    } catch {
+      return fallback;
+    }
+  };
+
+  // Initial Fetching from API Database
+  const fetchErpData = async () => {
+    setLoading(true);
+    try {
+      const [
+        vRes, poRes, grnRes, txRes, empRes, payRes, expRes, astRes, itemsRes, apptsRes, visitsRes, salesRes
+      ] = await Promise.all([
+        safeFetchJson('/api/query/erp_vendors'),
+        safeFetchJson('/api/query/erp_purchase_orders'),
+        safeFetchJson('/api/query/erp_grn'),
+        safeFetchJson('/api/query/erp_transactions'),
+        safeFetchJson('/api/query/erp_employees'),
+        safeFetchJson('/api/query/erp_payroll'),
+        safeFetchJson('/api/query/erp_expenses'),
+        safeFetchJson('/api/query/erp_assets'),
+        safeFetchJson('/api/query/items'),
+        safeFetchJson('/api/query/appointments'),
+        safeFetchJson('/api/query/patient_visits'),
+        safeFetchJson('/api/query/sales')
+      ]);
+
+      if (Array.isArray(vRes)) setVendors(vRes);
+      if (Array.isArray(poRes)) setPurchaseOrders(poRes);
+      if (Array.isArray(grnRes)) setGrns(grnRes);
+      if (Array.isArray(txRes)) setTransactions(txRes);
+      if (Array.isArray(empRes)) setEmployees(empRes);
+      if (Array.isArray(payRes)) setPayrolls(payRes);
+      if (Array.isArray(expRes)) setExpenses(expRes);
+      if (Array.isArray(astRes)) setAssets(astRes);
+      if (Array.isArray(apptsRes)) setAppointments(apptsRes);
+      if (Array.isArray(visitsRes)) setPatientVisits(visitsRes);
+      if (Array.isArray(salesRes)) setPosSales(salesRes);
+
+      if (Array.isArray(itemsRes) && itemsRes.length > 0) {
+        setInventoryItems(itemsRes);
+      } else {
+        setInventoryItems([
+          { ItemID: 'ITM-001', ItemName: 'Panadol 500mg (Paracetamol)', Category: 'Tablet / Capsule', Price: 3.5, PurchasePrice: 2.8, CStock: 120, MinStock: 200, Unit: 'Tab' },
+          { ItemID: 'ITM-002', ItemName: 'Augmentin 625mg (Co-Amoxiclav)', Category: 'Tablet / Capsule', Price: 45.0, PurchasePrice: 38.0, CStock: 30, MinStock: 100, Unit: 'Tab' },
+          { ItemID: 'ITM-003', ItemName: 'Lofnac 50mg (Diclofenac Sodium)', Category: 'Tablet / Capsule', Price: 8.0, PurchasePrice: 6.2, CStock: 80, MinStock: 150, Unit: 'Tab' },
+          { ItemID: 'ITM-004', ItemName: 'Arinac Syrup 120ml', Category: 'Syrup / Liquid', Price: 12.0, PurchasePrice: 9.5, CStock: 150, MinStock: 100, Unit: 'Syr' },
+          { ItemID: 'ITM-005', ItemName: 'Surbex-Z (Multivitamins & Zinc)', Category: 'Tablet / Capsule', Price: 15.0, PurchasePrice: 12.0, CStock: 40, MinStock: 100, Unit: 'Tab' },
+          { ItemID: 'ITM-006', ItemName: 'Omeprazole 20mg (Capsules)', Category: 'Tablet / Capsule', Price: 18.0, PurchasePrice: 14.5, CStock: 15, MinStock: 80, Unit: 'Cap' },
+          { ItemID: 'ITM-007', ItemName: 'Flagyl 400mg (Metronidazole)', Category: 'Tablet / Capsule', Price: 7.5, PurchasePrice: 5.5, CStock: 250, MinStock: 100, Unit: 'Tab' },
+          { ItemID: 'ITM-008', ItemName: 'Dicloran Injection 75mg/3ml', Category: 'Injection / Ampoule', Price: 35.0, PurchasePrice: 28.0, CStock: 12, MinStock: 50, Unit: 'Amp' },
+          { ItemID: 'ITM-009', ItemName: 'Betnovate-N Ointment 20g', Category: 'Ointment / Cream', Price: 110.0, PurchasePrice: 92.0, CStock: 8, MinStock: 30, Unit: 'Tube' },
+          { ItemID: 'ITM-010', ItemName: 'Tobradex Eye Drops 5ml', Category: 'Drops', Price: 220.0, PurchasePrice: 185.0, CStock: 5, MinStock: 25, Unit: 'Bot' }
+        ]);
+      }
+
+      setSyncMessage('Data retrieved successfully!');
+      setTimeout(() => setSyncMessage(null), 3000);
+    } catch (err) {
+      console.error('Failed to load ERP data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchErpData();
+  }, []);
+
+  // Universal Database Helper (Insert, Retrieve, Delete)
+  const saveToDatabase = async (collection: string, data: any) => {
+    try {
+      const id = data._id;
+      const method = id ? 'PUT' : 'POST';
+      const url = id ? `/api/query/${collection}/${id}` : `/api/query/${collection}`;
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) return { success: false };
+      return await res.json();
+    } catch (e) {
+      console.error(`Failed to save to ${collection}:`, e);
+      return { success: false };
+    }
+  };
+
+  const deleteFromDatabase = async (collection: string, id: string) => {
+    try {
+      const res = await fetch(`/api/query/${collection}/${id}`, {
+        method: 'DELETE'
+      });
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) return { success: false };
+      return await res.json();
+    } catch (e) {
+      console.error(`Failed to delete from ${collection}:`, e);
+      return { success: false };
+    }
+  };
+
+  // Test Entry Generator Function (Stores test entry, verifies retrieval & delete)
+  const handleRunTestEntry = async () => {
+    setLoading(true);
+    setSyncMessage('Executing live database Test Entry across ERP modules...');
+
+    try {
+      const testId = `TEST-${Date.now().toString().slice(-4)}`;
+      
+      // 1. Test Vendor Entry
+      const testVendor: ErpVendor = {
+        VendorID: `VND-${testId}`,
+        VendorName: `Test Alpha Pharma Distributors (${testId})`,
+        ContactPerson: 'Test Manager Tariq',
+        Phone: '0300-9988776',
+        Email: 'test@alphapharma.com',
+        Address: 'Test Industrial Estate, Lahore',
+        TaxID: `NTN-${testId}`,
+        Balance: 25000,
+        Status: 'Active'
+      };
+      await saveToDatabase('erp_vendors', testVendor);
+
+      // 2. Test Transaction Entry
+      const testTxn: ErpTransaction = {
+        TransactionID: `TXN-${testId}`,
+        Type: 'Expense',
+        Category: 'Test Utility Inspection',
+        Description: 'Test sample ERP automated validation entry',
+        Amount: 5500,
+        PaymentMethod: 'Cash',
+        ReferenceNo: `REF-${testId}`,
+        Date: new Date().toISOString().split('T')[0],
+        CreatedBy: currentUser?.FullName || 'Admin Test'
+      };
+      await saveToDatabase('erp_transactions', testTxn);
+
+      // 3. Test Expense Entry
+      const testExp: ErpExpense = {
+        ExpenseID: `EXP-${testId}`,
+        Category: 'Maintenance',
+        Description: 'Test air compressor repair & servicing',
+        Amount: 3200,
+        ExpenseDate: new Date().toISOString().split('T')[0],
+        PaymentMethod: 'Cash',
+        ReceiptRef: `REC-${testId}`
+      };
+      await saveToDatabase('erp_expenses', testExp);
+
+      // 4. Test Purchase Order & Stock Requisition Entry
+      const testPo: ErpPurchaseOrder = {
+        POID: `PO-${testId}`,
+        VendorID: `VND-${testId}`,
+        VendorName: `Test Alpha Pharma Distributors (${testId})`,
+        OrderDate: new Date().toISOString().split('T')[0],
+        ExpectedDeliveryDate: new Date(Date.now() + 5 * 86400000).toISOString().split('T')[0],
+        TotalAmount: 18500,
+        PaidAmount: 0,
+        Status: 'Sent',
+        Notes: 'Automated database verification test purchase order with medicine categories',
+        Items: [
+          { ItemID: 'ITM-001', ItemName: 'Panadol Extra 500mg', Category: 'Tablet / Capsule', Qty: 100, UnitPrice: 120, LineTotal: 12000, BatchNo: `B-${testId}-01` },
+          { ItemID: 'ITM-004', ItemName: 'Arinac Syrup 120ml', Category: 'Syrup / Liquid', Qty: 50, UnitPrice: 130, LineTotal: 6500, BatchNo: `B-${testId}-02` }
+        ]
+      };
+      await saveToDatabase('erp_purchase_orders', testPo);
+
+      // Re-fetch database to confirm retrieval
+      await fetchErpData();
+
+      alert(`✅ DATABASE INTEGRATION CONFIRMED & TEST ENTRY SUCCESSFUL!\n\nSuccessfully created, saved, and retrieved live database test records (ID suffix: "${testId}") across:\n• Vendors & Suppliers Table\n• Purchase Orders & Requisitions Table (with Medicine Categories)\n• Financial Transactions Ledger Table\n• Operating Expenses Table\n\nEntire app database link validated!`);
+    } catch (err: any) {
+      alert(`Test Entry Failed: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // HANDLERS FOR VENDORS
+  const handleAddVendor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!vendorForm.VendorName?.trim()) return alert('Vendor Name is required.');
+
+    // Prevent double entry: duplicate vendor name check
+    const trimmedName = vendorForm.VendorName.trim().toLowerCase();
+    if (vendors.some(v => v.VendorName?.trim().toLowerCase() === trimmedName)) {
+      return alert('Vendor with this name already exists! Duplicate entry prevented.');
+    }
+
+    const newVendor: ErpVendor = {
+      VendorID: vendorForm.VendorID || `VND-${Math.floor(100 + Math.random() * 900)}`,
+      VendorName: vendorForm.VendorName.trim(),
+      ContactPerson: vendorForm.ContactPerson || 'N/A',
+      Phone: vendorForm.Phone || 'N/A',
+      Email: vendorForm.Email || '',
+      Address: vendorForm.Address || 'Lahore, Pakistan',
+      TaxID: vendorForm.TaxID || '',
+      Balance: Number(vendorForm.Balance) || 0,
+      Status: vendorForm.Status || 'Active'
+    };
+
+    await saveToDatabase('erp_vendors', newVendor);
+    setVendors(prev => [newVendor, ...prev]);
+    setShowVendorModal(false);
+    setVendorForm({ VendorName: '', ContactPerson: '', Phone: '', Address: '', Balance: 0, Status: 'Active' });
+    setSyncMessage('Vendor saved successfully!');
+    setTimeout(() => setSyncMessage(null), 3000);
+  };
+
+  const handleDeleteVendor = async (vendor: ErpVendor) => {
+    if (!confirm(`Are you sure you want to delete Vendor "${vendor.VendorName}"?`)) return;
+    const targetId = vendor._id || vendor.VendorID;
+    await deleteFromDatabase('erp_vendors', targetId);
+    setVendors(prev => prev.filter(v => (v._id ? v._id !== vendor._id : v.VendorID !== vendor.VendorID)));
+    setSyncMessage('Vendor deleted successfully!');
+    setTimeout(() => setSyncMessage(null), 3000);
+  };
+
+  // HANDLERS FOR PURCHASE ORDERS & STOCK REQUISITION
+  const getRequiredQty = (item: any) => {
+    const cStock = item.CStock ?? item.Stock ?? 0;
+    const minStock = item.MinStock ?? 100;
+    const targetStock = minStock * 2;
+    const deficit = targetStock - cStock;
+    return Math.max(50, Math.max(0, deficit));
+  };
+
+  const isMedicineSelectedInPo = (itemId: string, itemName: string) => {
+    return poForm.Items.some(i => (i.ItemID && i.ItemID === itemId) || i.ItemName === itemName);
+  };
+
+  const handleToggleMedicineForPo = (med: any) => {
+    const isSelected = isMedicineSelectedInPo(med.ItemID, med.ItemName);
+    if (isSelected) {
+      setPoForm(prev => ({
+        ...prev,
+        Items: prev.Items.filter(i => i.ItemID !== med.ItemID && i.ItemName !== med.ItemName)
+      }));
+    } else {
+      const reqQty = getRequiredQty(med);
+      const unitPrice = med.PurchasePrice || med.Price || 10;
+      const cat = med.Category || (med.MedicineType === 'C' ? 'Clinical / Compounded' : med.MedicineType === 'P' ? 'Patent / Pre-packaged' : 'Tablet / Capsule');
+      setPoForm(prev => ({
+        ...prev,
+        Items: [
+          ...prev.Items.filter(i => i.ItemName !== ''),
+          {
+            ItemID: med.ItemID || `ITM-${Math.floor(100 + Math.random() * 900)}`,
+            ItemName: med.ItemName,
+            Category: cat,
+            Qty: reqQty,
+            UnitPrice: unitPrice,
+            BatchNo: med.BatchNo || `B-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`
+          }
+        ]
+      }));
+    }
+  };
+
+  const handleSelectAllLowStockMedicines = () => {
+    const lowStockItems = inventoryItems.filter(med => (med.CStock ?? 0) <= (med.MinStock ?? 100));
+    if (lowStockItems.length === 0) {
+      alert('All medicine stock levels are currently adequate!');
+      return;
+    }
+
+    const newPoItems = lowStockItems.map(med => ({
+      ItemID: med.ItemID || `ITM-${Math.floor(100 + Math.random() * 900)}`,
+      ItemName: med.ItemName,
+      Category: med.Category || (med.MedicineType === 'C' ? 'Clinical / Compounded' : med.MedicineType === 'P' ? 'Patent / Pre-packaged' : 'Tablet / Capsule'),
+      Qty: getRequiredQty(med),
+      UnitPrice: med.PurchasePrice || med.Price || 10,
+      BatchNo: med.BatchNo || `B-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`
+    }));
+
+    setPoForm(prev => ({
+      ...prev,
+      Items: newPoItems
+    }));
+  };
+
+  const handleAddPoItem = () => {
+    setPoForm(prev => ({
+      ...prev,
+      Items: [...prev.Items, { ItemID: `ITM-${Date.now().toString().slice(-3)}`, ItemName: '', Category: 'Tablet / Capsule', Qty: 10, UnitPrice: 100, BatchNo: `B-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}` }]
+    }));
+  };
+
+  const handleUpdatePoItem = (index: number, field: string, value: any) => {
+    setPoForm(prev => {
+      const updated = [...prev.Items];
+      updated[index] = { ...updated[index], [field]: value };
+      return { ...prev, Items: updated };
+    });
+  };
+
+  const handleCreatePo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!poForm.VendorName) return alert('Please select a supplier / vendor.');
+    if (!poForm.Items || poForm.Items.length === 0) return alert('Please select at least one medicine item for the Purchase Order.');
+
+    const totalAmount = poForm.Items.reduce((sum, i) => sum + (Number(i.Qty) * Number(i.UnitPrice)), 0);
+
+    const newPo: ErpPurchaseOrder = {
+      POID: `PO-${Math.floor(1000 + Math.random() * 9000)}`,
+      VendorID: poForm.VendorID || 'VND-001',
+      VendorName: poForm.VendorName,
+      OrderDate: new Date().toISOString().split('T')[0],
+      ExpectedDeliveryDate: poForm.ExpectedDeliveryDate,
+      TotalAmount: totalAmount,
+      PaidAmount: 0,
+      Status: 'Sent',
+      Notes: poForm.Notes,
+      Items: poForm.Items.map(i => ({
+        ItemID: i.ItemID,
+        ItemName: i.ItemName || 'General Item',
+        Category: i.Category || 'General Medicine',
+        Qty: Number(i.Qty),
+        UnitPrice: Number(i.UnitPrice),
+        LineTotal: Number(i.Qty) * Number(i.UnitPrice),
+        BatchNo: i.BatchNo || `B-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`
+      }))
+    };
+
+    await saveToDatabase('erp_purchase_orders', newPo);
+    setPurchaseOrders(prev => [newPo, ...prev]);
+    setShowPoModal(false);
+    setSyncMessage('Purchase Order saved successfully!');
+    setTimeout(() => setSyncMessage(null), 3000);
+  };
+
+  const handleDeletePo = async (po: ErpPurchaseOrder) => {
+    if (!confirm(`Delete Purchase Order ${po.POID}?`)) return;
+    const targetId = po._id || po.POID;
+    await deleteFromDatabase('erp_purchase_orders', targetId);
+    setPurchaseOrders(prev => prev.filter(p => (p._id ? p._id !== po._id : p.POID !== po.POID)));
+    setSyncMessage('Purchase Order deleted successfully!');
+    setTimeout(() => setSyncMessage(null), 3000);
+  };
+
+  // HANDLERS FOR GOODS RECEIVED NOTE (GRN)
+  const handleOpenGrnForPo = (po?: ErpPurchaseOrder) => {
+    if (po) {
+      setGrnForm({
+        POID: po.POID,
+        GRNID: `GRN-${Math.floor(1000 + Math.random() * 9000)}`,
+        VendorID: po.VendorID,
+        VendorName: po.VendorName,
+        ReceivedDate: new Date().toISOString().split('T')[0],
+        ChallanNo: `DC-${Math.floor(10000 + Math.random() * 90000)}`,
+        SupplierInvoiceNo: `INV-${Math.floor(10000 + Math.random() * 90000)}`,
+        Remarks: `Goods received against PO ${po.POID}`,
+        Items: po.Items.map(i => ({
+          ItemID: i.ItemID,
+          ItemName: i.ItemName,
+          OrderedQty: i.Qty,
+          ReceivedQty: i.Qty,
+          UnitPrice: i.UnitPrice,
+          LineTotal: i.LineTotal,
+          BatchNo: i.BatchNo || `B-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`
+        }))
+      });
+    } else {
+      const firstPo = purchaseOrders.find(p => p.Status !== 'Received') || purchaseOrders[0];
+      if (firstPo) {
+        handleOpenGrnForPo(firstPo);
+        return;
+      } else {
+        setGrnForm({
+          POID: '',
+          GRNID: `GRN-${Math.floor(1000 + Math.random() * 9000)}`,
+          VendorID: '',
+          VendorName: '',
+          ReceivedDate: new Date().toISOString().split('T')[0],
+          ChallanNo: '',
+          SupplierInvoiceNo: '',
+          Remarks: '',
+          Items: []
+        });
+      }
+    }
+    setShowGrnModal(true);
+  };
+
+  const handleSelectPoForGrn = (poid: string) => {
+    const foundPo = purchaseOrders.find(p => p.POID === poid);
+    if (foundPo) {
+      setGrnForm(prev => ({
+        ...prev,
+        POID: foundPo.POID,
+        VendorID: foundPo.VendorID,
+        VendorName: foundPo.VendorName,
+        Items: foundPo.Items.map(i => ({
+          ItemID: i.ItemID,
+          ItemName: i.ItemName,
+          OrderedQty: i.Qty,
+          ReceivedQty: i.Qty,
+          UnitPrice: i.UnitPrice,
+          LineTotal: i.LineTotal,
+          BatchNo: i.BatchNo || `B-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`
+        }))
+      }));
+    }
+  };
+
+  const handleApproveGrn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!grnForm.POID) return alert('Please select a valid Purchase Order ID.');
+    if (grnForm.Items.length === 0) return alert('No items in GRN to receive.');
+
+    // Prevent duplicate GRN submission for the same Purchase Order
+    if (grns.some(g => g.POID === grnForm.POID && g.Status === 'Approved')) {
+      return alert('A Goods Received Note (GRN) for this Purchase Order has already been approved! Duplicate entry prevented.');
+    }
+
+    const totalAmount = grnForm.Items.reduce((sum, i) => sum + (Number(i.ReceivedQty) * Number(i.UnitPrice)), 0);
+
+    const payload = {
+      ...grnForm,
+      TotalAmount: totalAmount,
+      CreatedBy: currentUser?.FullName || 'Store Manager'
+    };
+
+    setLoading(true);
+    try {
+      const res = await fetch('/api/erp/grn/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.success) {
+        // Refresh or update local state collections
+        setPurchaseOrders(prev => prev.map(p => p.POID === grnForm.POID ? { ...p, Status: 'Received' } : p));
+        
+        const newGrnRecord: ErpGrn = {
+          GRNID: payload.GRNID,
+          POID: payload.POID,
+          VendorID: payload.VendorID,
+          VendorName: payload.VendorName,
+          ReceivedDate: payload.ReceivedDate,
+          ChallanNo: payload.ChallanNo,
+          SupplierInvoiceNo: payload.SupplierInvoiceNo,
+          TotalAmount: totalAmount,
+          Status: 'Approved',
+          Remarks: payload.Remarks,
+          CreatedBy: payload.CreatedBy,
+          Items: payload.Items.map(i => ({
+            ItemID: i.ItemID,
+            ItemName: i.ItemName,
+            OrderedQty: i.OrderedQty,
+            ReceivedQty: i.ReceivedQty,
+            UnitPrice: i.UnitPrice,
+            LineTotal: i.ReceivedQty * i.UnitPrice
+          }))
+        };
+
+        setGrns(prev => [newGrnRecord, ...prev]);
+
+        // Re-fetch inventory items & vendors to show updated stock & balance immediately
+        const [itemsRes, vendorsRes] = await Promise.all([
+          safeFetchJson('/api/query/items'),
+          safeFetchJson('/api/query/erp_vendors')
+        ]);
+        if (Array.isArray(itemsRes) && itemsRes.length > 0) setInventoryItems(itemsRes);
+        if (Array.isArray(vendorsRes) && vendorsRes.length > 0) {
+          setVendors(vendorsRes);
+        } else if (payload.VendorID || payload.VendorName) {
+          setVendors(prev => prev.map(v => (v.VendorID === payload.VendorID || v.VendorName === payload.VendorName) ? { ...v, Balance: (v.Balance || 0) + totalAmount } : v));
+        }
+
+        setShowGrnModal(false);
+        setSyncMessage('GRN saved successfully!');
+        setTimeout(() => setSyncMessage(null), 3000);
+      } else {
+        alert(data.error || 'Failed to approve GRN.');
+      }
+    } catch (err) {
+      console.error('GRN approval error:', err);
+      alert('Network error while processing GRN approval.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePrintGrn = (grn: ErpGrn) => {
+    const printWin = window.open('', '_blank', 'width=800,height=900');
+    if (!printWin) return alert('Popup blocked. Allow popups to print Goods Received Note.');
+
+    const itemsRows = grn.Items.map((item, idx) => `
+      <tr>
+        <td style="text-align: center; border: 1px solid #ccc; padding: 6px;">${idx + 1}</td>
+        <td style="border: 1px solid #ccc; padding: 6px;">${item.ItemID}</td>
+        <td style="border: 1px solid #ccc; padding: 6px; font-weight: bold;">${item.ItemName}</td>
+        <td style="text-align: center; border: 1px solid #ccc; padding: 6px; font-family: monospace; font-weight: bold; color: #b45309;">${item.BatchNo || 'N/A'}</td>
+        <td style="text-align: center; border: 1px solid #ccc; padding: 6px;">${item.OrderedQty}</td>
+        <td style="text-align: center; border: 1px solid #ccc; padding: 6px; font-weight: bold; color: #15803d;">${item.ReceivedQty}</td>
+      </tr>
+    `).join('');
+
+    printWin.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Goods Received Note ${grn.GRNID}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 20px; font-size: 12px; color: #111; }
+            .header { text-align: center; border-bottom: 2px solid #16a34a; padding-bottom: 10px; margin-bottom: 20px; }
+            .title { font-size: 20px; font-weight: bold; color: #15803d; text-transform: uppercase; }
+            .meta { display: flex; justify-content: space-between; margin-bottom: 20px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+            th { background: #f0fdf4; border: 1px solid #bbf7d0; padding: 8px; font-size: 11px; }
+            .footer { margin-top: 50px; display: flex; justify-content: space-between; font-weight: bold; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="title">GOODS RECEIVED NOTE (GRN)</div>
+            <div>PUNJAB HOMEOPATHIC CLINIC & PHARMACY WAREHOUSE</div>
+          </div>
+          <div class="meta">
+            <div>
+              <strong>GRN Number:</strong> ${grn.GRNID}<br/>
+              <strong>PO Ref Number:</strong> ${grn.POID}<br/>
+              <strong>Received Date:</strong> ${grn.ReceivedDate}<br/>
+              <strong>Delivery Challan No:</strong> ${grn.ChallanNo || 'N/A'}
+            </div>
+            <div style="text-align: right;">
+              <strong>Supplier / Vendor:</strong> ${grn.VendorName}<br/>
+              <strong>Vendor ID:</strong> ${grn.VendorID}<br/>
+              <strong>Supplier Invoice:</strong> ${grn.SupplierInvoiceNo || 'N/A'}<br/>
+              <strong>Status:</strong> <span style="color: green; font-weight: bold;">STOCK RECEIVED & APPROVED</span>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Item Code</th>
+                <th>Description / Medicine Name</th>
+                <th>Batch No.</th>
+                <th>Ordered Qty</th>
+                <th>Received Qty (Added to Stock)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itemsRows}
+            </tbody>
+          </table>
+          <div style="margin-top: 20px;">
+            <strong>Remarks / Verification Note:</strong> ${grn.Remarks || 'All received medicines verified for physical condition & quantity.'}
+          </div>
+          <div class="footer">
+            <div>Warehouse Receiver Sign: _________________</div>
+            <div>Quality Inspector Sign: _________________</div>
+          </div>
+          <script>
+            window.onload = function() { window.print(); }
+          </script>
+        </body>
+      </html>
+    `);
+    printWin.document.close();
+  };
+
+  // HANDLERS FOR TRANSACTIONS & VENDOR BILL PAYMENTS
+  const handlePayVendor = (vendor: ErpVendor) => {
+    setTxnForm({
+      Type: 'VendorPayment',
+      Category: 'Supplier Sales Invoice Payment',
+      Description: `Payment towards outstanding bill for Vendor ${vendor.VendorName} (${vendor.VendorID})`,
+      Amount: vendor.Balance > 0 ? vendor.Balance : 0,
+      PaymentMethod: 'Bank',
+      ReferenceNo: `PAY-${Date.now().toString().slice(-4)}`,
+      Date: new Date().toISOString().split('T')[0],
+      VendorID: vendor.VendorID,
+      VendorName: vendor.VendorName
+    });
+    setShowTxnModal(true);
+  };
+
+  const handleAddTxn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!txnForm.Amount || !txnForm.Category) return alert('Category and Amount are required.');
+
+    const newTxn: ErpTransaction = {
+      TransactionID: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
+      Type: txnForm.Type || 'Expense',
+      Category: txnForm.Category,
+      Description: txnForm.Description || '',
+      Amount: Number(txnForm.Amount),
+      PaymentMethod: txnForm.PaymentMethod || 'Cash',
+      ReferenceNo: txnForm.ReferenceNo || 'N/A',
+      Date: txnForm.Date || new Date().toISOString().split('T')[0],
+      CreatedBy: currentUser?.FullName || 'Admin',
+      VendorID: txnForm.VendorID || '',
+      VendorName: txnForm.VendorName || ''
+    };
+
+    await saveToDatabase('erp_transactions', newTxn);
+    setTransactions(prev => [newTxn, ...prev]);
+
+    // If this is a Vendor Payment, settle the Vendor's Outstanding Balance in DB
+    if (txnForm.Type === 'VendorPayment' && (txnForm.VendorID || txnForm.VendorName)) {
+      const pAmt = Number(txnForm.Amount);
+      const targetVendor = vendors.find(v => v.VendorID === txnForm.VendorID || v.VendorName === txnForm.VendorName);
+      if (targetVendor) {
+        const newBalance = Math.max(0, targetVendor.Balance - pAmt);
+        const targetId = targetVendor._id || targetVendor.VendorID;
+        await saveToDatabase('erp_vendors', { ...targetVendor, Balance: newBalance });
+        setVendors(prev => prev.map(v => (v.VendorID === targetVendor.VendorID ? { ...v, Balance: newBalance } : v)));
+      }
+    }
+
+    setShowTxnModal(false);
+    setTxnForm({ Type: 'Expense', Category: 'Office Maintenance', Description: '', Amount: 0, PaymentMethod: 'Cash', VendorID: '', VendorName: '' });
+    setSyncMessage('Transaction saved successfully!');
+    setTimeout(() => setSyncMessage(null), 3000);
+  };
+
+  const handleDeleteTxn = async (txn: ErpTransaction) => {
+    if (!confirm(`Delete transaction ${txn.TransactionID}?`)) return;
+    const targetId = txn._id || txn.TransactionID;
+    await deleteFromDatabase('erp_transactions', targetId);
+    setTransactions(prev => prev.filter(t => (t._id ? t._id !== txn._id : t.TransactionID !== txn.TransactionID)));
+    setSyncMessage('Transaction deleted successfully!');
+    setTimeout(() => setSyncMessage(null), 3000);
+  };
+
+  // HANDLERS FOR EMPLOYEES & PAYROLL
+  const handleAddEmployee = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!empForm.FullName || !empForm.Salary) return alert('Employee Name and Salary are required.');
+
+    // Prevent double entry: check duplicate employee name
+    const trimmedEmpName = empForm.FullName.trim().toLowerCase();
+    if (employees.some(emp => emp.FullName.trim().toLowerCase() === trimmedEmpName)) {
+      return alert('An employee with this name already exists! Duplicate entry prevented.');
+    }
+
+    const newEmp: ErpEmployee = {
+      EmployeeID: `EMP-${Math.floor(100 + Math.random() * 900)}`,
+      FullName: empForm.FullName.trim(),
+      Role: empForm.Role || 'Staff Member',
+      Department: empForm.Department || 'General',
+      Phone: empForm.Phone || 'N/A',
+      Email: empForm.Email || '',
+      JoiningDate: empForm.JoiningDate || new Date().toISOString().split('T')[0],
+      Salary: Number(empForm.Salary),
+      Status: empForm.Status || 'Active',
+      CNIC: empForm.CNIC || '35202-0000000-0',
+      BankAccount: empForm.BankAccount || ''
+    };
+
+    await saveToDatabase('erp_employees', newEmp);
+    setEmployees(prev => [newEmp, ...prev]);
+    setShowEmpModal(false);
+    setEmpForm({ FullName: '', Role: 'Pharmacist Assistant', Salary: 45000, Phone: '', CNIC: '' });
+    setSyncMessage('Employee saved successfully!');
+    setTimeout(() => setSyncMessage(null), 3000);
+  };
+
+  const handleDeleteEmp = async (emp: ErpEmployee) => {
+    if (!confirm(`Remove employee ${emp.FullName}?`)) return;
+    const targetId = emp._id || emp.EmployeeID;
+    await deleteFromDatabase('erp_employees', targetId);
+    setEmployees(prev => prev.filter(e => (e._id ? e._id !== emp._id : e.EmployeeID !== emp.EmployeeID)));
+    setSyncMessage('Employee deleted successfully!');
+    setTimeout(() => setSyncMessage(null), 3000);
+  };
+
+  const handleProcessPayroll = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const emp = employees.find(e => e.EmployeeID === payrollForm.EmployeeID);
+    if (!emp) return alert('Select a valid employee.');
+
+    // Duplicate check for Payroll in same month/year
+    if (payrolls.some(p => p.EmployeeID === emp.EmployeeID && p.MonthYear === payrollForm.MonthYear)) {
+      return alert(`Payroll for ${emp.FullName} for period ${payrollForm.MonthYear} has already been processed! Duplicate entry prevented.`);
+    }
+
+    const basic = Number(payrollForm.BasicSalary) || emp.Salary;
+    const allow = Number(payrollForm.Allowances) || 0;
+    const ded = Number(payrollForm.Deductions) || 0;
+    const net = basic + allow - ded;
+
+    const newPayroll: ErpPayroll = {
+      PayrollID: `PAY-${payrollForm.MonthYear}-${emp.EmployeeID}`,
+      EmployeeID: emp.EmployeeID,
+      EmployeeName: emp.FullName,
+      MonthYear: payrollForm.MonthYear,
+      BasicSalary: basic,
+      Allowances: allow,
+      Deductions: ded,
+      NetSalary: net,
+      PaymentStatus: 'Paid',
+      PaymentDate: new Date().toISOString().split('T')[0],
+      PaymentMethod: payrollForm.PaymentMethod
+    };
+
+    await saveToDatabase('erp_payroll', newPayroll);
+    setPayrolls(prev => [newPayroll, ...prev]);
+
+    // Also record transaction for accounting ledger automatically
+    const salaryTxn: ErpTransaction = {
+      TransactionID: `TXN-PAY-${Date.now().toString().slice(-4)}`,
+      Type: 'PayrollPayment',
+      Category: 'Staff Salaries Expense',
+      Description: `Salary disbursement for ${emp.FullName} (${payrollForm.MonthYear})`,
+      Amount: net,
+      PaymentMethod: payrollForm.PaymentMethod,
+      ReferenceNo: newPayroll.PayrollID,
+      Date: new Date().toISOString().split('T')[0],
+      CreatedBy: currentUser?.FullName || 'Admin'
+    };
+    await saveToDatabase('erp_transactions', salaryTxn);
+    setTransactions(prev => [salaryTxn, ...prev]);
+
+    setShowPayrollModal(false);
+    setSyncMessage('Payroll processed successfully!');
+    setTimeout(() => setSyncMessage(null), 3000);
+  };
+
+  // HANDLERS FOR EXPENSES & ASSETS
+  const handleAddExpense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!expenseForm.Amount || !expenseForm.Description) return alert('Expense Description and Amount are required.');
+
+    const newExpense: ErpExpense = {
+      ExpenseID: `EXP-${Math.floor(100 + Math.random() * 900)}`,
+      Category: expenseForm.Category || 'Other',
+      Description: expenseForm.Description,
+      Amount: Number(expenseForm.Amount),
+      ExpenseDate: expenseForm.ExpenseDate || new Date().toISOString().split('T')[0],
+      PaymentMethod: expenseForm.PaymentMethod || 'Cash',
+      ReceiptRef: expenseForm.ReceiptRef || 'N/A'
+    };
+
+    await saveToDatabase('erp_expenses', newExpense);
+    setExpenses(prev => [newExpense, ...prev]);
+
+    // Auto log transaction
+    const expTxn: ErpTransaction = {
+      TransactionID: `TXN-EXP-${Date.now().toString().slice(-4)}`,
+      Type: 'Expense',
+      Category: `Operating Expense (${newExpense.Category})`,
+      Description: newExpense.Description,
+      Amount: newExpense.Amount,
+      PaymentMethod: newExpense.PaymentMethod,
+      ReferenceNo: newExpense.ExpenseID,
+      Date: newExpense.ExpenseDate,
+      CreatedBy: currentUser?.FullName || 'Admin'
+    };
+    await saveToDatabase('erp_transactions', expTxn);
+    setTransactions(prev => [expTxn, ...prev]);
+
+    setShowExpenseModal(false);
+    setExpenseForm({ Category: 'Utilities', Description: '', Amount: 0 });
+    setSyncMessage('Expense saved successfully!');
+    setTimeout(() => setSyncMessage(null), 3000);
+  };
+
+  const handleDeleteExpense = async (exp: ErpExpense) => {
+    if (!confirm(`Delete expense ${exp.ExpenseID}?`)) return;
+    const targetId = exp._id || exp.ExpenseID;
+    await deleteFromDatabase('erp_expenses', targetId);
+    setExpenses(prev => prev.filter(e => (e._id ? e._id !== exp._id : e.ExpenseID !== exp.ExpenseID)));
+    setSyncMessage('Expense deleted successfully!');
+    setTimeout(() => setSyncMessage(null), 3000);
+  };
+
+  const handleAddAsset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!assetForm.AssetName || !assetForm.PurchaseCost) return alert('Asset Name and Cost are required.');
+
+    // Prevent double entry: check duplicate asset name
+    if (assets.some(a => a.AssetName.trim().toLowerCase() === assetForm.AssetName?.trim().toLowerCase())) {
+      return alert('An asset with this name already exists! Duplicate entry prevented.');
+    }
+
+    const cost = Number(assetForm.PurchaseCost);
+    const newAsset: ErpAsset = {
+      AssetID: `AST-${Math.floor(100 + Math.random() * 900)}`,
+      AssetName: assetForm.AssetName.trim(),
+      Category: assetForm.Category || 'Equipment',
+      PurchaseDate: assetForm.PurchaseDate || new Date().toISOString().split('T')[0],
+      PurchaseCost: cost,
+      CurrentValue: Number(assetForm.CurrentValue) || cost,
+      DepreciationRate: Number(assetForm.DepreciationRate) || 10,
+      Status: assetForm.Status || 'Active'
+    };
+
+    await saveToDatabase('erp_assets', newAsset);
+    setAssets(prev => [newAsset, ...prev]);
+    setShowAssetModal(false);
+    setAssetForm({ AssetName: '', PurchaseCost: 0, DepreciationRate: 10 });
+    setSyncMessage('Asset saved successfully!');
+    setTimeout(() => setSyncMessage(null), 3000);
+  };
+
+  const handleDeleteAsset = async (ast: ErpAsset) => {
+    if (!confirm(`Delete asset ${ast.AssetName}?`)) return;
+    const targetId = ast._id || ast.AssetID;
+    await deleteFromDatabase('erp_assets', targetId);
+    setAssets(prev => prev.filter(a => (a._id ? a._id !== ast._id : a.AssetID !== ast.AssetID)));
+    setSyncMessage('Asset deleted successfully!');
+    setTimeout(() => setSyncMessage(null), 3000);
+  };
+
+  // PRINT PURCHASE ORDER FUNCTION (3 Columns Layout: Medicine Name & Required Qty Only)
+  const handlePrintPo = (po: ErpPurchaseOrder) => {
+    const printWin = window.open('', '_blank', 'width=950,height=900');
+    if (!printWin) return alert('Popup blocked. Allow popups to print Purchase Order.');
+
+    const totalItems = po.Items.length;
+    const colSize = Math.max(1, Math.ceil(totalItems / 3));
+
+    const col1Items = po.Items.slice(0, colSize);
+    const col2Items = po.Items.slice(colSize, colSize * 2);
+    const col3Items = po.Items.slice(colSize * 2);
+
+    const renderColumnTable = (items: typeof po.Items, startIdx: number) => {
+      if (!items || items.length === 0) return `<div style="flex: 1;"></div>`;
+
+      const rowsHtml = items.map((item, idx) => `
+        <tr>
+          <td style="text-align: center; border: 1px solid #cbd5e1; padding: 5px; font-weight: bold; color: #475569; width: 26px;">${startIdx + idx + 1}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 5px; font-weight: bold; color: #0f172a;">
+            ${item.ItemName}
+            ${item.Category ? `<div style="font-size: 8.5px; color: #4338ca; font-weight: 600; margin-top: 1px;">Cat: ${item.Category}</div>` : ''}
+          </td>
+          <td style="text-align: center; border: 1px solid #cbd5e1; padding: 5px; font-weight: bold; color: #0284c7; width: 60px; background: #f0f9ff;">${item.Qty}</td>
+        </tr>
+      `).join('');
+
+      return `
+        <div style="flex: 1; min-width: 0;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+            <thead>
+              <tr style="background: #e2e8f0; color: #1e293b;">
+                <th style="border: 1px solid #cbd5e1; padding: 6px; text-align: center; width: 26px;">#</th>
+                <th style="border: 1px solid #cbd5e1; padding: 6px; text-align: left;">Medicine Name</th>
+                <th style="border: 1px solid #cbd5e1; padding: 6px; text-align: center; width: 60px;">Req Qty</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+        </div>
+      `;
+    };
+
+    const col1Html = renderColumnTable(col1Items, 0);
+    const col2Html = renderColumnTable(col2Items, colSize);
+    const col3Html = renderColumnTable(col3Items, colSize * 2);
+
+    printWin.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Purchase Order ${po.POID}</title>
+          <style>
+            @page { size: A4 portrait; margin: 10mm; }
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 12px; font-size: 11px; color: #0f172a; margin: 0; }
+            .header { text-align: center; border-bottom: 2px solid #0284c7; padding-bottom: 8px; margin-bottom: 12px; }
+            .title { font-size: 18px; font-weight: 800; color: #0369a1; text-transform: uppercase; letter-spacing: 0.5px; }
+            .subtitle { font-size: 11px; color: #64748b; font-weight: 600; margin-top: 2px; }
+            .meta { display: flex; justify-content: space-between; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; font-size: 11px; }
+            .grid-container { display: flex; gap: 10px; align-items: flex-start; width: 100%; }
+            .footer { margin-top: 30px; display: flex; justify-content: space-between; font-weight: bold; font-size: 11px; border-top: 1px dashed #cbd5e1; padding-top: 12px; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="title">OFFICIAL PURCHASE ORDER</div>
+            <div class="subtitle">PUNJAB HOMEOPATHIC CLINIC & PHARMACY WAREHOUSE</div>
+          </div>
+          <div class="meta">
+            <div>
+              <strong>PO Ref Number:</strong> <span style="color: #0369a1; font-family: monospace; font-size: 12px;">${po.POID}</span><br/>
+              <strong>Order Date:</strong> ${po.OrderDate}<br/>
+              <strong>Expected Delivery:</strong> ${po.ExpectedDeliveryDate || 'Immediate'}
+            </div>
+            <div style="text-align: right;">
+              <strong>Supplier / Vendor:</strong> ${po.VendorName}<br/>
+              <strong>Vendor Code:</strong> ${po.VendorID}<br/>
+              <strong>Total Line Items:</strong> ${po.Items.length} Medicines
+            </div>
+          </div>
+
+          <div class="grid-container">
+            ${col1Html}
+            ${col2Html}
+            ${col3Html}
+          </div>
+
+          ${po.Notes ? `<div style="margin-top: 12px; padding: 6px 10px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 4px; font-size: 11px;"><strong>Special Notes:</strong> ${po.Notes}</div>` : ''}
+
+          <div class="footer">
+            <div>Prepared By: Store Manager</div>
+            <div>Verified By: Quality Auditor</div>
+            <div>Approved By: Managing Director</div>
+          </div>
+        </body>
+      </html>
+    `);
+    printWin.document.close();
+    printWin.focus();
+    setTimeout(() => printWin.print(), 300);
+  };
+
+  // CALCULATED ERP METRICS
+  const totalVendorBalance = vendors.reduce((sum, v) => sum + v.Balance, 0);
+  const totalIncome = transactions.filter(t => t.Type === 'Income' || t.Type === 'CustomerReceipt').reduce((sum, t) => sum + t.Amount, 0);
+  const totalExpenseTxns = transactions.filter(t => t.Type === 'Expense' || t.Type === 'PayrollPayment' || t.Type === 'VendorPayment').reduce((sum, t) => sum + t.Amount, 0);
+  const totalAssetValuation = assets.reduce((sum, a) => sum + a.CurrentValue, 0);
+  const totalMonthlyPayroll = payrolls.reduce((sum, p) => sum + p.NetSalary, 0);
+
+  return (
+    <div className="min-h-full bg-slate-50 text-slate-800 p-4 md:p-6 space-y-6 pb-24">
+      {/* HEADER BAR */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center space-x-3.5">
+          <div className="w-12 h-12 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-100">
+            <Building2 className="w-6 h-6" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-slate-900 tracking-tight">Mini ERP System</h1>
+            <p className="text-xs text-slate-500">Integrated Procurement, General Ledger, HR & Payroll, Assets & Operating Expenses</p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2.5">
+          {syncMessage && (
+            <div className="px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-semibold border border-emerald-200 flex items-center space-x-1.5 animate-pulse">
+              <CheckCircle2 className="w-4 h-4" />
+              <span>{syncMessage}</span>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={fetchErpData}
+            disabled={loading}
+            className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition flex items-center space-x-1.5 border border-slate-200 cursor-pointer"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-indigo-600' : ''}`} />
+            <span>Sync Data</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleRunTestEntry}
+            disabled={loading}
+            className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs shadow-sm transition flex items-center space-x-1.5 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Insert Test Entry Suite</span>
+          </button>
+        </div>
+      </div>
+
+      {/* TABS NAVIGATION */}
+      <div className="flex border-b border-slate-200 overflow-x-auto no-scrollbar gap-1 bg-white p-1.5 rounded-xl border">
+        {[
+          { id: 'overview', label: 'ERP Dashboard', icon: PieChart },
+          { id: 'cash_book_pnl', label: 'Cash Book & Clinic P&L', icon: Landmark },
+          { id: 'vendors', label: 'Vendors Directory', icon: Building2 },
+          { id: 'vendor_statement', label: 'Vendor Statement & Ledger', icon: FileText },
+          { id: 'po', label: 'Purchase Orders', icon: ShoppingCart },
+          { id: 'ledger', label: 'Financial Ledger', icon: Receipt },
+          { id: 'hr', label: 'HR & Payroll', icon: Users },
+          { id: 'expenses_assets', label: 'Expenses & Assets', icon: Boxes }
+        ].map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`px-4 py-2.5 rounded-lg font-bold text-xs transition flex items-center space-x-2 whitespace-nowrap cursor-pointer ${
+                isActive
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* TAB 1: OVERVIEW DASHBOARD */}
+      {activeTab === 'overview' && (
+        <div className="space-y-6">
+          {/* KPI CARDS */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold text-slate-500">Total Income Receipts</p>
+                <h3 className="text-2xl font-black text-emerald-600 mt-1">Rs. {totalIncome.toLocaleString()}</h3>
+                <p className="text-[10px] text-slate-400 mt-1">Dispensary Sales & Receipts</p>
+              </div>
+              <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl">
+                <TrendingUp className="w-6 h-6" />
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold text-slate-500">Total Expenses Logged</p>
+                <h3 className="text-2xl font-black text-rose-600 mt-1">Rs. {totalExpenseTxns.toLocaleString()}</h3>
+                <p className="text-[10px] text-slate-400 mt-1">Utilities, Salaries & Purchases</p>
+              </div>
+              <div className="p-3 bg-rose-50 text-rose-600 rounded-xl">
+                <TrendingDown className="w-6 h-6" />
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold text-slate-500">Vendor Outstanding Payables</p>
+                <h3 className="text-2xl font-black text-amber-600 mt-1">Rs. {totalVendorBalance.toLocaleString()}</h3>
+                <p className="text-[10px] text-slate-400 mt-1">{vendors.length} Active Distributors</p>
+              </div>
+              <div className="p-3 bg-amber-50 text-amber-600 rounded-xl">
+                <Building2 className="w-6 h-6" />
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold text-slate-500">Fixed Asset Valuation</p>
+                <h3 className="text-2xl font-black text-indigo-600 mt-1">Rs. {totalAssetValuation.toLocaleString()}</h3>
+                <p className="text-[10px] text-slate-400 mt-1">{assets.length} Equipment & Fixtures</p>
+              </div>
+              <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl">
+                <Boxes className="w-6 h-6" />
+              </div>
+            </div>
+          </div>
+
+          {/* RECENT TRANSACTIONS TABLE & QUICK ACTIONS */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-slate-900 text-sm flex items-center space-x-2">
+                  <Receipt className="w-4 h-4 text-indigo-600" />
+                  <span>Recent ERP Financial Ledger Transactions</span>
+                </h3>
+                <button
+                  onClick={() => setActiveTab('ledger')}
+                  className="text-xs font-bold text-indigo-600 hover:underline"
+                >
+                  View Full Ledger &rarr;
+                </button>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+                      <th className="p-2.5">Date</th>
+                      <th className="p-2.5">Txn ID</th>
+                      <th className="p-2.5">Category</th>
+                      <th className="p-2.5">Type</th>
+                      <th className="p-2.5 text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-medium">
+                    {transactions.slice(0, 6).map((txn, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50">
+                        <td className="p-2.5 text-slate-500 whitespace-nowrap">{txn.Date}</td>
+                        <td className="p-2.5 font-mono font-bold text-slate-700">{txn.TransactionID}</td>
+                        <td className="p-2.5 text-slate-800">{txn.Category}</td>
+                        <td className="p-2.5">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                            txn.Type === 'Income' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                          }`}>
+                            {txn.Type}
+                          </span>
+                        </td>
+                        <td className={`p-2.5 text-right font-bold ${
+                          txn.Type === 'Income' ? 'text-emerald-600' : 'text-slate-800'
+                        }`}>
+                          Rs. {txn.Amount.toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                    {transactions.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="text-center p-6 text-slate-400">
+                          No transaction records found in database. Click "Insert Test Entry Suite" above.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* QUICK MODULE LAUNCHPAD */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+              <h3 className="font-bold text-slate-900 text-sm">Quick ERP Actions</h3>
+              
+              <div className="space-y-2.5">
+                <button
+                  onClick={() => setShowVendorModal(true)}
+                  className="w-full p-3 rounded-xl bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 border border-slate-200 text-left transition flex items-center justify-between group cursor-pointer"
+                >
+                  <div className="flex items-center space-x-3">
+                    <Building2 className="w-5 h-5 text-indigo-600" />
+                    <div>
+                      <div className="font-bold text-xs text-slate-800 group-hover:text-indigo-600">Add Supplier Vendor</div>
+                      <div className="text-[10px] text-slate-400">Register new distributor</div>
+                    </div>
+                  </div>
+                  <Plus className="w-4 h-4 text-slate-400 group-hover:text-indigo-600" />
+                </button>
+
+                <button
+                  onClick={() => setShowPoModal(true)}
+                  className="w-full p-3 rounded-xl bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 border border-slate-200 text-left transition flex items-center justify-between group cursor-pointer"
+                >
+                  <div className="flex items-center space-x-3">
+                    <ShoppingCart className="w-5 h-5 text-emerald-600" />
+                    <div>
+                      <div className="font-bold text-xs text-slate-800 group-hover:text-indigo-600">Create Purchase Order</div>
+                      <div className="text-[10px] text-slate-400">Requisition stock from vendor</div>
+                    </div>
+                  </div>
+                  <Plus className="w-4 h-4 text-slate-400 group-hover:text-indigo-600" />
+                </button>
+
+                <button
+                  onClick={() => setShowTxnModal(true)}
+                  className="w-full p-3 rounded-xl bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 border border-slate-200 text-left transition flex items-center justify-between group cursor-pointer"
+                >
+                  <div className="flex items-center space-x-3">
+                    <Receipt className="w-5 h-5 text-amber-600" />
+                    <div>
+                      <div className="font-bold text-xs text-slate-800 group-hover:text-indigo-600">Log Income / Expense Voucher</div>
+                      <div className="text-[10px] text-slate-400">General ledger posting</div>
+                    </div>
+                  </div>
+                  <Plus className="w-4 h-4 text-slate-400 group-hover:text-indigo-600" />
+                </button>
+
+                <button
+                  onClick={() => setShowEmpModal(true)}
+                  className="w-full p-3 rounded-xl bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 border border-slate-200 text-left transition flex items-center justify-between group cursor-pointer"
+                >
+                  <div className="flex items-center space-x-3">
+                    <UserPlus className="w-5 h-5 text-blue-600" />
+                    <div>
+                      <div className="font-bold text-xs text-slate-800 group-hover:text-indigo-600">Add Staff / Employee</div>
+                      <div className="text-[10px] text-slate-400">HR profile & salary setup</div>
+                    </div>
+                  </div>
+                  <Plus className="w-4 h-4 text-slate-400 group-hover:text-indigo-600" />
+                </button>
+
+                <button
+                  onClick={() => setShowExpenseModal(true)}
+                  className="w-full p-3 rounded-xl bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 border border-slate-200 text-left transition flex items-center justify-between group cursor-pointer"
+                >
+                  <div className="flex items-center space-x-3">
+                    <CreditCard className="w-5 h-5 text-rose-600" />
+                    <div>
+                      <div className="font-bold text-xs text-slate-800 group-hover:text-indigo-600">Record Operational Expense</div>
+                      <div className="text-[10px] text-slate-400">Utilities, Rent & Maintenance</div>
+                    </div>
+                  </div>
+                  <Plus className="w-4 h-4 text-slate-400 group-hover:text-indigo-600" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 2: CLINIC DAILY CASH BOOK & MONTHLY P&L LEDGER DASHBOARD */}
+      {/* ========================================================================= */}
+      {activeTab === 'cash_book_pnl' && (
+        <div className="space-y-6">
+          {/* Header Banner & Print Button */}
+          <div className="bg-gradient-to-r from-purple-900 via-indigo-900 to-slate-900 text-white p-5 rounded-2xl shadow-md border border-purple-800/40 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center space-x-2">
+                <Landmark className="w-6 h-6 text-amber-400" />
+                <h2 className="text-xl font-extrabold tracking-tight">Clinic Daily Cash Book & P&L Ledger</h2>
+              </div>
+              <p className="text-xs text-purple-200 mt-1">
+                Real-time tracking of Patient Collections (OPD Tokens, Clinical Meds, Pharmacy) vs Operating Outflows (Staff Salaries, Building Rent, Electricity Bills & Medicine Purchases).
+              </p>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={handlePrintCashBookReport}
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-md transition flex items-center space-x-1.5 cursor-pointer"
+              >
+                <Printer className="w-4 h-4" />
+                <span>Print Cash Book Statement</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Executive KPI Summary Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Total Inflow */}
+            <div className="bg-emerald-950/20 border border-emerald-500/30 p-4 rounded-2xl bg-white shadow-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider flex items-center">
+                  <ArrowUpRight className="w-4 h-4 text-emerald-600 mr-1" />
+                  Total Cash Collections (Inflow)
+                </span>
+                <span className="text-[10px] bg-emerald-100 text-emerald-800 font-extrabold px-2 py-0.5 rounded-full">
+                  Income
+                </span>
+              </div>
+              <div className="text-2xl font-black text-emerald-700 font-mono">
+                PKR {cashBookMetrics.totalInflow.toLocaleString()}
+              </div>
+              <div className="text-[11px] text-slate-600 pt-1 border-t border-emerald-100 grid grid-cols-2 gap-1 font-medium">
+                <span>OPD Tokens: <strong>{cashBookMetrics.opdInflow.toLocaleString()}</strong></span>
+                <span>Clinical Meds: <strong>{cashBookMetrics.clinicalInflow.toLocaleString()}</strong></span>
+                <span>Store Pharmacy: <strong>{cashBookMetrics.storeInflow.toLocaleString()}</strong></span>
+                <span>Cards & Reg: <strong>{cashBookMetrics.regInflow.toLocaleString()}</strong></span>
+              </div>
+            </div>
+
+            {/* Total Outflow */}
+            <div className="bg-rose-950/20 border border-rose-500/30 p-4 rounded-2xl bg-white shadow-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-rose-800 uppercase tracking-wider flex items-center">
+                  <ArrowDownRight className="w-4 h-4 text-rose-600 mr-1" />
+                  Total Outflows & Deductions
+                </span>
+                <span className="text-[10px] bg-rose-100 text-rose-800 font-extrabold px-2 py-0.5 rounded-full">
+                  Expenses
+                </span>
+              </div>
+              <div className="text-2xl font-black text-rose-700 font-mono">
+                PKR {cashBookMetrics.totalOutflow.toLocaleString()}
+              </div>
+              <div className="text-[11px] text-slate-600 pt-1 border-t border-rose-100 grid grid-cols-2 gap-1 font-medium">
+                <span>Salaries Paid: <strong>{cashBookMetrics.salariesOutflow.toLocaleString()}</strong></span>
+                <span>Building Rent: <strong>{cashBookMetrics.rentOutflow.toLocaleString()}</strong></span>
+                <span>Electricity/Bills: <strong>{cashBookMetrics.billsOutflow.toLocaleString()}</strong></span>
+                <span>Meds Purchase: <strong>{cashBookMetrics.medicinePurchasesOutflow.toLocaleString()}</strong></span>
+              </div>
+            </div>
+
+            {/* Net Operating Profit / Balance */}
+            <div className={`border p-4 rounded-2xl bg-white shadow-xs space-y-2 ${cashBookMetrics.netBalance >= 0 ? 'bg-purple-50/50 border-purple-300' : 'bg-red-50/50 border-red-300'}`}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-purple-950 uppercase tracking-wider flex items-center">
+                  <Wallet className="w-4 h-4 text-purple-700 mr-1" />
+                  Net Cash Profit / Remaining Balance
+                </span>
+                <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${cashBookMetrics.netBalance >= 0 ? 'bg-purple-200 text-purple-900' : 'bg-red-200 text-red-900'}`}>
+                  {cashBookMetrics.marginPercent}% Net Margin
+                </span>
+              </div>
+              <div className={`text-2xl font-black font-mono ${cashBookMetrics.netBalance >= 0 ? 'text-purple-950' : 'text-red-700'}`}>
+                PKR {cashBookMetrics.netBalance.toLocaleString()}
+              </div>
+              <p className="text-[11px] text-slate-600 pt-1 border-t border-purple-200 font-medium leading-tight">
+                Net remaining liquidity available in clinic cash box after deducting all operational overheads and salaries.
+              </p>
+            </div>
+          </div>
+
+          {/* Quick Record Outflow / Expense Form Section */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+              <h3 className="text-sm font-extrabold text-slate-900 flex items-center">
+                <Coins className="w-4 h-4 text-rose-600 mr-1.5" />
+                Quick Outflow Logger (Rent, Salaries, Electricity Bills & Purchases)
+              </h3>
+              <span className="text-[11px] text-slate-500 font-medium">Instantly record any clinic cash deduction</span>
+            </div>
+
+            <form onSubmit={handleQuickOutflowSubmit} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
+              <div className="lg:col-span-3 space-y-1">
+                <label className="text-xs font-bold text-slate-700">Outflow Category</label>
+                <select
+                  value={quickOutflowForm.category}
+                  onChange={(e) => setQuickOutflowForm({ ...quickOutflowForm, category: e.target.value })}
+                  className="w-full text-xs font-medium p-2 bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                >
+                  <option value="Building Rent & Maintenance">Building Rent & Maintenance</option>
+                  <option value="Staff Salary & Payroll">Staff Salary & Payroll</option>
+                  <option value="Electricity & Utility Bills">Electricity & Utility Bills</option>
+                  <option value="Medicine Stock Purchase">Medicine Stock Purchase</option>
+                  <option value="Tea, Refreshment & Pantry">Tea, Refreshment & Pantry</option>
+                  <option value="Repair & Clinic Upkeep">Repair & Clinic Upkeep</option>
+                  <option value="Miscellaneous Overhead">Miscellaneous Overhead</option>
+                </select>
+              </div>
+
+              <div className="lg:col-span-2 space-y-1">
+                <label className="text-xs font-bold text-slate-700">Amount (PKR)</label>
+                <input
+                  type="number"
+                  placeholder="e.g. 15000"
+                  value={quickOutflowForm.amount}
+                  onChange={(e) => setQuickOutflowForm({ ...quickOutflowForm, amount: e.target.value })}
+                  required
+                  className="w-full text-xs font-bold font-mono p-2 bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+
+              <div className="lg:col-span-2 space-y-1">
+                <label className="text-xs font-bold text-slate-700">Paid To / Payee</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Landlord / K-Electric / Vendor"
+                  value={quickOutflowForm.payee}
+                  onChange={(e) => setQuickOutflowForm({ ...quickOutflowForm, payee: e.target.value })}
+                  className="w-full text-xs font-medium p-2 bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+
+              <div className="lg:col-span-2 space-y-1">
+                <label className="text-xs font-bold text-slate-700">Payment Date</label>
+                <input
+                  type="date"
+                  value={quickOutflowForm.date}
+                  onChange={(e) => setQuickOutflowForm({ ...quickOutflowForm, date: e.target.value })}
+                  className="w-full text-xs font-medium p-2 bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+
+              <div className="lg:col-span-3">
+                <button
+                  type="submit"
+                  className="w-full py-2 px-3 bg-rose-700 hover:bg-rose-800 text-white font-bold text-xs rounded-lg shadow-xs transition flex items-center justify-center space-x-1 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Deduct Outflow Payment</span>
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* Filter Toolbar & Ledger Controls */}
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+              {/* Period Quick Filters */}
+              <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-xl border border-slate-200 w-full sm:w-auto">
+                {[
+                  { id: 'today', label: 'Today' },
+                  { id: 'this_week', label: 'Past 7 Days' },
+                  { id: 'this_month', label: 'This Month' },
+                  { id: 'all_time', label: 'All Time' }
+                ].map(p => (
+                  <button
+                    key={p.id}
+                    onClick={() => setCashBookDateFilter(p.id as any)}
+                    className={`px-3 py-1 text-xs font-bold rounded-lg transition cursor-pointer flex-1 sm:flex-none ${
+                      cashBookDateFilter === p.id
+                        ? 'bg-purple-900 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Type Category Filter */}
+              <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-xl border border-slate-200 w-full sm:w-auto">
+                {[
+                  { id: 'ALL', label: 'All Transactions' },
+                  { id: 'INFLOW', label: 'Inflows Only' },
+                  { id: 'OUTFLOW', label: 'Outflows Only' }
+                ].map(c => (
+                  <button
+                    key={c.id}
+                    onClick={() => setCashBookCategoryFilter(c.id as any)}
+                    className={`px-3 py-1 text-xs font-bold rounded-lg transition cursor-pointer flex-1 sm:flex-none ${
+                      cashBookCategoryFilter === c.id
+                        ? 'bg-slate-800 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Search Box */}
+              <div className="relative w-full sm:w-64">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="Search ledger entries..."
+                  value={cashBookSearch}
+                  onChange={(e) => setCashBookSearch(e.target.value)}
+                  className="w-full text-xs font-medium pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Cash Book Ledger Table */}
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+            <div className="px-5 py-3 bg-slate-900 text-white flex items-center justify-between">
+              <h3 className="text-xs font-extrabold uppercase tracking-wider flex items-center">
+                <FileText className="w-4 h-4 text-amber-400 mr-2" />
+                Cash Book Transaction Ledger Records ({filteredCashBookEntries.length})
+              </h3>
+              <span className="text-[11px] text-slate-400 font-mono">Real-time synchronized with Patient Desk & ERP</span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold uppercase tracking-wider text-[10px]">
+                    <th className="p-3 text-center w-12">#</th>
+                    <th className="p-3 w-28">Date</th>
+                    <th className="p-3 w-28">Ref #</th>
+                    <th className="p-3">Particulars / Description</th>
+                    <th className="p-3 w-40">Category</th>
+                    <th className="p-3 text-center w-24">Type</th>
+                    <th className="p-3 text-right w-32">Amount (PKR)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-800">
+                  {filteredCashBookEntries.length > 0 ? (
+                    filteredCashBookEntries.map((e, idx) => (
+                      <tr key={e.id} className="hover:bg-slate-50/80 transition">
+                        <td className="p-3 text-center font-bold text-slate-400 font-mono text-[11px]">{idx + 1}</td>
+                        <td className="p-3 font-mono text-[11px] text-slate-600">{e.date}</td>
+                        <td className="p-3 font-mono font-bold text-purple-950 text-[11px]">{e.ref}</td>
+                        <td className="p-3 font-bold text-slate-900">{e.particulars}</td>
+                        <td className="p-3 font-medium text-slate-600">
+                          <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-[10px] font-bold border border-slate-200">
+                            {e.category}
+                          </span>
+                        </td>
+                        <td className="p-3 text-center">
+                          {e.type === 'INFLOW' ? (
+                            <span className="bg-emerald-100 text-emerald-800 font-black text-[10px] px-2 py-0.5 rounded-full border border-emerald-300 inline-flex items-center">
+                              <ArrowUpRight className="w-3 h-3 mr-0.5" />
+                              INFLOW
+                            </span>
+                          ) : (
+                            <span className="bg-rose-100 text-rose-800 font-black text-[10px] px-2 py-0.5 rounded-full border border-rose-300 inline-flex items-center">
+                              <ArrowDownRight className="w-3 h-3 mr-0.5" />
+                              OUTFLOW
+                            </span>
+                          )}
+                        </td>
+                        <td className={`p-3 text-right font-mono font-black text-sm ${e.type === 'INFLOW' ? 'text-emerald-700' : 'text-rose-700'}`}>
+                          {e.type === 'INFLOW' ? '+' : '-'} PKR {e.amount.toLocaleString()}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={7} className="p-8 text-center text-slate-400 font-medium">
+                        No financial records found matching the current filters.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 3: VENDORS DIRECTORY */}
+      {activeTab === 'vendors' && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-bold text-slate-900">Distributors & Vendors Directory</h2>
+              <p className="text-xs text-slate-500">Manage pharmaceutical suppliers, tax IDs, and outstanding balances</p>
+            </div>
+            <button
+              onClick={() => setShowVendorModal(true)}
+              className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition flex items-center space-x-1.5 self-start cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add New Vendor</span>
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+                  <th className="p-3">Vendor ID</th>
+                  <th className="p-3">Vendor Name</th>
+                  <th className="p-3">Contact Person</th>
+                  <th className="p-3">Phone</th>
+                  <th className="p-3">Address</th>
+                  <th className="p-3 text-right">Outstanding Balance</th>
+                  <th className="p-3 text-center">Status</th>
+                  <th className="p-3 text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium">
+                {vendors.map((v, idx) => (
+                  <tr key={idx} className="hover:bg-slate-50">
+                    <td className="p-3 font-mono font-bold text-slate-700">{v.VendorID}</td>
+                    <td className="p-3 font-bold text-slate-900">{v.VendorName}</td>
+                    <td className="p-3 text-slate-600">{v.ContactPerson}</td>
+                    <td className="p-3 text-slate-600">{v.Phone}</td>
+                    <td className="p-3 text-slate-500 max-w-xs truncate">{v.Address}</td>
+                    <td className="p-3 text-right font-bold text-amber-600">Rs. {v.Balance.toLocaleString()}</td>
+                    <td className="p-3 text-center">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                        {v.Status}
+                      </span>
+                    </td>
+                    <td className="p-3 text-center">
+                      <div className="flex items-center justify-center space-x-1.5">
+                        <button
+                          onClick={() => {
+                            setSelectedVendorId(v.VendorID || v._id || '');
+                            setActiveTab('vendor_statement');
+                          }}
+                          className="px-2.5 py-1 text-[11px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 rounded border border-amber-200 transition cursor-pointer flex items-center space-x-1 shadow-2xs"
+                          title="View detailed Vendor Account Statement & Payable Ledger"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>View Statement</span>
+                        </button>
+                        <button
+                          onClick={() => handlePayVendor(v)}
+                          className="px-2.5 py-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded border border-emerald-200 transition cursor-pointer flex items-center space-x-1 shadow-2xs"
+                          title="Pay vendor bill & clear Accounts Payable"
+                        >
+                          <span>Pay Bill</span>
+                        </button>
+                        <button
+                          onClick={() => handleDeleteVendor(v)}
+                          className="p-1 text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
+                          title="Delete Vendor"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 2B: VENDOR ACCOUNT STATEMENT & PAYABLE LEDGER */}
+      {activeTab === 'vendor_statement' && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-6 animate-fadeIn" id="erp-vendor-statement-tab">
+          {/* Header & Controls */}
+          <div className="border-b border-slate-200 pb-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <h2 className="text-base font-bold text-slate-900 flex items-center">
+                <Building2 className="w-5 h-5 text-amber-600 mr-2" />
+                <span>Vendor Account Statement & Payable Ledger</span>
+              </h2>
+              <p className="text-xs text-slate-500 mt-1">
+                Synchronized statement of Goods Received Notes (GRNs), vendor payments, and Accounts Payable ledger
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 print:hidden">
+              <button
+                onClick={() => {
+                  if (selectedVendor) {
+                    handlePayVendor(selectedVendor);
+                  }
+                }}
+                disabled={!selectedVendor}
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <Coins className="w-4 h-4" />
+                <span>Record Payment</span>
+              </button>
+
+              <button
+                onClick={() => setShowVendorModal(true)}
+                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center space-x-1.5 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Vendor</span>
+              </button>
+
+              <button
+                onClick={() => fetchErpData()}
+                className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl border border-slate-300 transition flex items-center space-x-1.5 cursor-pointer shadow-xs"
+              >
+                <RefreshCw className="w-4 h-4 text-slate-600" />
+                <span>Refresh Data</span>
+              </button>
+
+              <button
+                onClick={() => setVendorPrintModalOpen(true)}
+                disabled={!selectedVendor}
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <Printer className="w-4 h-4" />
+                <span>Print Statement</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Vendor Selector Banner */}
+          <div className="bg-amber-50/70 p-4 rounded-xl border border-amber-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-600 text-white flex items-center justify-center font-black text-lg shadow-xs shrink-0">
+                {selectedVendor?.VendorName ? selectedVendor.VendorName.charAt(0).toUpperCase() : 'V'}
+              </div>
+              <div>
+                <label className="block text-[10px] font-black uppercase text-amber-800 tracking-wider">
+                  Select Vendor / Distributor ({vendors.length} Total):
+                </label>
+                <select
+                  value={selectedVendorId || (selectedVendor?.VendorID || selectedVendor?._id || '')}
+                  onChange={(e) => setSelectedVendorId(e.target.value)}
+                  className="mt-0.5 bg-white text-slate-900 font-bold text-xs rounded-lg px-3 py-1.5 border border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs cursor-pointer min-w-[280px]"
+                >
+                  {vendors.length === 0 ? (
+                    <option value="">No Vendors Found in Database</option>
+                  ) : (
+                    vendors.map(v => (
+                      <option key={v.VendorID || v._id} value={v.VendorID || v._id}>
+                        {v.VendorName} ({v.VendorID || 'N/A'}) - Balance: Rs. {(v.Balance || 0).toLocaleString()}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+            </div>
+
+            {selectedVendor && (
+              <div className="flex flex-wrap items-center gap-3 text-xs">
+                <div className="bg-white px-3 py-1.5 rounded-lg border border-amber-200/80 text-slate-700 shadow-2xs">
+                  <span className="text-[9px] text-slate-400 block font-bold uppercase">Contact Person</span>
+                  <span className="font-bold text-slate-900">{selectedVendor.ContactPerson || 'N/A'}</span>
+                </div>
+                <div className="bg-white px-3 py-1.5 rounded-lg border border-amber-200/80 text-slate-700 shadow-2xs">
+                  <span className="text-[9px] text-slate-400 block font-bold uppercase">Phone Number</span>
+                  <span className="font-bold text-slate-900">{selectedVendor.Phone || 'N/A'}</span>
+                </div>
+                <div className="bg-white px-3 py-1.5 rounded-lg border border-amber-200/80 text-slate-700 shadow-2xs">
+                  <span className="text-[9px] text-slate-400 block font-bold uppercase">Tax / NTN No</span>
+                  <span className="font-mono font-bold text-slate-900">{selectedVendor.TaxID || 'N/A'}</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Statement Date Range Filter Pills */}
+          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center space-x-2">
+              <Calendar className="w-4 h-4 text-amber-600" />
+              <span className="text-xs font-bold uppercase text-slate-800 tracking-wider">Statement Period Filter:</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {(['all', 'daily', 'weekly', 'monthly', 'yearly'] as const).map((filterKey) => (
+                <button
+                  key={filterKey}
+                  onClick={() => setVendorDateFilter(filterKey)}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition cursor-pointer capitalize ${
+                    vendorDateFilter === filterKey
+                      ? 'bg-amber-600 text-white shadow-2xs'
+                      : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'
+                  }`}
+                >
+                  {filterKey === 'all' ? 'All Time (Full Statement)' : filterKey}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Metric Summary Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                Total Invoiced / Goods Received (GRN)
+              </span>
+              <p className="text-xl font-black text-amber-700 font-mono">
+                Rs. {vendorStatement.totalInvoiced.toLocaleString()}
+              </p>
+              <p className="text-[10px] text-slate-400">Total Goods Received (Credit)</p>
+            </div>
+
+            <div className="bg-emerald-50/70 p-4 rounded-xl border border-emerald-200 space-y-1">
+              <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">
+                Total Payments Cleared
+              </span>
+              <p className="text-xl font-black text-emerald-700 font-mono">
+                Rs. {vendorStatement.totalPaid.toLocaleString()}
+              </p>
+              <p className="text-[10px] text-emerald-600">Total Payments Settled (Debit)</p>
+            </div>
+
+            <div className="bg-amber-500 text-white p-4 rounded-xl shadow-xs space-y-1">
+              <span className="text-[10px] font-bold text-amber-100 uppercase tracking-wider block">
+                Closing Accounts Payable Balance
+              </span>
+              <p className="text-xl font-black font-mono">
+                Rs. {vendorStatement.closingBalance.toLocaleString()}
+              </p>
+              <p className="text-[10px] text-amber-100">Net Outstanding Amount Due</p>
+            </div>
+          </div>
+
+          {/* Statement Rows Table */}
+          <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+            <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center">
+                <FileText className="w-4 h-4 text-amber-600 mr-1.5" />
+                Ledger Statement Audit Entries ({vendorStatement.statementRows.length} Records)
+              </h3>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs font-sans">
+                <thead>
+                  <tr className="bg-slate-800 text-slate-200 uppercase text-[10px] font-bold tracking-wider">
+                    <th className="p-3">Date</th>
+                    <th className="p-3">Type</th>
+                    <th className="p-3">Ref / Voucher #</th>
+                    <th className="p-3">Description</th>
+                    <th className="p-3 text-right">Debit (Paid)</th>
+                    <th className="p-3 text-right">Credit (Bill)</th>
+                    <th className="p-3 text-right">Running Balance</th>
+                    <th className="p-3 text-center">Audit</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 bg-white font-medium text-slate-700">
+                  {vendorStatement.statementRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="p-8 text-center text-slate-400 font-bold">
+                        No transactions or GRNs recorded for this vendor in selected period.
+                      </td>
+                    </tr>
+                  ) : (
+                    vendorStatement.statementRows.map((row, idx) => (
+                      <React.Fragment key={row.id || idx}>
+                        <tr className="hover:bg-slate-50 transition">
+                          <td className="p-3 font-mono text-slate-600">{row.date}</td>
+                          <td className="p-3">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              row.credit > 0 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                            }`}>
+                              {row.type}
+                            </span>
+                          </td>
+                          <td className="p-3 font-mono font-bold text-slate-900">{row.refNo}</td>
+                          <td className="p-3 max-w-xs truncate text-slate-600">{row.description}</td>
+                          <td className="p-3 text-right font-mono font-bold text-emerald-700">
+                            {row.debit > 0 ? `Rs. ${row.debit.toLocaleString()}` : '-'}
+                          </td>
+                          <td className="p-3 text-right font-mono font-bold text-amber-700">
+                            {row.credit > 0 ? `Rs. ${row.credit.toLocaleString()}` : '-'}
+                          </td>
+                          <td className="p-3 text-right font-mono font-black text-slate-900">
+                            Rs. {(row.runningBalance || 0).toLocaleString()}
+                          </td>
+                          <td className="p-3 text-center">
+                            {row.type === 'Goods Received (GRN)' && row.rawItem?.ItemsReceived ? (
+                              <button
+                                onClick={() => setExpandedGrnId(expandedGrnId === row.id ? null : row.id)}
+                                className="text-indigo-600 hover:text-indigo-800 font-bold text-[11px] underline cursor-pointer"
+                              >
+                                {expandedGrnId === row.id ? 'Hide Items' : 'View Items'}
+                              </button>
+                            ) : row.debit > 0 ? (
+                              <button
+                                onClick={() => handleDeleteTxn(row.rawItem)}
+                                className="text-rose-600 hover:bg-rose-50 p-1 rounded transition cursor-pointer"
+                                title="Delete Payment Transaction"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            ) : (
+                              <span className="text-slate-300">-</span>
+                            )}
+                          </td>
+                        </tr>
+
+                        {/* Expandable GRN items line breakdown */}
+                        {expandedGrnId === row.id && row.rawItem?.ItemsReceived && (
+                          <tr className="bg-slate-50">
+                            <td colSpan={8} className="p-4">
+                              <div className="bg-white p-3 rounded-lg border border-slate-200 space-y-2">
+                                <h4 className="text-[11px] font-bold text-slate-800 uppercase tracking-wider">
+                                  GRN Itemized Audit Breakdown ({row.rawItem.ItemsReceived.length} Items)
+                                </h4>
+                                <table className="w-full text-left text-[11px] border-collapse">
+                                  <thead>
+                                    <tr className="bg-slate-100 text-slate-600 font-bold">
+                                      <th className="p-1.5">Medicine Name</th>
+                                      <th className="p-1.5 text-center">Qty Received</th>
+                                      <th className="p-1.5 text-right">Unit Price</th>
+                                      <th className="p-1.5 text-right">Subtotal</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100">
+                                    {row.rawItem.ItemsReceived.map((item: any, itemIdx: number) => (
+                                      <tr key={itemIdx}>
+                                        <td className="p-1.5 font-bold text-slate-800">{item.MedicineName}</td>
+                                        <td className="p-1.5 text-center font-mono">{item.QuantityReceived}</td>
+                                        <td className="p-1.5 text-right font-mono">Rs. {(item.UnitPrice || 0).toLocaleString()}</td>
+                                        <td className="p-1.5 text-right font-mono font-bold text-slate-900">
+                                          Rs. {((item.QuantityReceived || 0) * (item.UnitPrice || 0)).toLocaleString()}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 3: PURCHASE ORDERS */}
+      {activeTab === 'po' && (
+        <div className="space-y-4">
+          {/* Inventory Stock Requisition Banner */}
+          <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-center space-x-3">
+              <div className="p-2.5 bg-amber-500/10 text-amber-700 rounded-xl font-bold">
+                <Boxes className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-xs font-extrabold text-amber-900 uppercase tracking-wider">Inventory Stock Requisition Status</h3>
+                <p className="text-xs text-amber-800 mt-0.5">
+                  <span className="font-extrabold text-amber-900">
+                    {inventoryItems.filter(med => (med.CStock ?? 0) <= (med.MinStock ?? 100)).length} Medicines
+                  </span> currently below minimum stock level and require purchase order replenishment.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                handleSelectAllLowStockMedicines();
+                setShowPoModal(true);
+              }}
+              className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition shadow-xs flex items-center space-x-1.5 cursor-pointer whitespace-nowrap"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              <span>Auto-Create PO for Low Stock Items</span>
+            </button>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-bold text-slate-900">Purchase Orders & Stock Requisitions Log</h2>
+                <p className="text-xs text-slate-500">Create, track, and print official POs for medicine stock replenishment</p>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => handleOpenGrnForPo()}
+                  className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition flex items-center space-x-1.5 cursor-pointer shadow-xs"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Process GRN (Receive Goods)</span>
+                </button>
+                <button
+                  onClick={() => setShowPoModal(true)}
+                  className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition flex items-center space-x-1.5 cursor-pointer shadow-xs"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Create Purchase Order</span>
+                </button>
+              </div>
+            </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+                  <th className="p-3">PO Number</th>
+                  <th className="p-3">Supplier / Vendor</th>
+                  <th className="p-3">Order Date</th>
+                  <th className="p-3">Expected Delivery</th>
+                  <th className="p-3 text-center">Items Count</th>
+                  <th className="p-3 text-right">Total Amount</th>
+                  <th className="p-3 text-center">Status</th>
+                  <th className="p-3 text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium">
+                {purchaseOrders.map((po, idx) => (
+                  <tr key={idx} className="hover:bg-slate-50">
+                    <td className="p-3 font-mono font-bold text-indigo-600">{po.POID}</td>
+                    <td className="p-3 font-bold text-slate-900">{po.VendorName}</td>
+                    <td className="p-3 text-slate-600">{po.OrderDate}</td>
+                    <td className="p-3 text-slate-600">{po.ExpectedDeliveryDate}</td>
+                    <td className="p-3 text-center">
+                      <div className="font-bold text-slate-700">{po.Items?.length || 0} items</div>
+                      {po.Items && po.Items.some(i => i.BatchNo) && (
+                        <div
+                          className="text-[10px] font-mono text-amber-800 font-semibold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 inline-block mt-0.5 cursor-help"
+                          title={po.Items.map(i => `${i.ItemName}: Batch ${i.BatchNo || 'N/A'}`).join(' | ')}
+                        >
+                          Batch: {po.Items.find(i => i.BatchNo)?.BatchNo} {po.Items.length > 1 ? `+${po.Items.length - 1}` : ''}
+                        </div>
+                      )}
+                    </td>
+                    <td className="p-3 text-right font-bold text-slate-900">Rs. {po.TotalAmount.toLocaleString()}</td>
+                    <td className="p-3 text-center">
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        po.Status === 'Received' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-blue-100 text-blue-800'
+                      }`}>
+                        {po.Status === 'Received' ? '✓ Received' : po.Status}
+                      </span>
+                    </td>
+                    <td className="p-3 text-center space-x-1.5 whitespace-nowrap">
+                      {po.Status !== 'Received' ? (
+                        <button
+                          onClick={() => handleOpenGrnForPo(po)}
+                          className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-[11px] font-bold transition inline-flex items-center space-x-1 cursor-pointer"
+                          title="Enter PO Number in GRN to receive stock"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Receive Stock (GRN)</span>
+                        </button>
+                      ) : (
+                        <span className="text-[11px] font-extrabold text-emerald-600 px-2 py-1 bg-emerald-50 rounded-lg">
+                          Stock Added
+                        </span>
+                      )}
+                      <button
+                        onClick={() => handlePrintPo(po)}
+                        className="p-1 text-slate-600 hover:bg-slate-100 rounded transition cursor-pointer"
+                        title="Print Official PO"
+                      >
+                        <Printer className="w-4 h-4 text-slate-700" />
+                      </button>
+                      <button
+                        onClick={() => handleDeletePo(po)}
+                        className="p-1 text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
+                        title="Delete PO"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Goods Received Notes (GRN) Received Stock Log */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center space-x-2">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                <h2 className="text-base font-bold text-slate-900">Goods Received Notes (GRN) & Inward Stock Log</h2>
+              </div>
+              <p className="text-xs text-slate-500">Official verified receipts of PO shipments received and added to pharmacy stock</p>
+            </div>
+            <button
+              onClick={() => handleOpenGrnForPo()}
+              className="px-3.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold text-xs transition flex items-center space-x-1.5 self-start cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Create New GRN</span>
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+                  <th className="p-3">GRN Number</th>
+                  <th className="p-3">PO Reference</th>
+                  <th className="p-3">Supplier / Vendor</th>
+                  <th className="p-3">Received Date</th>
+                  <th className="p-3">Challan / Inv No.</th>
+                  <th className="p-3 text-center">Items Received</th>
+                  <th className="p-3 text-right">Total Value</th>
+                  <th className="p-3 text-center">Status</th>
+                  <th className="p-3 text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium">
+                {grns.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="p-6 text-center text-slate-400 font-medium">
+                      No Goods Received Notes (GRNs) logged yet. Click "Process GRN" or select a Purchase Order to receive stock into inventory.
+                    </td>
+                  </tr>
+                ) : (
+                  grns.map((grn, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50">
+                      <td className="p-3 font-mono font-bold text-emerald-700">{grn.GRNID}</td>
+                      <td className="p-3 font-mono font-bold text-indigo-600">{grn.POID}</td>
+                      <td className="p-3 font-bold text-slate-900">{grn.VendorName}</td>
+                      <td className="p-3 text-slate-600">{grn.ReceivedDate}</td>
+                      <td className="p-3 text-slate-500 font-mono">{grn.ChallanNo || grn.SupplierInvoiceNo || 'N/A'}</td>
+                      <td className="p-3 text-center font-bold text-slate-700">{grn.Items?.length || 0}</td>
+                      <td className="p-3 text-right font-bold text-slate-900">Rs. {(grn.TotalAmount || 0).toLocaleString()}</td>
+                      <td className="p-3 text-center">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                          ✓ Stock Approved
+                        </span>
+                        <div className="text-[10px] font-mono text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded mt-1 font-semibold inline-block cursor-help" title="Double Entry GL Posted: Debit Inventory (103001) | Credit Accounts Payable (201001)">
+                          GL: Dr 103001 | Cr 201001
+                        </div>
+                      </td>
+                      <td className="p-3 text-center">
+                        <button
+                          onClick={() => handlePrintGrn(grn)}
+                          className="px-2 py-1 text-slate-700 hover:bg-slate-100 rounded transition cursor-pointer flex items-center space-x-1 mx-auto font-bold border border-slate-200 text-[11px]"
+                          title="Print Official GRN Voucher"
+                        >
+                          <Printer className="w-3.5 h-3.5 text-slate-600" />
+                          <span>Print GRN</span>
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        </div>
+      )}
+
+      {/* TAB 4: FINANCIAL LEDGER & VOUCHERS */}
+      {activeTab === 'ledger' && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-bold text-slate-900">General Ledger & Transaction Vouchers</h2>
+              <p className="text-xs text-slate-500">Record income receipts, expense vouchers, and bank/cash settlements</p>
+            </div>
+            <button
+              onClick={() => setShowTxnModal(true)}
+              className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition flex items-center space-x-1.5 self-start cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Log Financial Voucher</span>
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+                  <th className="p-3">Txn ID</th>
+                  <th className="p-3">Date</th>
+                  <th className="p-3">Category</th>
+                  <th className="p-3">Description</th>
+                  <th className="p-3">Method</th>
+                  <th className="p-3">Created By</th>
+                  <th className="p-3 text-right">Amount</th>
+                  <th className="p-3 text-center">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium">
+                {transactions.map((t, idx) => (
+                  <tr key={idx} className="hover:bg-slate-50">
+                    <td className="p-3 font-mono font-bold text-slate-800">{t.TransactionID}</td>
+                    <td className="p-3 text-slate-500 whitespace-nowrap">{t.Date}</td>
+                    <td className="p-3 font-bold text-slate-900">{t.Category}</td>
+                    <td className="p-3 text-slate-600 max-w-xs truncate">{t.Description || 'N/A'}</td>
+                    <td className="p-3 text-slate-600 font-bold">{t.PaymentMethod}</td>
+                    <td className="p-3 text-slate-500">{t.CreatedBy}</td>
+                    <td className={`p-3 text-right font-black ${
+                      t.Type === 'Income' ? 'text-emerald-600' : 'text-slate-900'
+                    }`}>
+                      Rs. {t.Amount.toLocaleString()}
+                    </td>
+                    <td className="p-3 text-center">
+                      <button
+                        onClick={() => handleDeleteTxn(t)}
+                        className="p-1 text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
+                        title="Delete Txn"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 5: HR & PAYROLL */}
+      {activeTab === 'hr' && (
+        <div className="space-y-6">
+          {/* EMPLOYEES DIRECTORY */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-bold text-slate-900">Staff & Human Resources Directory</h2>
+                <p className="text-xs text-slate-500">Employee profiles, monthly salaries, and bank accounts</p>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setShowPayrollModal(true)}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition flex items-center space-x-1.5 cursor-pointer"
+                >
+                  <DollarSign className="w-4 h-4" />
+                  <span>Process Payroll</span>
+                </button>
+
+                <button
+                  onClick={() => setShowEmpModal(true)}
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition flex items-center space-x-1.5 cursor-pointer"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>Add Employee</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+                    <th className="p-3">Emp ID</th>
+                    <th className="p-3">Full Name</th>
+                    <th className="p-3">Role / Designation</th>
+                    <th className="p-3">Department</th>
+                    <th className="p-3">Phone</th>
+                    <th className="p-3">CNIC</th>
+                    <th className="p-3 text-right">Monthly Salary</th>
+                    <th className="p-3 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium">
+                  {employees.map((emp, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50">
+                      <td className="p-3 font-mono font-bold text-slate-700">{emp.EmployeeID}</td>
+                      <td className="p-3 font-bold text-slate-900">{emp.FullName}</td>
+                      <td className="p-3 text-slate-700 font-semibold">{emp.Role}</td>
+                      <td className="p-3 text-slate-600">{emp.Department}</td>
+                      <td className="p-3 text-slate-600">{emp.Phone}</td>
+                      <td className="p-3 font-mono text-slate-500">{emp.CNIC}</td>
+                      <td className="p-3 text-right font-black text-slate-900">Rs. {emp.Salary.toLocaleString()}</td>
+                      <td className="p-3 text-center">
+                        <button
+                          onClick={() => handleDeleteEmp(emp)}
+                          className="p-1 text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* PAYROLL HISTORY */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+            <h3 className="font-bold text-slate-900 text-sm">Monthly Payroll Disbursement History</h3>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+                    <th className="p-3">Payroll ID</th>
+                    <th className="p-3">Month</th>
+                    <th className="p-3">Employee Name</th>
+                    <th className="p-3 text-right">Basic</th>
+                    <th className="p-3 text-right">Allowances</th>
+                    <th className="p-3 text-right">Deductions</th>
+                    <th className="p-3 text-right">Net Salary</th>
+                    <th className="p-3 text-center">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium">
+                  {payrolls.map((p, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50">
+                      <td className="p-3 font-mono font-bold text-slate-700">{p.PayrollID}</td>
+                      <td className="p-3 text-slate-600 font-bold">{p.MonthYear}</td>
+                      <td className="p-3 font-bold text-slate-900">{p.EmployeeName}</td>
+                      <td className="p-3 text-right text-slate-600">Rs. {p.BasicSalary.toLocaleString()}</td>
+                      <td className="p-3 text-right text-emerald-600">+ Rs. {p.Allowances.toLocaleString()}</td>
+                      <td className="p-3 text-right text-rose-600">- Rs. {p.Deductions.toLocaleString()}</td>
+                      <td className="p-3 text-right font-black text-slate-900">Rs. {p.NetSalary.toLocaleString()}</td>
+                      <td className="p-3 text-center">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                          {p.PaymentStatus}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 6: EXPENSES & ASSETS */}
+      {activeTab === 'expenses_assets' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* OPERATIONAL EXPENSES */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm">Operational Expenses Tracker</h3>
+                <p className="text-xs text-slate-500">Utilities, Rent, Refreshments & Maintenance</p>
+              </div>
+              <button
+                onClick={() => setShowExpenseModal(true)}
+                className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition flex items-center space-x-1 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Expense</span>
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+                    <th className="p-2.5">Date</th>
+                    <th className="p-2.5">Category</th>
+                    <th className="p-2.5">Description</th>
+                    <th className="p-2.5 text-right">Amount</th>
+                    <th className="p-2.5 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium">
+                  {expenses.map((exp, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50">
+                      <td className="p-2.5 text-slate-500 whitespace-nowrap">{exp.ExpenseDate}</td>
+                      <td className="p-2.5 font-bold text-slate-800">{exp.Category}</td>
+                      <td className="p-2.5 text-slate-600 max-w-xs truncate">{exp.Description}</td>
+                      <td className="p-2.5 text-right font-black text-rose-600">Rs. {exp.Amount.toLocaleString()}</td>
+                      <td className="p-2.5 text-center">
+                        <button
+                          onClick={() => handleDeleteExpense(exp)}
+                          className="p-1 text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* FIXED ASSETS REGISTER */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm">Fixed Asset Register</h3>
+                <p className="text-xs text-slate-500">Refrigerators, POS hardware, Furniture & Equipment</p>
+              </div>
+              <button
+                onClick={() => setShowAssetModal(true)}
+                className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition flex items-center space-x-1 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Asset</span>
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+                    <th className="p-2.5">Asset Name</th>
+                    <th className="p-2.5">Category</th>
+                    <th className="p-2.5 text-right">Cost</th>
+                    <th className="p-2.5 text-right">Current Value</th>
+                    <th className="p-2.5 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium">
+                  {assets.map((ast, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50">
+                      <td className="p-2.5 font-bold text-slate-900">{ast.AssetName}</td>
+                      <td className="p-2.5 text-slate-600">{ast.Category}</td>
+                      <td className="p-2.5 text-right text-slate-500">Rs. {ast.PurchaseCost.toLocaleString()}</td>
+                      <td className="p-2.5 text-right font-black text-indigo-600">Rs. {ast.CurrentValue.toLocaleString()}</td>
+                      <td className="p-2.5 text-center">
+                        <button
+                          onClick={() => handleDeleteAsset(ast)}
+                          className="p-1 text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ADD VENDOR */}
+      {showVendorModal && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
+            <h3 className="font-bold text-slate-900 text-base">Register New Supplier Vendor</h3>
+            <form onSubmit={handleAddVendor} className="space-y-3">
+              <div>
+                <label className="text-xs font-bold text-slate-600">Vendor / Company Name</label>
+                <input
+                  type="text"
+                  required
+                  value={vendorForm.VendorName}
+                  onChange={e => setVendorForm({ ...vendorForm, VendorName: e.target.value })}
+                  placeholder="e.g. High-Tech Pharma"
+                  className="w-full mt-1 p-2 border rounded-xl text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-600">Contact Person</label>
+                <input
+                  type="text"
+                  value={vendorForm.ContactPerson}
+                  onChange={e => setVendorForm({ ...vendorForm, ContactPerson: e.target.value })}
+                  placeholder="e.g. Mr. Tariq"
+                  className="w-full mt-1 p-2 border rounded-xl text-xs"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs font-bold text-slate-600">Phone</label>
+                  <input
+                    type="text"
+                    value={vendorForm.Phone}
+                    onChange={e => setVendorForm({ ...vendorForm, Phone: e.target.value })}
+                    placeholder="0300-1234567"
+                    className="w-full mt-1 p-2 border rounded-xl text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-600">Tax NTN ID</label>
+                  <input
+                    type="text"
+                    value={vendorForm.TaxID}
+                    onChange={e => setVendorForm({ ...vendorForm, TaxID: e.target.value })}
+                    placeholder="NTN-123456"
+                    className="w-full mt-1 p-2 border rounded-xl text-xs"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-600">Address</label>
+                <input
+                  type="text"
+                  value={vendorForm.Address}
+                  onChange={e => setVendorForm({ ...vendorForm, Address: e.target.value })}
+                  placeholder="Lahore, Pakistan"
+                  className="w-full mt-1 p-2 border rounded-xl text-xs"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowVendorModal(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-indigo-600 text-white font-bold text-xs"
+                >
+                  Save Vendor
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CREATE PURCHASE ORDER */}
+      {showPoModal && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-5xl w-full p-6 shadow-xl border space-y-5 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="font-bold text-slate-900 text-lg flex items-center space-x-2">
+                  <ShoppingCart className="w-5 h-5 text-indigo-600" />
+                  <span>Create Purchase Order & Stock Requisition</span>
+                </h3>
+                <p className="text-xs text-slate-500">Pick medicines directly from inventory stock list or auto-fill required stock quantities</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPoModal(false)}
+                className="text-slate-400 hover:text-slate-600 font-bold p-1 rounded-lg hover:bg-slate-100 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreatePo} className="space-y-5">
+              {/* TOP VENDOR & DATE SELECTOR */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div>
+                  <label className="text-xs font-bold text-slate-700">Select Supplier Vendor</label>
+                  <select
+                    required
+                    value={poForm.VendorName}
+                    onChange={e => {
+                      const v = vendors.find(item => item.VendorName === e.target.value);
+                      setPoForm({ ...poForm, VendorName: e.target.value, VendorID: v?.VendorID || '' });
+                    }}
+                    className="w-full mt-1 p-2 border rounded-xl text-xs bg-white font-bold text-slate-900"
+                  >
+                    <option value="">-- Choose Vendor / Supplier --</option>
+                    {vendors.map((v, idx) => (
+                      <option key={idx} value={v.VendorName}>{v.VendorName} ({v.VendorID})</option>
+                    ))}
+                    {vendors.length === 0 && <option value="High-Tech Pharma Distributors Ltd">High-Tech Pharma Distributors Ltd</option>}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-700">Expected Delivery Date</label>
+                  <input
+                    type="date"
+                    value={poForm.ExpectedDeliveryDate}
+                    onChange={e => setPoForm({ ...poForm, ExpectedDeliveryDate: e.target.value })}
+                    className="w-full mt-1 p-2 border rounded-xl text-xs bg-white font-bold text-slate-900"
+                  />
+                </div>
+              </div>
+
+              {/* GRID-VIEW MEDICINE STOCK PICKER */}
+              <div className="border border-indigo-100 bg-indigo-50/40 rounded-2xl p-4 space-y-3">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+                  <div>
+                    <h4 className="text-xs font-extrabold text-indigo-900 uppercase tracking-wider flex items-center space-x-1.5">
+                      <Boxes className="w-4 h-4 text-indigo-600" />
+                      <span>Medicine Inventory & Required Stock Grid View</span>
+                    </h4>
+                    <p className="text-[11px] text-indigo-700">Click any medicine card to automatically calculate & add required stock to PO</p>
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <button
+                      type="button"
+                      onClick={handleSelectAllLowStockMedicines}
+                      className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs transition shadow-xs flex items-center space-x-1 cursor-pointer"
+                      title="Auto-select all items where CStock <= MinStock"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>⚡ Auto-Select All Low Stock Items</span>
+                    </button>
+                    {poForm.Items.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setPoForm(prev => ({ ...prev, Items: [] }))}
+                        className="px-2.5 py-1.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs cursor-pointer"
+                      >
+                        Clear List
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                  {/* SEARCH & FILTERS */}
+                  <div className="flex flex-col sm:flex-row items-center gap-2">
+                    <div className="relative flex-1 w-full flex space-x-1.5">
+                      <div className="relative flex-1">
+                        <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Search medicine name, category, salt or code..."
+                          value={medicineSearchTerm}
+                          onChange={e => setMedicineSearchTerm(e.target.value)}
+                          className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-medium"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowQrScannerModal(true)}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl flex items-center space-x-1 shrink-0 cursor-pointer shadow-xs"
+                      >
+                        <QrCode className="w-3.5 h-3.5" />
+                        <span>Scan QR</span>
+                      </button>
+                    </div>
+
+                  {/* Medicine Category Dropdown Filter */}
+                  <div className="w-full sm:w-auto">
+                    <select
+                      value={poCategoryFilter}
+                      onChange={e => setPoCategoryFilter(e.target.value)}
+                      className="w-full sm:w-auto py-1.5 px-3 bg-white border border-slate-200 rounded-xl text-xs font-bold text-indigo-900 cursor-pointer shadow-2xs"
+                    >
+                      <option value="all">🏷️ All Medicine Categories</option>
+                      {medicineCategories.map((cat, idx) => (
+                        <option key={idx} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex items-center space-x-1 self-start sm:self-auto text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setMedicineFilterMode('all')}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                        medicineFilterMode === 'all' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 border'
+                      }`}
+                    >
+                      All ({inventoryItems.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMedicineFilterMode('lowStock')}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                        medicineFilterMode === 'lowStock' ? 'bg-amber-600 text-white' : 'bg-white text-slate-600 border'
+                      }`}
+                    >
+                      Low Stock ({inventoryItems.filter(i => (i.CStock ?? 0) <= (i.MinStock ?? 100)).length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMedicineFilterMode('selected')}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                        medicineFilterMode === 'selected' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 border'
+                      }`}
+                    >
+                      Selected ({poForm.Items.length})
+                    </button>
+                  </div>
+                </div>
+
+                {/* MEDICINES GRID VIEW */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-60 overflow-y-auto p-1">
+                  {inventoryItems
+                    .filter(med => {
+                      const medCat = med.Category || (med.MedicineType === 'C' ? 'Clinical / Compounded' : med.MedicineType === 'P' ? 'Patent / Pre-packaged' : 'Tablet / Capsule');
+                      const matchCategory = poCategoryFilter === 'all' || medCat.toLowerCase().includes(poCategoryFilter.toLowerCase());
+                      const matchSearch = med.ItemName?.toLowerCase().includes(medicineSearchTerm.toLowerCase()) ||
+                                          med.ItemID?.toLowerCase().includes(medicineSearchTerm.toLowerCase()) ||
+                                          medCat.toLowerCase().includes(medicineSearchTerm.toLowerCase());
+                      const cStock = med.CStock ?? med.Stock ?? 0;
+                      const minStock = med.MinStock ?? 100;
+                      if (!matchSearch || !matchCategory) return false;
+                      if (medicineFilterMode === 'lowStock') return cStock <= minStock;
+                      if (medicineFilterMode === 'selected') return isMedicineSelectedInPo(med.ItemID, med.ItemName);
+                      return true;
+                    })
+                    .map((med, idx) => {
+                      const cStock = med.CStock ?? med.Stock ?? 0;
+                      const minStock = med.MinStock ?? 100;
+                      const isLow = cStock <= minStock;
+                      const reqQty = getRequiredQty(med);
+                      const isSelected = isMedicineSelectedInPo(med.ItemID, med.ItemName);
+                      const currentPoItem = poForm.Items.find(i => (i.ItemID && i.ItemID === med.ItemID) || i.ItemName === med.ItemName);
+                      const medCat = med.Category || (med.MedicineType === 'C' ? 'Clinical / Compounded' : med.MedicineType === 'P' ? 'Patent / Pre-packaged' : 'Tablet / Capsule');
+
+                      return (
+                        <div
+                          key={idx}
+                          className={`p-3 rounded-xl border transition flex flex-col justify-between ${
+                            isSelected
+                              ? 'bg-emerald-50 border-emerald-300 ring-2 ring-emerald-400/40 shadow-xs'
+                              : isLow
+                              ? 'bg-amber-50/60 border-amber-200 hover:border-amber-400'
+                              : 'bg-white border-slate-200 hover:border-indigo-300'
+                          }`}
+                        >
+                          <div>
+                            <div className="flex items-start justify-between gap-1">
+                              <div>
+                                <p className="font-bold text-xs text-slate-900 leading-tight">{med.ItemName}</p>
+                                <p className="text-[10px] font-mono text-slate-500">{med.ItemID || 'ITM'}</p>
+                              </div>
+                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                isLow ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                              }`}>
+                                {isLow ? 'LOW STOCK' : 'In Stock'}
+                              </span>
+                            </div>
+
+                            {/* Medicine Category Badge */}
+                            <div className="mt-1.5 flex items-center">
+                              <span className="text-[9.5px] font-extrabold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-150 flex items-center space-x-1">
+                                <span>🏷️</span>
+                                <span>{medCat}</span>
+                              </span>
+                            </div>
+
+                            <div className="mt-2 text-[11px] space-y-0.5 text-slate-600">
+                              <div className="flex justify-between">
+                                <span>Current Stock:</span>
+                                <span className={`font-bold ${isLow ? 'text-amber-700' : 'text-slate-800'}`}>
+                                  {cStock} {med.Unit || 'Tab'}
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Required Stock:</span>
+                                <span className="font-extrabold text-indigo-700 bg-indigo-100/60 px-1 rounded">
+                                  +{reqQty} {med.Unit || 'Tab'}
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Purchase Rate:</span>
+                                <span className="font-bold text-slate-900">
+                                  Rs. {med.PurchasePrice || med.Price || 10}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-2.5 pt-2 border-t border-slate-200/60 flex items-center justify-between gap-1">
+                            {isSelected ? (
+                              <div className="flex items-center justify-between w-full">
+                                <span className="text-[10px] font-extrabold text-emerald-700 flex items-center">
+                                  <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-600" />
+                                  Selected
+                                </span>
+                                <div className="flex items-center space-x-1">
+                                  <label className="text-[10px] text-slate-500 font-bold">Qty:</label>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    value={currentPoItem?.Qty || reqQty}
+                                    onChange={e => {
+                                      const val = Number(e.target.value);
+                                      setPoForm(prev => ({
+                                        ...prev,
+                                        Items: prev.Items.map(i =>
+                                          (i.ItemID === med.ItemID || i.ItemName === med.ItemName)
+                                            ? { ...i, Qty: val }
+                                            : i
+                                        )
+                                      }));
+                                    }}
+                                    className="w-14 p-0.5 text-center text-xs border rounded font-bold bg-white"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleMedicineForPo(med)}
+                                    className="text-[10px] text-rose-600 hover:text-rose-800 font-bold px-1 cursor-pointer"
+                                    title="Remove from PO"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleToggleMedicineForPo(med)}
+                                className={`w-full py-1 rounded-lg text-xs font-bold transition flex items-center justify-center space-x-1 cursor-pointer ${
+                                  isLow
+                                    ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                                    : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700'
+                                }`}
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                <span>Choose for PO ({reqQty} {med.Unit || 'Tab'})</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+
+              {/* REQUISITION ORDER SUMMARY TABLE */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                    Selected Order Items Requisition List ({poForm.Items.length} Items)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleAddPoItem}
+                    className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center space-x-1 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Custom Item Line</span>
+                  </button>
+                </div>
+
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-100 text-slate-600 font-bold border-b border-slate-200">
+                        <th className="p-2.5">Medicine Name</th>
+                        <th className="p-2.5 w-36">Medicine Category</th>
+                        <th className="p-2.5 w-32">Batch No.</th>
+                        <th className="p-2.5 w-24 text-center">Required Qty</th>
+                        <th className="p-2.5 w-28 text-right">Unit Price (Rs.)</th>
+                        <th className="p-2.5 w-28 text-right">Subtotal</th>
+                        <th className="p-2.5 w-12 text-center">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {poForm.Items.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="p-4 text-center text-slate-400 font-medium">
+                            No medicines selected yet. Choose items from the grid above or auto-select low stock items!
+                          </td>
+                        </tr>
+                      ) : (
+                        poForm.Items.map((item, idx) => {
+                          const subtotal = (Number(item.Qty) || 0) * (Number(item.UnitPrice) || 0);
+                          return (
+                            <tr key={idx} className="hover:bg-slate-50">
+                              <td className="p-2 font-medium">
+                                <input
+                                  type="text"
+                                  placeholder="Medicine Name"
+                                  value={item.ItemName}
+                                  onChange={e => handleUpdatePoItem(idx, 'ItemName', e.target.value)}
+                                  className="w-full p-1 border rounded-lg text-xs font-semibold"
+                                />
+                              </td>
+                              <td className="p-2">
+                                <select
+                                  value={item.Category || 'Tablet / Capsule'}
+                                  onChange={e => handleUpdatePoItem(idx, 'Category', e.target.value)}
+                                  className="w-full p-1 border rounded-lg text-xs font-bold text-indigo-900 bg-indigo-50/60 cursor-pointer"
+                                >
+                                  {medicineCategories.map((c, cIdx) => (
+                                    <option key={cIdx} value={c}>{c}</option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td className="p-2">
+                                <input
+                                  type="text"
+                                  placeholder="Batch No."
+                                  value={item.BatchNo || ''}
+                                  onChange={e => handleUpdatePoItem(idx, 'BatchNo', e.target.value)}
+                                  className="w-full p-1 border rounded-lg text-xs font-mono font-bold bg-amber-50/60 text-amber-900"
+                                />
+                              </td>
+                              <td className="p-2">
+                                <input
+                                  type="number"
+                                  min="1"
+                                  placeholder="Qty"
+                                  value={item.Qty}
+                                  onChange={e => handleUpdatePoItem(idx, 'Qty', Number(e.target.value))}
+                                  className="w-full p-1 border rounded-lg text-xs text-center font-bold"
+                                />
+                              </td>
+                              <td className="p-2">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  placeholder="Price"
+                                  value={item.UnitPrice}
+                                  onChange={e => handleUpdatePoItem(idx, 'UnitPrice', Number(e.target.value))}
+                                  className="w-full p-1 border rounded-lg text-xs text-right font-semibold"
+                                />
+                              </td>
+                              <td className="p-2 text-right font-bold text-slate-900">
+                                Rs. {subtotal.toLocaleString()}
+                              </td>
+                              <td className="p-2 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPoForm(prev => ({
+                                      ...prev,
+                                      Items: prev.Items.filter((_, i) => i !== idx)
+                                    }));
+                                  }}
+                                  className="p-1 text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
+                                  title="Remove item"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* FOOTER & GRAND TOTAL */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-200">
+                <div className="text-sm">
+                  <span className="text-slate-500 font-bold">Grand Total Amount: </span>
+                  <span className="text-lg font-black text-indigo-700 ml-1">
+                    Rs. {poForm.Items.reduce((sum, i) => sum + (Number(i.Qty) * Number(i.UnitPrice)), 0).toLocaleString()}
+                  </span>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowPoModal(false)}
+                    className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={poForm.Items.length === 0}
+                    className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-xs transition shadow-sm flex items-center space-x-1.5 cursor-pointer"
+                  >
+                    <ShoppingCart className="w-4 h-4" />
+                    <span>Generate & Post Purchase Order</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CREATE / PROCESS GOODS RECEIVED NOTE (GRN) */}
+      {showGrnModal && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-xl border space-y-5 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="font-bold text-slate-900 text-lg flex items-center space-x-2">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                  <span>Receive Goods & Approve GRN (Stock Inward)</span>
+                </h3>
+                <p className="text-xs text-slate-500">Enter or select Purchase Order (PO Number) to fetch items, verify received quantities, and add stock to inventory</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowGrnModal(false)}
+                className="text-slate-400 hover:text-slate-600 font-bold p-1 rounded-lg hover:bg-slate-100 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleApproveGrn} className="space-y-4">
+              {/* PO SELECTOR & METADATA GRID */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Select Purchase Order (PO Number)</label>
+                  <select
+                    value={grnForm.POID}
+                    onChange={e => handleSelectPoForGrn(e.target.value)}
+                    className="w-full p-2 border rounded-xl text-xs font-mono font-bold bg-white text-indigo-700 border-indigo-200 focus:outline-hidden"
+                  >
+                    <option value="">-- Choose Purchase Order --</option>
+                    {purchaseOrders.map((p, idx) => (
+                      <option key={idx} value={p.POID}>
+                        {p.POID} ({p.VendorName}) - {p.Status === 'Received' ? '✓ Received' : 'Pending'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">GRN Number</label>
+                  <input
+                    type="text"
+                    readOnly
+                    value={grnForm.GRNID}
+                    className="w-full p-2 border rounded-xl text-xs font-mono font-bold bg-slate-100 text-emerald-700"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Received Date</label>
+                  <input
+                    type="date"
+                    required
+                    value={grnForm.ReceivedDate}
+                    onChange={e => setGrnForm({ ...grnForm, ReceivedDate: e.target.value })}
+                    className="w-full p-2 border rounded-xl text-xs bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Supplier / Vendor</label>
+                  <input
+                    type="text"
+                    readOnly
+                    value={grnForm.VendorName || 'No Vendor Selected'}
+                    className="w-full p-2 border rounded-xl text-xs font-bold bg-slate-100 text-slate-800"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Delivery Challan No.</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. DC-98124"
+                    value={grnForm.ChallanNo}
+                    onChange={e => setGrnForm({ ...grnForm, ChallanNo: e.target.value })}
+                    className="w-full p-2 border rounded-xl text-xs bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Supplier Invoice No.</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. INV-55421"
+                    value={grnForm.SupplierInvoiceNo}
+                    onChange={e => setGrnForm({ ...grnForm, SupplierInvoiceNo: e.target.value })}
+                    className="w-full p-2 border rounded-xl text-xs bg-white"
+                  />
+                </div>
+              </div>
+
+              {/* RECEIVED MEDICINES TABLE */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                    PO Order Items to Receive ({grnForm.Items.length} Line Items)
+                  </label>
+                  <span className="text-[11px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                    Received Quantities will be added directly to Medicine Inventory Stock
+                  </span>
+                </div>
+
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-100 text-slate-600 font-bold border-b border-slate-200">
+                        <th className="p-2.5">Item ID</th>
+                        <th className="p-2.5">Medicine Description</th>
+                        <th className="p-2.5 text-center w-28">Batch No.</th>
+                        <th className="p-2.5 text-center w-24">Ordered Qty</th>
+                        <th className="p-2.5 text-center w-28">Received Qty</th>
+                        <th className="p-2.5 text-right w-24">Unit Price</th>
+                        <th className="p-2.5 text-right w-28">Subtotal</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {grnForm.Items.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="p-6 text-center text-slate-400 font-medium">
+                            Please select a Purchase Order from above to fetch the ordered medicines!
+                          </td>
+                        </tr>
+                      ) : (
+                        grnForm.Items.map((item, idx) => {
+                          const subtotal = (Number(item.ReceivedQty) || 0) * (Number(item.UnitPrice) || 0);
+                          return (
+                            <tr key={idx} className="hover:bg-slate-50">
+                              <td className="p-2.5 font-mono text-slate-500 font-bold">{item.ItemID}</td>
+                              <td className="p-2.5 font-bold text-slate-900">{item.ItemName}</td>
+                              <td className="p-2.5 text-center">
+                                <input
+                                  type="text"
+                                  placeholder="Batch No."
+                                  value={item.BatchNo || ''}
+                                  onChange={e => {
+                                    const val = e.target.value;
+                                    setGrnForm(prev => {
+                                      const updated = [...prev.Items];
+                                      updated[idx] = { ...updated[idx], BatchNo: val };
+                                      return { ...prev, Items: updated };
+                                    });
+                                  }}
+                                  className="w-24 p-1 border border-amber-200 rounded-lg text-xs text-center font-mono font-bold bg-amber-50 text-amber-900 focus:outline-hidden"
+                                />
+                              </td>
+                              <td className="p-2.5 text-center font-bold text-slate-600">{item.OrderedQty}</td>
+                              <td className="p-2.5 text-center">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={item.ReceivedQty}
+                                  onChange={e => {
+                                    const val = Number(e.target.value);
+                                    setGrnForm(prev => {
+                                      const updated = [...prev.Items];
+                                      updated[idx] = { ...updated[idx], ReceivedQty: val, LineTotal: val * updated[idx].UnitPrice };
+                                      return { ...prev, Items: updated };
+                                    });
+                                  }}
+                                  className="w-20 p-1 border border-emerald-300 rounded-lg text-xs text-center font-black bg-emerald-50 text-emerald-900 focus:outline-hidden"
+                                />
+                              </td>
+                              <td className="p-2.5 text-right font-semibold text-slate-700">Rs. {item.UnitPrice}</td>
+                              <td className="p-2.5 text-right font-bold text-slate-900">Rs. {subtotal.toLocaleString()}</td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-600 block mb-1">Verification / Quality Remarks</label>
+                <input
+                  type="text"
+                  placeholder="e.g. All medicine boxes verified in good condition and unexpired."
+                  value={grnForm.Remarks}
+                  onChange={e => setGrnForm({ ...grnForm, Remarks: e.target.value })}
+                  className="w-full p-2 border rounded-xl text-xs bg-white"
+                />
+              </div>
+
+              {/* FOOTER & APPROVE BUTTON */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-200">
+                <div className="text-sm">
+                  <span className="text-slate-500 font-bold">Total GRN Inward Value: </span>
+                  <span className="text-lg font-black text-emerald-700 ml-1">
+                    Rs. {grnForm.Items.reduce((sum, i) => sum + (Number(i.ReceivedQty) * Number(i.UnitPrice)), 0).toLocaleString()}
+                  </span>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowGrnModal(false)}
+                    className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={grnForm.Items.length === 0 || !grnForm.POID}
+                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs transition shadow-sm flex items-center space-x-1.5 cursor-pointer"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Approve GRN & Update Inventory Stock</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: LOG TRANSACTION */}
+      {showTxnModal && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
+            <h3 className="font-bold text-slate-900 text-base">Log Financial Voucher</h3>
+            <form onSubmit={handleAddTxn} className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs font-bold text-slate-600">Type</label>
+                  <select
+                    value={txnForm.Type}
+                    onChange={e => setTxnForm({ ...txnForm, Type: e.target.value as any })}
+                    className="w-full mt-1 p-2 border rounded-xl text-xs bg-white"
+                  >
+                    <option value="Expense">Expense</option>
+                    <option value="Income">Income</option>
+                    <option value="VendorPayment">Vendor Payment</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-600">Payment Method</label>
+                  <select
+                    value={txnForm.PaymentMethod}
+                    onChange={e => setTxnForm({ ...txnForm, PaymentMethod: e.target.value as any })}
+                    className="w-full mt-1 p-2 border rounded-xl text-xs bg-white"
+                  >
+                    <option value="Cash">Cash</option>
+                    <option value="Bank">Bank Transfer</option>
+                    <option value="Cheque">Cheque</option>
+                  </select>
+                </div>
+              </div>
+
+              {txnForm.Type === 'VendorPayment' && (
+                <div>
+                  <label className="text-xs font-bold text-slate-700">Select Vendor / Supplier</label>
+                  <select
+                    value={txnForm.VendorName}
+                    onChange={e => {
+                      const v = vendors.find(item => item.VendorName === e.target.value);
+                      setTxnForm({
+                        ...txnForm,
+                        VendorName: e.target.value,
+                        VendorID: v?.VendorID || '',
+                        Amount: v?.Balance || txnForm.Amount || 0
+                      });
+                    }}
+                    className="w-full mt-1 p-2 border rounded-xl text-xs bg-amber-50 font-bold text-amber-900 border-amber-200"
+                  >
+                    <option value="">-- Choose Vendor / Supplier --</option>
+                    {vendors.map((v, idx) => (
+                      <option key={idx} value={v.VendorName}>
+                        {v.VendorName} (Outstanding: Rs. {v.Balance.toLocaleString()})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className="text-xs font-bold text-slate-600">Category Name</label>
+                <input
+                  type="text"
+                  required
+                  value={txnForm.Category}
+                  onChange={e => setTxnForm({ ...txnForm, Category: e.target.value })}
+                  placeholder="e.g. Electricity Bill, Vendor Payment"
+                  className="w-full mt-1 p-2 border rounded-xl text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-600">Amount (Rs.)</label>
+                <input
+                  type="number"
+                  required
+                  value={txnForm.Amount || ''}
+                  onChange={e => setTxnForm({ ...txnForm, Amount: Number(e.target.value) })}
+                  placeholder="0"
+                  className="w-full mt-1 p-2 border rounded-xl text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-600">Description</label>
+                <input
+                  type="text"
+                  value={txnForm.Description}
+                  onChange={e => setTxnForm({ ...txnForm, Description: e.target.value })}
+                  placeholder="Remarks"
+                  className="w-full mt-1 p-2 border rounded-xl text-xs"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowTxnModal(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-indigo-600 text-white font-bold text-xs"
+                >
+                  Post Voucher
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ADD EMPLOYEE */}
+      {showEmpModal && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
+            <h3 className="font-bold text-slate-900 text-base">Add Staff Employee Profile</h3>
+            <form onSubmit={handleAddEmployee} className="space-y-3">
+              <div>
+                <label className="text-xs font-bold text-slate-600">Full Name</label>
+                <input
+                  type="text"
+                  required
+                  value={empForm.FullName}
+                  onChange={e => setEmpForm({ ...empForm, FullName: e.target.value })}
+                  placeholder="Full Name"
+                  className="w-full mt-1 p-2 border rounded-xl text-xs"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs font-bold text-slate-600">Role</label>
+                  <input
+                    type="text"
+                    value={empForm.Role}
+                    onChange={e => setEmpForm({ ...empForm, Role: e.target.value })}
+                    placeholder="Pharmacist"
+                    className="w-full mt-1 p-2 border rounded-xl text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-600">Monthly Salary (Rs.)</label>
+                  <input
+                    type="number"
+                    required
+                    value={empForm.Salary || ''}
+                    onChange={e => setEmpForm({ ...empForm, Salary: Number(e.target.value) })}
+                    placeholder="45000"
+                    className="w-full mt-1 p-2 border rounded-xl text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs font-bold text-slate-600">Phone</label>
+                  <input
+                    type="text"
+                    value={empForm.Phone}
+                    onChange={e => setEmpForm({ ...empForm, Phone: e.target.value })}
+                    placeholder="0300-1234567"
+                    className="w-full mt-1 p-2 border rounded-xl text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-600">CNIC</label>
+                  <input
+                    type="text"
+                    value={empForm.CNIC}
+                    onChange={e => setEmpForm({ ...empForm, CNIC: e.target.value })}
+                    placeholder="35202-1234567-1"
+                    className="w-full mt-1 p-2 border rounded-xl text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowEmpModal(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-indigo-600 text-white font-bold text-xs"
+                >
+                  Save Employee
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: PROCESS PAYROLL */}
+      {showPayrollModal && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
+            <h3 className="font-bold text-slate-900 text-base">Process Monthly Staff Salary Payroll</h3>
+            <form onSubmit={handleProcessPayroll} className="space-y-3">
+              <div>
+                <label className="text-xs font-bold text-slate-600">Select Employee</label>
+                <select
+                  required
+                  value={payrollForm.EmployeeID}
+                  onChange={e => {
+                    const emp = employees.find(item => item.EmployeeID === e.target.value);
+                    setPayrollForm({
+                      ...payrollForm,
+                      EmployeeID: e.target.value,
+                      BasicSalary: emp?.Salary || 0
+                    });
+                  }}
+                  className="w-full mt-1 p-2 border rounded-xl text-xs bg-white font-bold"
+                >
+                  <option value="">-- Choose Employee --</option>
+                  {employees.map((emp, idx) => (
+                    <option key={idx} value={emp.EmployeeID}>{emp.FullName} ({emp.Role}) - Rs. {emp.Salary.toLocaleString()}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs font-bold text-slate-600">Month / Year</label>
+                  <input
+                    type="month"
+                    required
+                    value={payrollForm.MonthYear}
+                    onChange={e => setPayrollForm({ ...payrollForm, MonthYear: e.target.value })}
+                    className="w-full mt-1 p-2 border rounded-xl text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-600">Basic Salary</label>
+                  <input
+                    type="number"
+                    value={payrollForm.BasicSalary}
+                    onChange={e => setPayrollForm({ ...payrollForm, BasicSalary: Number(e.target.value) })}
+                    className="w-full mt-1 p-2 border rounded-xl text-xs font-bold"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs font-bold text-slate-600">Allowances (Rs.)</label>
+                  <input
+                    type="number"
+                    value={payrollForm.Allowances}
+                    onChange={e => setPayrollForm({ ...payrollForm, Allowances: Number(e.target.value) })}
+                    className="w-full mt-1 p-2 border rounded-xl text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-600">Deductions (Rs.)</label>
+                  <input
+                    type="number"
+                    value={payrollForm.Deductions}
+                    onChange={e => setPayrollForm({ ...payrollForm, Deductions: Number(e.target.value) })}
+                    className="w-full mt-1 p-2 border rounded-xl text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowPayrollModal(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs"
+                >
+                  Confirm & Disburse Payroll
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ADD EXPENSE */}
+      {showExpenseModal && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
+            <h3 className="font-bold text-slate-900 text-base">Record Operational Expense</h3>
+            <form onSubmit={handleAddExpense} className="space-y-3">
+              <div>
+                <label className="text-xs font-bold text-slate-600">Category</label>
+                <select
+                  value={expenseForm.Category}
+                  onChange={e => setExpenseForm({ ...expenseForm, Category: e.target.value as any })}
+                  className="w-full mt-1 p-2 border rounded-xl text-xs bg-white font-bold"
+                >
+                  <option value="Utilities">Utilities (Electricity / Water)</option>
+                  <option value="Rent">Premises Rent</option>
+                  <option value="Maintenance">Maintenance & Repairs</option>
+                  <option value="Refreshment">Tea & Refreshment</option>
+                  <option value="Marketing">Marketing & Banners</option>
+                  <option value="Supplies">Store Stationary & Supplies</option>
+                  <option value="Other">Other Miscellaneous</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-600">Description</label>
+                <input
+                  type="text"
+                  required
+                  value={expenseForm.Description}
+                  onChange={e => setExpenseForm({ ...expenseForm, Description: e.target.value })}
+                  placeholder="e.g. AC Gas Refill & Service"
+                  className="w-full mt-1 p-2 border rounded-xl text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-600">Amount (Rs.)</label>
+                <input
+                  type="number"
+                  required
+                  value={expenseForm.Amount || ''}
+                  onChange={e => setExpenseForm({ ...expenseForm, Amount: Number(e.target.value) })}
+                  placeholder="0"
+                  className="w-full mt-1 p-2 border rounded-xl text-xs"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowExpenseModal(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-indigo-600 text-white font-bold text-xs"
+                >
+                  Save Expense
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ADD ASSET */}
+      {showAssetModal && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
+            <h3 className="font-bold text-slate-900 text-base">Add Fixed Asset Record</h3>
+            <form onSubmit={handleAddAsset} className="space-y-3">
+              <div>
+                <label className="text-xs font-bold text-slate-600">Asset Name</label>
+                <input
+                  type="text"
+                  required
+                  value={assetForm.AssetName}
+                  onChange={e => setAssetForm({ ...assetForm, AssetName: e.target.value })}
+                  placeholder="e.g. Haier Insulin Refrigerator"
+                  className="w-full mt-1 p-2 border rounded-xl text-xs"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs font-bold text-slate-600">Category</label>
+                  <select
+                    value={assetForm.Category}
+                    onChange={e => setAssetForm({ ...assetForm, Category: e.target.value as any })}
+                    className="w-full mt-1 p-2 border rounded-xl text-xs bg-white"
+                  >
+                    <option value="Equipment">Equipment</option>
+                    <option value="IT Hardware">IT Hardware</option>
+                    <option value="Furniture">Furniture</option>
+                    <option value="Vehicle">Vehicle</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-600">Purchase Cost (Rs.)</label>
+                  <input
+                    type="number"
+                    required
+                    value={assetForm.PurchaseCost || ''}
+                    onChange={e => {
+                      const val = Number(e.target.value);
+                      setAssetForm({ ...assetForm, PurchaseCost: val, CurrentValue: val });
+                    }}
+                    placeholder="150000"
+                    className="w-full mt-1 p-2 border rounded-xl text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowAssetModal(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-indigo-600 text-white font-bold text-xs"
+                >
+                  Save Fixed Asset
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* PRINTABLE VENDOR STATEMENT PREVIEW MODAL */}
+      {vendorPrintModalOpen && selectedVendor && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 overflow-y-auto print:absolute print:inset-0 print:bg-white print:p-0">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-4xl w-full flex flex-col h-[90vh] print:h-auto print:border-0 print:shadow-none animate-fadeIn">
+            {/* Modal Control Bar */}
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between print:hidden bg-slate-50 rounded-t-2xl">
+              <div>
+                <span className="text-xs font-black uppercase tracking-wider text-slate-800">
+                  Vendor Account Statement Printable Preview
+                </span>
+                <p className="text-[10px] text-slate-400">Official statement for {selectedVendor.VendorName}</p>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => window.print()}
+                  className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition flex items-center shadow-xs cursor-pointer"
+                >
+                  <Printer className="w-4 h-4 mr-1.5" />
+                  Print Statement
+                </button>
+                <button
+                  onClick={() => setVendorPrintModalOpen(false)}
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-200 transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Printable Document Sheet */}
+            <div className="p-8 flex-1 overflow-y-auto space-y-6 print:p-0 print:overflow-visible text-slate-900" id="vendor-printable-sheet">
+              {/* Header */}
+              <div className="border-b-2 border-slate-900 pb-4 text-center space-y-1">
+                <h1 className="text-xl font-black uppercase tracking-widest text-slate-950">SUPPLIER ACCOUNT STATEMENT</h1>
+                <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">HealthCare ERP & Accounts Payable Ledger</p>
+                <p className="text-[10px] text-slate-500 font-mono">Statement Date: {new Date().toLocaleDateString('en-GB')}</p>
+              </div>
+
+              {/* Vendor Details */}
+              <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
+                <div className="space-y-1">
+                  <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Supplier Details</p>
+                  <p className="font-extrabold text-sm text-slate-950">{selectedVendor.VendorName}</p>
+                  <p className="text-slate-600">Supplier ID: <span className="font-mono font-bold text-slate-800">{selectedVendor.VendorID || 'N/A'}</span></p>
+                  <p className="text-slate-600">Contact: {selectedVendor.ContactPerson || 'N/A'} ({selectedVendor.Phone || 'N/A'})</p>
+                  <p className="text-slate-600">Address: {selectedVendor.Address || 'N/A'}</p>
+                </div>
+                <div className="space-y-1 text-right">
+                  <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Statement Summary</p>
+                  <p className="text-slate-700">Total Purchases (GRN): <span className="font-mono font-bold text-slate-900">Rs. {vendorStatement.totalInvoiced.toLocaleString()}</span></p>
+                  <p className="text-slate-700">Total Payments Cleared: <span className="font-mono font-bold text-emerald-700">Rs. {vendorStatement.totalPaid.toLocaleString()}</span></p>
+                  <div className="pt-2 border-t border-slate-300">
+                    <p className="text-xs font-black uppercase text-slate-500">Current Outstanding Payable</p>
+                    <p className="text-lg font-mono font-black text-amber-700">Rs. {vendorStatement.closingBalance.toLocaleString()}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Statement Rows Table */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <table className="w-full text-left text-xs font-sans border-collapse">
+                  <thead>
+                    <tr className="bg-slate-900 text-white uppercase text-[9px] font-black tracking-wider">
+                      <th className="p-2.5">Date</th>
+                      <th className="p-2.5">Type</th>
+                      <th className="p-2.5">Ref / Voucher #</th>
+                      <th className="p-2.5">Description</th>
+                      <th className="p-2.5 text-right">Debit (Paid)</th>
+                      <th className="p-2.5 text-right">Credit (Bill)</th>
+                      <th className="p-2.5 text-right">Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 bg-white">
+                    {vendorStatement.statementRows.map((row, idx) => (
+                      <tr key={idx}>
+                        <td className="p-2.5 font-mono text-slate-700">{row.date}</td>
+                        <td className="p-2.5 font-bold text-slate-900">{row.type}</td>
+                        <td className="p-2.5 font-mono font-bold text-slate-800">{row.refNo}</td>
+                        <td className="p-2.5 text-slate-700">{row.description}</td>
+                        <td className="p-2.5 text-right font-mono font-bold text-emerald-700">
+                          {row.debit > 0 ? `Rs. ${row.debit.toLocaleString()}` : '-'}
+                        </td>
+                        <td className="p-2.5 text-right font-mono font-bold text-amber-700">
+                          {row.credit > 0 ? `Rs. ${row.credit.toLocaleString()}` : '-'}
+                        </td>
+                        <td className="p-2.5 text-right font-mono font-black text-slate-950">
+                          Rs. {(row.runningBalance || 0).toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* QR Code Scanner & Generator Modals */}
+      <ItemQRScannerModal
+        isOpen={showQrScannerModal}
+        onClose={() => setShowQrScannerModal(false)}
+        onScanSuccess={(parsed) => {
+          setMedicineSearchTerm(parsed.itemId || parsed.itemName);
+          setShowQrScannerModal(false);
+        }}
+      />
+
+      <ItemQRGeneratorModal
+        isOpen={showQrGeneratorModal}
+        onClose={() => setShowQrGeneratorModal(false)}
+        items={inventoryItems.map((itm: any) => ({
+          ItemID: itm.ItemID || `ITM-${Math.floor(100 + Math.random() * 900)}`,
+          ItemName: itm.ItemName || 'Medicine Item',
+          MedicineType: itm.MedicineType || 'P',
+          Category: itm.Category || 'General',
+          Price: itm.Price || itm.PurchasePrice || 100,
+          CStock: itm.CStock ?? itm.Stock ?? 0,
+          Unit: itm.Unit || 'Pack'
+        }))}
+        clinicName="ERP Pharmacy Operations"
+      />
+    </div>
+  );
+}

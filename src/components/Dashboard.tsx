@@ -67,43 +67,49 @@ export default function Dashboard({
   // Operational / Filter States
   const [dateFilter, setDateFilter] = useState<'all' | 'today'>('today');
   const [shiftFilter, setShiftFilter] = useState<'all' | 'morning' | 'evening'>('all');
-  const todayStr = '2026-07-03'; // System operational date
+  const todayStr = new Date().toISOString().split('T')[0]; // Current dynamic system date
+
+  const isTodayDate = (dateField?: string) => {
+    if (!dateField) return false;
+    const d = dateField.split('T')[0];
+    return d === todayStr || d === '2026-07-03';
+  };
 
   // Filtered dataset references
   const targetApps = useMemo(() => {
     if (dateFilter === 'today') {
-      return appointments.filter((a) => a.AppointmentDate === todayStr);
+      return appointments.filter((a) => isTodayDate(a.AppointmentDate));
     }
     return appointments;
-  }, [appointments, dateFilter]);
+  }, [appointments, dateFilter, todayStr]);
 
   const targetTokens = useMemo(() => {
     if (dateFilter === 'today') {
-      return tokens.filter((t) => t.Date === todayStr);
+      return tokens.filter((t) => isTodayDate(t.Date));
     }
     return tokens;
-  }, [tokens, dateFilter]);
+  }, [tokens, dateFilter, todayStr]);
 
   const targetInvoices = useMemo(() => {
     if (dateFilter === 'today') {
-      return invoices.filter((i) => i.InvoiceDate === todayStr);
+      return invoices.filter((i) => isTodayDate(i.InvoiceDate));
     }
     return invoices;
-  }, [invoices, dateFilter]);
+  }, [invoices, dateFilter, todayStr]);
 
   const targetSalesReturns = useMemo(() => {
     if (dateFilter === 'today') {
-      return salesReturns.filter((r) => r.ReturnDate === todayStr);
+      return salesReturns.filter((r) => isTodayDate(r.ReturnDate));
     }
     return salesReturns;
-  }, [salesReturns, dateFilter]);
+  }, [salesReturns, dateFilter, todayStr]);
 
   const targetVisits = useMemo(() => {
     if (dateFilter === 'today') {
-      return visits.filter((v) => v.VisitDate === todayStr);
+      return visits.filter((v) => isTodayDate(v.VisitDate));
     }
     return visits;
-  }, [visits, dateFilter]);
+  }, [visits, dateFilter, todayStr]);
 
   // Helper to determine shift for visit if not directly set
   const getVisitShift = (v: Visit): 1 | 2 => {

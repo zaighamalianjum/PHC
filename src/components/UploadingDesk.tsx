@@ -830,8 +830,9 @@ NHC-1003\tZainab Khan\tIrfan\t12\tFemale\t03451122334\t2026-07-12\tSore Throat\t
       })
       .then(data => {
         if (data.success) {
+          const count = Number(data?.totalCount ?? data?.count ?? 0);
           setSuccessMsg(
-            `Data processed successfully! Imported ${data.totalCount.toLocaleString()} clinical history rows into the database using [${data.mode === 'wipe-insert' ? 'Wipe & Re-index' : 'Smart Merge'}] mode.`
+            `Data processed successfully! Imported ${count.toLocaleString()} clinical history rows into the database using [${data.mode === 'wipe-insert' ? 'Wipe & Re-index' : 'Smart Merge'}] mode.`
           );
           if (setNhcPatients && Array.isArray(data.preview || data.data)) {
             setNhcPatients(data.preview || data.data);
@@ -1284,7 +1285,7 @@ NHC-1003\tZainab Khan\tIrfan\t12\tFemale\t03451122334\t2026-07-12\tSore Throat\t
                       <tr key={index} className="hover:bg-slate-55">
                         <td className="px-3 py-2 font-mono font-bold text-slate-700">{tst.TID}</td>
                         <td className="px-3 py-2 font-medium text-slate-900">{tst.TestName}</td>
-                        <td className="px-3 py-2 text-right font-mono text-slate-600">Rs. {tst.Cost.toLocaleString()}</td>
+                        <td className="px-3 py-2 text-right font-mono text-slate-600">Rs. {(tst.Cost || 0).toLocaleString()}</td>
                       </tr>
                     ))}
                   </tbody>

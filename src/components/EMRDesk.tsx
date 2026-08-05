@@ -47,6 +47,7 @@ import {
   MongoDbSettings,
   SmartLocatorMedicine
 } from '../types';
+import { generatePatientId } from '../utils/idGenerator';
 
 interface EMRDeskProps {
   patients: Patient[];
@@ -69,6 +70,7 @@ interface EMRDeskProps {
   onAddPatient?: (p: Patient) => void;
   onUpdatePatient?: (p: Patient) => void;
   smartLocatorMedicines?: SmartLocatorMedicine[];
+  initialPatientId?: string;
 }
 
 function formatShortDate(dateStr: string | undefined | null): string {
@@ -107,7 +109,8 @@ export default function EMRDesk({
   mongoDbSettings,
   onAddPatient,
   onUpdatePatient,
-  smartLocatorMedicines = []
+  smartLocatorMedicines = [],
+  initialPatientId
 }: EMRDeskProps) {
   // Navigation tabs
   const [activeSubTab, setActiveSubTab] = useState<'certs' | 'sbp'>('certs');
@@ -115,14 +118,20 @@ export default function EMRDesk({
   const medSearchInputRef = useRef<HTMLInputElement>(null);
 
   // Rights verification
-  const currentRight = userRights.find((r) => r.MenuID === 'emr');
+  const currentRight = userRights.find((r) => r.MenuID === 'emr') || userRights.find((r) => r.MenuID === 'patients');
   const canAdd = currentRight ? currentRight.AddRec : false;
   const canPost = currentRight ? currentRight.PostRec : false;
 
   // Selected patient for active consultation session
-  const [selectedPatientId, setSelectedPatientId] = useState('');
+  const [selectedPatientId, setSelectedPatientId] = useState<string | number>(initialPatientId || '');
   const [patientSearch, setPatientSearch] = useState('');
   const [showPatientDropdown, setShowPatientDropdown] = useState(false);
+
+  useEffect(() => {
+    if (initialPatientId) {
+      setSelectedPatientId(initialPatientId);
+    }
+  }, [initialPatientId]);
 
   // Track previous/current patient in session
   const [previousPatientId, setPreviousPatientId] = useState<string>('');
@@ -934,7 +943,7 @@ export default function EMRDesk({
       return;
     }
 
-    const newId = `PAT-${String(patients.length + 1).padStart(3, '0')}`;
+    const newId = generatePatientId(patients);
     const newPatient: Patient = {
       PatientID: newId,
       PatientName: regName.trim(),
@@ -2639,7 +2648,7 @@ export default function EMRDesk({
                 <p>We detected <strong className="text-blue-950 font-bold">{prescribedMedicines.filter(m => m.MedicineType === 'P').length} patent medicine line items</strong> in the clinical prescription grid tab.</p>
                 <p className="mt-1 flex justify-between items-center bg-white p-2 rounded border border-blue-200">
                   <span className="font-bold text-slate-500 font-sans">Accumulated Claims SBP Medicine refund sum:</span>
-                  <strong className="text-emerald-700 font-mono text-xs">Rs. {autoSbpMedCost.toLocaleString()}</strong>
+                  <strong className="text-emerald-700 font-mono text-xs">Rs. {(autoSbpMedCost || 0).toLocaleString()}</strong>
                 </p>
               </div>
 
@@ -2681,9 +2690,9 @@ export default function EMRDesk({
                     <div className="bg-white p-3 rounded-lg border border-slate-100 space-y-2 text-slate-600">
                       <div className="grid grid-cols-2 gap-2 border-b border-slate-100 pb-1.5 font-semibold">
                         <span>Consultant fee claimed:</span>
-                        <span className="text-right text-slate-950 font-mono">Rs. {cert.ConsultantFee.toLocaleString()}</span>
+                        <span className="text-right text-slate-950 font-mono">Rs. {(cert.ConsultantFee || 0).toLocaleString()}</span>
                         <span>Medicines refund claimed:</span>
-                        <span className="text-right text-slate-950 font-mono">Rs. {cert.CostofMedicines.toLocaleString()}</span>
+                        <span className="text-right text-slate-950 font-mono">Rs. {(cert.CostofMedicines || 0).toLocaleString()}</span>
                         <span>Treatment days:</span>
                         <span className="text-right text-slate-950">{cert.TreatmentForDays} Days</span>
                       </div>
@@ -2700,7 +2709,7 @@ export default function EMRDesk({
                               return (
                                 <div key={idx} className="flex justify-between pt-1 first:pt-0">
                                   <span className="truncate max-w-[200px]">{name} (x{m.Qty})</span>
-                                  <span className="font-mono text-slate-800">Rs. {(m.Price * m.Qty).toLocaleString()}</span>
+                                  <span className="font-mono text-slate-800">Rs. {((m.Price || 0) * (m.Qty || 0)).toLocaleString()}</span>
                                 </div>
                               );
                             })}
@@ -3434,32 +3443,32 @@ export default function EMRDesk({
 
       {/* Patient Database Lookup & Health History Modal */}
       {patientLookupModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[9998] overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-4xl w-full max-h-[85vh] flex flex-col animate-fadeIn text-left">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 z-[9998] overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-4xl w-full max-h-[92vh] sm:max-h-[85vh] flex flex-col animate-fadeIn text-left">
             
             {/* Modal Header */}
-            <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50 rounded-t-2xl">
+            <div className="p-3.5 sm:p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50 rounded-t-2xl">
               <div className="flex items-center space-x-2">
-                <Search className="w-5 h-5 text-blue-600" />
+                <Search className="w-5 h-5 text-blue-600 shrink-0" />
                 <div>
-                  <h3 className="text-sm font-bold text-slate-800">Punjab Clinic Patient Database Lookup</h3>
-                  <p className="text-xxs text-slate-500 font-semibold">Search patient records, view demographic profile, and print cumulative health histories</p>
+                  <h3 className="text-xs sm:text-sm font-bold text-slate-800">Punjab Clinic Patient Database Lookup</h3>
+                  <p className="text-[10px] sm:text-xxs text-slate-500 font-semibold line-clamp-1 sm:line-clamp-none">Search patient records, view demographic profile, and print cumulative health histories</p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setPatientLookupModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 font-bold text-sm bg-slate-200/50 hover:bg-slate-200 p-1.5 rounded-full transition cursor-pointer"
+                className="text-slate-400 hover:text-slate-600 font-bold text-sm bg-slate-200/50 hover:bg-slate-200 p-1.5 rounded-full transition cursor-pointer shrink-0 ml-2"
               >
                 ✕
               </button>
             </div>
 
             {/* Modal Body */}
-            <div className="p-6 overflow-y-auto flex-1 grid grid-cols-1 md:grid-cols-12 gap-6 min-h-[450px]">
+            <div className="p-3.5 sm:p-6 overflow-y-auto flex-1 grid grid-cols-1 md:grid-cols-12 gap-4 sm:gap-6 min-h-[350px] sm:min-h-[450px]">
               
               {/* Left Column (md:col-span-4): Patient Directory List */}
-              <div className="md:col-span-4 space-y-3 border-r border-slate-100 pr-4 flex flex-col">
+              <div className="md:col-span-4 space-y-3 border-b md:border-b-0 md:border-r border-slate-200 pb-4 md:pb-0 md:pr-4 flex flex-col">
                 <div className="space-y-1">
                   <label className="block text-xxs font-bold text-slate-500 uppercase">Search Patient Database</label>
                   <div className="flex gap-1.5">

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Ticket,
   UserPlus,
@@ -7,9 +7,11 @@ import {
   Phone,
   MapPin,
   UserCheck,
-  ListOrdered
+  ListOrdered,
+  Trash2,
+  AlertTriangle
 } from 'lucide-react';
-import { Token, Patient, NhcPatientHistory, City } from '../../types';
+import { Token, Patient, NhcPatientHistory, City, Visit, Appointment } from '../../types';
 
 interface InstantTokenIssueViewProps {
   tokens: Token[];
@@ -20,6 +22,11 @@ interface InstantTokenIssueViewProps {
   appDate: string;
   shift?: number;
   canIssueToken?: boolean;
+  canDeleteToken?: boolean;
+  onDeleteToken?: (tokenNo: number, shift: 1 | 2) => void;
+  onUpdateTokenStatus?: (tokenNo: number, shift: 1 | 2, status: 1 | 2 | 3) => void;
+  visits?: Visit[];
+  appointments?: Appointment[];
   selectedPatientId: string;
   setSelectedPatientId: (id: string) => void;
   setOpdTokenModalPatient: (pat: Patient | null) => void;
@@ -43,6 +50,12 @@ export default function InstantTokenIssueView({
   patients,
   cities,
   appDate,
+  canIssueToken,
+  canDeleteToken = true,
+  onDeleteToken,
+  onUpdateTokenStatus,
+  visits = [],
+  appointments = [],
   selectedPatientId,
   setSelectedPatientId,
   setOpdTokenModalPatient,
@@ -56,8 +69,28 @@ export default function InstantTokenIssueView({
   isSearchingArchive,
   filteredPatients,
   filteredNhcPatients,
-  onAddPatient
+  onAddPatient,
+  handleStartEditPatient,
+  setActiveSubTab
 }: InstantTokenIssueViewProps) {
+  const [tokenWarning, setTokenWarning] = useState<string | null>(null);
+
+  const handleDeleteTokenClick = (tok: Token) => {
+    if (!canDeleteToken) {
+      setAppError('Access Control Security: You do not have permission to delete issued tokens. Administrator rights required.');
+      return;
+    }
+
+    const patName = patients.find(p => p.PatientID === tok.PatientID)?.PatientName || tok.PatientID;
+    if (window.confirm(`Are you sure you want to delete issued Token #${tok.TokenNo} for ${patName}?`)) {
+      setTokenWarning(null);
+      if (onDeleteToken) {
+        onDeleteToken(tok.TokenNo, tok.Shift);
+      } else if (onUpdateTokenStatus) {
+        onUpdateTokenStatus(tok.TokenNo, tok.Shift, 3);
+      }
+    }
+  };
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6" id="patients-view-token-issue">
       {/* Left Column (2 cols): Patient Database Search Engine & Lookup */}
@@ -314,12 +347,32 @@ export default function InstantTokenIssueView({
             <span className="text-[10px] text-slate-500 font-mono">{appDate}</span>
           </div>
 
+          {tokenWarning && (
+            <div className="p-2.5 bg-amber-50 border border-amber-200 text-amber-900 text-[11px] rounded-lg flex items-start justify-between gap-2 shadow-2xs">
+              <div className="flex items-start space-x-1.5">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <span className="font-medium leading-tight">{tokenWarning}</span>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setTokenWarning(null)} 
+                className="text-amber-700 hover:text-amber-900 font-bold shrink-0 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
           <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1 text-xs">
             {tokens.filter(t => t.Date === appDate).length === 0 ? (
               <p className="text-[11px] text-slate-400 italic text-center py-3">No tokens issued for {appDate} yet.</p>
             ) : (
               tokens.filter(t => t.Date === appDate).map((t) => {
                 const patName = patients.find(p => p.PatientID === t.PatientID)?.PatientName || t.PatientID;
+                const isCompleted = t.Status === 2 ||
+                  (visits || []).some(v => v.PatientID === t.PatientID && (v.VisitDate ? v.VisitDate.split('T')[0] === appDate : false)) ||
+                  (appointments || []).some(a => a.PatientID === t.PatientID && a.AppointmentDate === appDate && a.Status === 4);
+
                 return (
                   <div key={`tok-${t.TokenNo}-${t.Shift}`} className="p-2 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center text-xs">
                     <div>
@@ -331,12 +384,24 @@ export default function InstantTokenIssueView({
                       </div>
                       <span className="text-[10px] text-slate-500">{t.Shift === 1 ? 'Morning' : 'Evening'} Shift</span>
                     </div>
-                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
-                      t.Status === 1 ? 'bg-amber-100 text-amber-800' :
-                      t.Status === 2 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'
-                    }`}>
-                      {t.Status === 1 ? 'Waiting' : t.Status === 2 ? 'Visited' : 'Closed'}
-                    </span>
+
+                    <div className="flex items-center space-x-1.5">
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
+                        isCompleted || t.Status === 2 ? 'bg-emerald-100 text-emerald-800' :
+                        t.Status === 1 ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-700'
+                      }`}>
+                        {isCompleted || t.Status === 2 ? 'Visited' : t.Status === 1 ? 'Waiting' : 'Closed'}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteTokenClick(t)}
+                        title="Delete issued token"
+                        className="p-1 rounded transition cursor-pointer flex items-center justify-center text-rose-600 hover:text-rose-800 hover:bg-rose-50"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 );
               })

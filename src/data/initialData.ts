@@ -157,7 +157,7 @@ export const INITIAL_CONFIG: Config = {
 };
 
 export const INITIAL_USERS: User[] = [
-  { UserID: 'USR-01', LoginName: 'admin', FullName: 'Dr. Zaigham Ali Anjum', PasswordHash: 'admin123', Role: 'Administrator', AssignedShift: 'Both' },
+  { UserID: 'USR-01', LoginName: 'admin', FullName: 'Dr. Zaigham Ali Anjum', PasswordHash: 'admin123', Role: 'Administrator', AssignedShift: 'Both', MobileNumber: '0300-1234567', CNIC: '35201-1234567-1', NickName: 'Zaigham' },
   { UserID: 'USR-02', LoginName: 'doctor_morn', FullName: 'Dr. Amjad Malik (Morning)', PasswordHash: 'doc123', Role: 'Doctor', AssignedShift: 1 },
   { UserID: 'USR-02b', LoginName: 'doctor_eve', FullName: 'Dr. Zaigham Ali (Evening)', PasswordHash: 'doc123', Role: 'Doctor', AssignedShift: 2 },
   { 
@@ -195,6 +195,7 @@ export const INITIAL_USERS: User[] = [
       canIssueToken: true,
       canBookAppointment: true,
       canCancelAppointment: false,
+      canDeleteToken: false,
       canCallServeToken: true,
       canEditStockLevel: false,
 
@@ -239,64 +240,64 @@ export const INITIAL_USERS: User[] = [
 // User permissions for each user role
 export const ROLE_RIGHTS: Record<User['Role'], UserRight[]> = {
   Administrator: [
-    { MenuID: 'patients', MenuName: 'Patient Intake & Queue', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
+    { MenuID: 'patients', MenuName: 'Patients', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
     { MenuID: 'emr', MenuName: 'EMR & Clinical Desk', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
-    { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Billing', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
+    { MenuID: 'pharmacy', MenuName: 'Store & Dispensary', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
     { MenuID: 'inventory', MenuName: 'Stock & Inventory Control', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
     { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
-    { MenuID: 'reports', MenuName: 'Financial & Executive Reports', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
-    { MenuID: 'uploads', MenuName: 'CSV Imports & Uploads', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
+    { MenuID: 'reports', MenuName: 'Financials', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
+    { MenuID: 'uploads', MenuName: 'Uploading', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
     { MenuID: 'settings', MenuName: 'Clinic Setup & Settings', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
     { MenuID: 'queries', MenuName: 'Query Handler & Audit', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
-    { MenuID: 'nhc_history', MenuName: 'NHC Patient History', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true }
+    { MenuID: 'nhc_history', MenuName: 'Patient Record', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true }
   ],
   Doctor: [
-    { MenuID: 'patients', MenuName: 'Patient Intake & Queue', Status: true, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: true, ExportRec: false },
+    { MenuID: 'patients', MenuName: 'Patients', Status: true, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: true, ExportRec: false },
     { MenuID: 'emr', MenuName: 'EMR & Clinical Desk', Status: true, AddRec: true, PostRec: true, CancelPosted: false, PrintRec: true, ExportRec: true },
-    { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Billing', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'pharmacy', MenuName: 'Store & Dispensary', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
     { MenuID: 'inventory', MenuName: 'Stock & Inventory Control', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
     { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
-    { MenuID: 'reports', MenuName: 'Financial & Executive Reports', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
-    { MenuID: 'uploads', MenuName: 'CSV Imports & Uploads', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'reports', MenuName: 'Financials', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'uploads', MenuName: 'Uploading', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
     { MenuID: 'settings', MenuName: 'Clinic Setup & Settings', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
     { MenuID: 'queries', MenuName: 'Query Handler & Audit', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
-    { MenuID: 'nhc_history', MenuName: 'NHC Patient History', Status: true, AddRec: true, PostRec: true, CancelPosted: false, PrintRec: true, ExportRec: true }
+    { MenuID: 'nhc_history', MenuName: 'Patient Record', Status: true, AddRec: true, PostRec: true, CancelPosted: false, PrintRec: true, ExportRec: true }
   ],
   Receptionist: [
-    { MenuID: 'patients', MenuName: 'Patient Intake & Queue', Status: true, AddRec: true, PostRec: true, CancelPosted: false, PrintRec: true, ExportRec: false },
+    { MenuID: 'patients', MenuName: 'Patients', Status: true, AddRec: true, PostRec: true, CancelPosted: false, PrintRec: true, ExportRec: false },
     { MenuID: 'emr', MenuName: 'EMR & Clinical Desk', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
-    { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Billing', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'pharmacy', MenuName: 'Store & Dispensary', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
     { MenuID: 'inventory', MenuName: 'Stock & Inventory Control', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
     { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
-    { MenuID: 'reports', MenuName: 'Financial & Executive Reports', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
-    { MenuID: 'uploads', MenuName: 'CSV Imports & Uploads', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'reports', MenuName: 'Financials', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'uploads', MenuName: 'Uploading', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
     { MenuID: 'settings', MenuName: 'Clinic Setup & Settings', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
     { MenuID: 'queries', MenuName: 'Query Handler & Audit', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
-    { MenuID: 'nhc_history', MenuName: 'NHC Patient History', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false }
+    { MenuID: 'nhc_history', MenuName: 'Patient Record', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false }
   ],
   Pharmacist: [
-    { MenuID: 'patients', MenuName: 'Patient Intake & Queue', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'patients', MenuName: 'Patients', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
     { MenuID: 'emr', MenuName: 'EMR & Clinical Desk', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
-    { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Billing', Status: true, AddRec: true, PostRec: true, CancelPosted: false, PrintRec: true, ExportRec: true },
+    { MenuID: 'pharmacy', MenuName: 'Store & Dispensary', Status: true, AddRec: true, PostRec: true, CancelPosted: false, PrintRec: true, ExportRec: true },
     { MenuID: 'inventory', MenuName: 'Stock & Inventory Control', Status: true, AddRec: true, PostRec: false, CancelPosted: false, PrintRec: true, ExportRec: true },
     { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
-    { MenuID: 'reports', MenuName: 'Financial & Executive Reports', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
-    { MenuID: 'uploads', MenuName: 'CSV Imports & Uploads', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'reports', MenuName: 'Financials', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'uploads', MenuName: 'Uploading', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
     { MenuID: 'settings', MenuName: 'Clinic Setup & Settings', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
     { MenuID: 'queries', MenuName: 'Query Handler & Audit', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
-    { MenuID: 'nhc_history', MenuName: 'NHC Patient History', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false }
+    { MenuID: 'nhc_history', MenuName: 'Patient Record', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false }
   ],
   Accountant: [
-    { MenuID: 'patients', MenuName: 'Patient Intake & Queue', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'patients', MenuName: 'Patients', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
     { MenuID: 'emr', MenuName: 'EMR & Clinical Desk', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
-    { MenuID: 'pharmacy', MenuName: 'Pharmacy POS & Billing', Status: true, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: true, ExportRec: true },
+    { MenuID: 'pharmacy', MenuName: 'Store & Dispensary', Status: true, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: true, ExportRec: true },
     { MenuID: 'inventory', MenuName: 'Stock & Inventory Control', Status: true, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: true, ExportRec: true },
     { MenuID: 'accounts', MenuName: 'Double-Entry Accounting', Status: true, AddRec: true, PostRec: true, CancelPosted: true, PrintRec: true, ExportRec: true },
-    { MenuID: 'reports', MenuName: 'Financial & Executive Reports', Status: true, AddRec: true, PostRec: true, CancelPosted: false, PrintRec: true, ExportRec: true },
-    { MenuID: 'uploads', MenuName: 'CSV Imports & Uploads', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
+    { MenuID: 'reports', MenuName: 'Financials', Status: true, AddRec: true, PostRec: true, CancelPosted: false, PrintRec: true, ExportRec: true },
+    { MenuID: 'uploads', MenuName: 'Uploading', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
     { MenuID: 'settings', MenuName: 'Clinic Setup & Settings', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
     { MenuID: 'queries', MenuName: 'Query Handler & Audit', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false },
-    { MenuID: 'nhc_history', MenuName: 'NHC Patient History', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false }
+    { MenuID: 'nhc_history', MenuName: 'Patient Record', Status: false, AddRec: false, PostRec: false, CancelPosted: false, PrintRec: false, ExportRec: false }
   ]
 };
 

@@ -109,6 +109,7 @@ export default function SettingsDesk({
     canIssueToken: true,
     canBookAppointment: true,
     canCancelAppointment: true,
+    canDeleteToken: true,
     canCallServeToken: true,
     canEditStockLevel: true,
 
@@ -2236,7 +2237,8 @@ export default function SettingsDesk({
                   { key: 'canIssueToken', label: 'Issue / Generate Token', icon: Ticket, desc: 'Print & issue queue token tickets' },
                   { key: 'canCallServeToken', label: 'Call / Serve / Cancel Token', icon: CheckCircle2, desc: 'Update token status in waiting queue' },
                   { key: 'canBookAppointment', label: 'Book / Reschedule Appointment', icon: Calendar, desc: 'Schedule future appointments' },
-                  { key: 'canCancelAppointment', label: 'Cancel / Delete Appointment', icon: Ban, desc: 'Remove appointments from system' },
+                  { key: 'canCancelAppointment', label: 'Cancel / Delete Appointment', icon: Ban, desc: 'Remove appointments from system (Admin only)' },
+                  { key: 'canDeleteToken', label: 'Delete Issued Token', icon: Trash2, desc: 'Delete or cancel mistakenly issued queue tokens (Admin only)' },
                   { key: 'canEditStockLevel', label: 'Edit Current Stock Level', icon: Boxes, desc: 'Allow editing current medicine stock quantities & thresholds in Inventory' }
                 ].map((item) => {
                   const isEnabled = accessPermissions[item.key as keyof typeof accessPermissions] !== false;
