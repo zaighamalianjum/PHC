@@ -277,10 +277,15 @@ async function initializeDatabase() {
       console.log('✔️ Seeded: "sms" gateway integration configurations.');
     }
 
-    // 9. Clear Appointments & Tokens
-    await db.collection('appointments').deleteMany({});
-    await db.collection('tokens').deleteMany({});
-    console.log('🧹 Cleared dummy appointments and tokens in MongoDB.');
+    // 9. Seed Appointments & Tokens (Only if empty)
+    const apptCount = await db.collection('appointments').countDocuments();
+    if (apptCount === 0) {
+      console.log('ℹ️ "appointments" collection is ready.');
+    }
+    const tokenCount = await db.collection('tokens').countDocuments();
+    if (tokenCount === 0) {
+      console.log('ℹ️ "tokens" collection is ready.');
+    }
 
     // 11. Seed Suppliers Registry
     const suppliersCount = await db.collection('suppliers').countDocuments();
