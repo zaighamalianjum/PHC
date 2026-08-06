@@ -142,8 +142,23 @@ export default function Dashboard({
   const morningOpdApps = targetApps.filter((a) => a.Shift === 1);
   const eveningOpdApps = targetApps.filter((a) => a.Shift === 2);
 
-  const morningOpdConsultation = morningOpdApps.reduce((acc, curr) => acc + (curr.FeeCharged || 0), 0);
-  const eveningOpdConsultation = eveningOpdApps.reduce((acc, curr) => acc + (curr.FeeCharged || 0), 0);
+  const morningOpdAppFees = morningOpdApps.reduce((acc, curr) => acc + (Number(curr.FeeCharged) || 0), 0);
+  const eveningOpdAppFees = eveningOpdApps.reduce((acc, curr) => acc + (Number(curr.FeeCharged) || 0), 0);
+
+  const morningOpdVisitFees = targetVisits.filter((v) => getVisitShift(v) === 1).reduce((acc, v) => {
+    const fee = Number(v.ConsultationFee) || 0;
+    const hasAppFee = morningOpdApps.some(a => a.PatientID === v.PatientID && (Number(a.FeeCharged) || 0) > 0);
+    return acc + (hasAppFee ? 0 : fee);
+  }, 0);
+
+  const eveningOpdVisitFees = targetVisits.filter((v) => getVisitShift(v) === 2).reduce((acc, v) => {
+    const fee = Number(v.ConsultationFee) || 0;
+    const hasAppFee = eveningOpdApps.some(a => a.PatientID === v.PatientID && (Number(a.FeeCharged) || 0) > 0);
+    return acc + (hasAppFee ? 0 : fee);
+  }, 0);
+
+  const morningOpdConsultation = morningOpdAppFees + morningOpdVisitFees;
+  const eveningOpdConsultation = eveningOpdAppFees + eveningOpdVisitFees;
   const totalOpdConsultation = morningOpdConsultation + eveningOpdConsultation;
 
   const morningOpdCollection = morningOpdConsultation + morningClinMed + morningCardFileFee;

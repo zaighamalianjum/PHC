@@ -769,9 +769,12 @@ export default function App() {
 
     // 1. Process Consultation Fee walk-in payment
     const targetApp = appointments.find(a => a.PatientID === visit.PatientID && a.Status !== 3 && a.Status !== 4);
-    const isPaid = visit.ConsultationPaymentOption === 'Paid - Cash' || visit.ConsultationPaymentOption === 'Paid - Online/Card';
+    const isPaid = visit.ConsultationPaymentOption === 'Paid - Cash' || visit.ConsultationPaymentOption === 'Paid - Online/Card' || visit.ConsultationPaymentOption === 'Paid' || visit.ConsultationPaymentOption === 'Cash Paid' || (visit.ConsultationFee && visit.ConsultationFee > 0);
     
     if (targetApp) {
+      if (visit.ConsultationFee !== undefined && visit.ConsultationFee > 0) {
+        targetApp.FeeCharged = visit.ConsultationFee;
+      }
       handleUpdateAppointmentStatus(targetApp.AppointmentID, isPaid ? 4 : 2);
     } else if (isPaid && visit.ConsultationFee && visit.ConsultationFee > 0) {
       const opdRate = visit.ConsultationFee;
@@ -1126,11 +1129,16 @@ export default function App() {
       )
     );
 
-    // Mark appointment as Completed (Status = 4)
+    // Mark appointment as Completed (Status = 4) & update FeeCharged if ConsultationFee set
     setAppointments((prev) =>
       prev.map(a =>
         (a.PatientID === newVisit.PatientID && (a.AppointmentDate === visitDateStr || !a.AppointmentDate))
-          ? { ...a, Status: 4 }
+          ? {
+              ...a,
+              Status: 4,
+              FeeCharged: newVisit.ConsultationFee !== undefined && newVisit.ConsultationFee > 0 ? newVisit.ConsultationFee : a.FeeCharged,
+              PaymentStatus: 'Paid'
+            }
           : a
       )
     );
@@ -1183,11 +1191,16 @@ export default function App() {
       )
     );
 
-    // Mark appointment as Completed (Status = 4)
+    // Mark appointment as Completed (Status = 4) & update FeeCharged if ConsultationFee set
     setAppointments((prev) =>
       prev.map(a =>
         (a.PatientID === updatedVisit.PatientID && (a.AppointmentDate === visitDateStr || !a.AppointmentDate))
-          ? { ...a, Status: 4 }
+          ? {
+              ...a,
+              Status: 4,
+              FeeCharged: updatedVisit.ConsultationFee !== undefined && updatedVisit.ConsultationFee > 0 ? updatedVisit.ConsultationFee : a.FeeCharged,
+              PaymentStatus: 'Paid'
+            }
           : a
       )
     );

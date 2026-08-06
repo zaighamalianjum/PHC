@@ -234,7 +234,7 @@ export default function ReportingDesk({
     // Helper to safely extract Clinical Medicine, File, and Card fees from Visit properties or VisitRemarks
     const getVisFees = (v: Visit) => {
       let clin = Number(v.ClinicalMedicinePayment) || 0;
-      let file = Number(v.FileFee) || Number(v.ConsultationFee) || 0;
+      let file = Number(v.FileFee) || 0;
       let card = Number(v.CardFee) || Number(v.CardsPayment) || 0;
       if (v.VisitRemarks) {
         if (!clin) { const cPkr = v.VisitRemarks.match(/Clinical Meds PKR\s*(\d+)/); if (cPkr) clin = Number(cPkr[1]); }
@@ -251,7 +251,14 @@ export default function ReportingDesk({
       const invoicesForDate = (invoices || []).filter(inv => inv.InvoiceDate === date && (inv.Status as number) !== 3);
 
       // --- MORNING ---
-      const mApp = appsForDate.filter(a => a.Shift === 1).reduce((sum, a) => sum + (a.FeeCharged || 0), 0);
+      const mAppFromAppointments = appsForDate.filter(a => a.Shift === 1).reduce((sum, a) => sum + (Number(a.FeeCharged) || 0), 0);
+      const mAppFromVisits = visitsForDate.filter(v => getVisShift(v) === 1).reduce((sum, v) => {
+        const fee = Number(v.ConsultationFee) || 0;
+        const hasAppFee = appsForDate.some(a => a.PatientID === v.PatientID && a.Shift === 1 && (Number(a.FeeCharged) || 0) > 0);
+        return sum + (hasAppFee ? 0 : fee);
+      }, 0);
+      const mApp = mAppFromAppointments + mAppFromVisits;
+
       const mCmed = visitsForDate.filter(v => getVisShift(v) === 1).reduce((sum, v) => sum + getVisFees(v).clin, 0);
       const mCards = visitsForDate.filter(v => getVisShift(v) === 1).reduce((sum, v) => sum + getVisFees(v).card, 0);
       const mFile = visitsForDate.filter(v => getVisShift(v) === 1).reduce((sum, v) => sum + getVisFees(v).file, 0);
@@ -259,7 +266,14 @@ export default function ReportingDesk({
       const mTotal = mApp + mCmed + mCards + mFile + mStore;
 
       // --- EVENING ---
-      const eApp = appsForDate.filter(a => a.Shift === 2).reduce((sum, a) => sum + (a.FeeCharged || 0), 0);
+      const eAppFromAppointments = appsForDate.filter(a => a.Shift === 2).reduce((sum, a) => sum + (Number(a.FeeCharged) || 0), 0);
+      const eAppFromVisits = visitsForDate.filter(v => getVisShift(v) === 2).reduce((sum, v) => {
+        const fee = Number(v.ConsultationFee) || 0;
+        const hasAppFee = appsForDate.some(a => a.PatientID === v.PatientID && a.Shift === 2 && (Number(a.FeeCharged) || 0) > 0);
+        return sum + (hasAppFee ? 0 : fee);
+      }, 0);
+      const eApp = eAppFromAppointments + eAppFromVisits;
+
       const eCmed = visitsForDate.filter(v => getVisShift(v) === 2).reduce((sum, v) => sum + getVisFees(v).clin, 0);
       const eCards = visitsForDate.filter(v => getVisShift(v) === 2).reduce((sum, v) => sum + getVisFees(v).card, 0);
       const eFile = visitsForDate.filter(v => getVisShift(v) === 2).reduce((sum, v) => sum + getVisFees(v).file, 0);

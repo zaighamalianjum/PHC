@@ -1423,6 +1423,29 @@ app.post('/api/visits', async (req, res) => {
       { $set: visit },
       { upsert: true }
     );
+
+    // Auto-sync OPD consultation fees into General Ledger Cash & Revenue accounts
+    const fee = parseFloat(visit.ConsultationFee) || 0;
+    const isPaid = visit.ConsultationPaymentOption === 'Paid - Cash' || visit.ConsultationPaymentOption === 'Paid - Online/Card' || visit.ConsultationPaymentOption === 'Paid';
+    if (visit.Status === 2 && isPaid && fee > 0) {
+      const vchNo = `CRV-OPD-${visit.VisitID}`;
+      const detailsRows = [
+        {
+          TLID: 101001, // OPD Clinic Cash In Hand
+          Debit: fee,
+          Credit: 0,
+          Description: `OPD Consultation Fee collected (Visit #${visit.VisitID})`
+        },
+        {
+          TLID: 401001, // OPD Doctor Consultation Revenue
+          Debit: 0,
+          Credit: fee,
+          Description: `OPD Doctor Consultation Revenue`
+        }
+      ];
+      await createBackendVoucher(vchNo, visit.VisitDate ? visit.VisitDate.split('T')[0] : new Date().toISOString().split('T')[0], 'CRV', `OPD Consultation Fee for Visit #${visit.VisitID}`, detailsRows);
+    }
+
     res.json({ success: true, message: 'EMR Clinical consultation session synchronized successfully.', data: visit });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1657,6 +1680,49 @@ app.post('/api/billing/checkout', async (req, res) => {
     // Execute all database operations in parallel
     await Promise.all(databaseOperations);
 
+    // 3. Automatically sync Double-Entry Accounting Financial Ledger (No manual entry needed!)
+    if (invoiceHeader.NetAmount > 0) {
+      const vchNo = `CRV-POS-${invNo}`;
+      const targetCashTLID = 101002; // Pharmacy Store Cash Account
+      const storeRevTLID = 402001;   // Pharmacy Sales Revenue Account
+      
+      const netAmt = invoiceHeader.NetAmount;
+      const discAmt = invoiceHeader.Discount;
+      const grossAmt = invoiceHeader.GAmount || (netAmt + discAmt);
+      
+      const detailsRows = [];
+      detailsRows.push({
+        TLID: targetCashTLID,
+        Debit: netAmt,
+        Credit: 0,
+        Description: `Pharmacy POS Cash Sales Receipt (Inv #${invNo})`
+      });
+
+      if (discAmt > 0) {
+        detailsRows.push({
+          TLID: 501002, // Store Discount Account
+          Debit: discAmt,
+          Credit: 0,
+          Description: `Pharmacy Sales Discount Allowed`
+        });
+        detailsRows.push({
+          TLID: storeRevTLID,
+          Debit: 0,
+          Credit: grossAmt,
+          Description: `Pharmacy Gross Sales Revenue`
+        });
+      } else {
+        detailsRows.push({
+          TLID: storeRevTLID,
+          Debit: 0,
+          Credit: netAmt,
+          Description: `Pharmacy Sales Revenue`
+        });
+      }
+
+      await createBackendVoucher(vchNo, invoiceHeader.InvoiceDate, 'CRV', `Pharmacy POS Invoice #${invNo}`, detailsRows);
+    }
+
     res.json({ success: true, message: 'Pharmacy billing & inventory stocks updated atomically in parallel.', InvoiceNo: invNo });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1719,7 +1785,28 @@ app.post('/api/billing/returns', async (req, res) => {
       }
     }
 
-    res.json({ success: true, message: 'Sales return logged. Drug stocks restored.' });
+    // Auto-sync double entry financial voucher for Pharmacy Sales Return refund
+    const refAmt = parseFloat(returnRecord.RefAmount || returnRecord.RefTotal) || 0;
+    if (refAmt > 0) {
+      const vchNo = `CPV-SR-${returnRecord.SRInvoiceNo}`;
+      const detailsRows = [
+        {
+          TLID: 501003, // Sales Returns Expense Account
+          Debit: refAmt,
+          Credit: 0,
+          Description: `Pharmacy Sales Return Refund (Ref #${returnRecord.SRInvoiceNo})`
+        },
+        {
+          TLID: 101002, // Store Cash In Hand Account
+          Debit: 0,
+          Credit: refAmt,
+          Description: `Cash Refunded for Sales Return (Ref #${returnRecord.SRInvoiceNo})`
+        }
+      ];
+      await createBackendVoucher(vchNo, new Date().toISOString().split('T')[0], 'CPV', `Pharmacy Sales Return Refund #${returnRecord.SRInvoiceNo}`, detailsRows);
+    }
+
+    res.json({ success: true, message: 'Sales return logged. Drug stocks restored.', SRInvoiceNo: returnRecord.SRInvoiceNo });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1771,6 +1858,32 @@ app.post('/api/grns', async (req, res) => {
           { $inc: { CStock: detail.QtyIn } }
         );
       }
+    }
+
+    // Auto-sync double entry financial voucher for Supplier Purchase Inventory intake
+    let totalGrnAmt = 0;
+    if (Array.isArray(grnItems)) {
+      for (const item of grnItems) {
+        totalGrnAmt += (parseInt(item.QtyIn) || 0) * (parseFloat(item.PurchaseRate) || 0);
+      }
+    }
+    if (grnHeader.Status === 2 && totalGrnAmt > 0) {
+      const vchNo = `CPV-GRN-${grnHeader.VchNo}`;
+      const detailsRows = [
+        {
+          TLID: 103001, // Pharmacy Stock Assets
+          Debit: totalGrnAmt,
+          Credit: 0,
+          Description: `Supplier Drug Stock Intake (GRN #${grnHeader.VchNo})`
+        },
+        {
+          TLID: 201001, // Accounts Payable
+          Debit: 0,
+          Credit: totalGrnAmt,
+          Description: `Supplier Accounts Payable (${SID || 'Supplier'})`
+        }
+      ];
+      await createBackendVoucher(vchNo, grnHeader.VchDate, 'CPV', `Supplier Purchase GRN #${grnHeader.VchNo}`, detailsRows);
     }
 
     res.json({ success: true, message: 'Supplier GRN purchase received. Stocks increased.', VchNo: grnHeader.VchNo });
@@ -2088,6 +2201,82 @@ app.delete('/api/accounts/:tlid', async (req, res) => {
 // 📒 DOUBLE-ENTRY FINANCIAL VOUCHERS & GENERAL LEDGER
 // ------------------------------------------------------------------------------------------
 
+// Helper to post financial vouchers into vouchers, voucher_details, ac_ledger, and update accounts balances atomically
+async function createBackendVoucher(vchNo, vchDate, vchType, remarks, detailsRows) {
+  if (!vchNo || !Array.isArray(detailsRows) || detailsRows.length === 0) return null;
+
+  // Idempotency check: Return existing voucher if already recorded
+  const existing = await db.collection('vouchers').findOne({ VchNo: vchNo });
+  if (existing) return existing;
+
+  let totalDebit = 0;
+  let totalCredit = 0;
+  for (const row of detailsRows) {
+    totalDebit += parseFloat(row.Debit) || 0;
+    totalCredit += parseFloat(row.Credit) || 0;
+  }
+
+  // Ensure balanced entry
+  if (Math.abs(totalDebit - totalCredit) > 0.01) {
+    console.warn(`[Voucher Skipped] Unbalanced voucher ${vchNo}: Debit=${totalDebit}, Credit=${totalCredit}`);
+    return null;
+  }
+
+  const header = {
+    VchNo: vchNo,
+    VchDate: vchDate || new Date().toISOString().split('T')[0],
+    VchType: vchType || 'JV',
+    Status: 2, // Posted
+    Remarks: remarks || ''
+  };
+
+  await db.collection('vouchers').updateOne(
+    { VchNo: vchNo },
+    { $setOnInsert: header },
+    { upsert: true }
+  );
+
+  let idx = 1;
+  for (const row of detailsRows) {
+    const detail = {
+      VchNo: vchNo,
+      TLID: parseInt(row.TLID),
+      Debit: parseFloat(row.Debit) || 0,
+      Credit: parseFloat(row.Credit) || 0,
+      Description: row.Description || ''
+    };
+
+    await db.collection('voucher_details').insertOne(detail);
+
+    const ledgerPosting = {
+      ACLedgerID: `LG-${vchNo}-${idx++}`,
+      VchNo: vchNo,
+      TxDate: header.VchDate,
+      TLID: detail.TLID,
+      Debit: detail.Debit,
+      Credit: detail.Credit,
+      Remarks: detail.Description || header.Remarks
+    };
+
+    await db.collection('ac_ledger').updateOne(
+      { ACLedgerID: ledgerPosting.ACLedgerID },
+      { $set: ledgerPosting },
+      { upsert: true }
+    );
+
+    const tlidPrefix = Math.floor(detail.TLID / 100000);
+    const amountChange = detail.Debit - detail.Credit;
+    const adjustedAmount = (tlidPrefix === 1 || tlidPrefix === 5) ? amountChange : -amountChange;
+
+    await db.collection('accounts').updateOne(
+      { TLID: detail.TLID },
+      { $inc: { AcBalance: adjustedAmount } }
+    );
+  }
+
+  return header;
+}
+
 // Fetch all financial transaction vouchers
 app.get('/api/vouchers', async (req, res) => {
   try {
@@ -2103,76 +2292,15 @@ app.get('/api/vouchers', async (req, res) => {
 app.post('/api/vouchers', async (req, res) => {
   const { VchNo, VchDate, VchType, Status, Remarks, detailsRows } = req.body;
   try {
-    // Validation constraint checking
     if (!Array.isArray(detailsRows) || detailsRows.length === 0) {
       return res.status(400).json({ error: 'Database Constraint Error: Voucher must contain details rows.' });
     }
 
-    let totalDebit = 0;
-    let totalCredit = 0;
-    for (const row of detailsRows) {
-      totalDebit += parseFloat(row.Debit) || 0;
-      totalCredit += parseFloat(row.Credit) || 0;
-    }
-
-    // Checking if Debit matches Credit (using epsilon of 0.01 for float accuracy)
-    if (Math.abs(totalDebit - totalCredit) > 0.01) {
-      return res.status(400).json({
-        error: `Database-Level Constraint Violation: Total Debits (Rs. ${totalDebit}) MUST equal Total Credits (Rs. ${totalCredit}). Unbalanced voucher is rejected.`
-      });
-    }
-
     const vchNo = VchNo || `VCH-${Date.now().toString().slice(-4)}`;
-    const header = {
-      VchNo: vchNo,
-      VchDate: VchDate || new Date().toISOString().split('T')[0],
-      VchType: VchType || 'JV',
-      Status: Status || 2, // Posted
-      Remarks
-    };
-
-    await db.collection('vouchers').insertOne(header);
-
-    let idx = 1;
-    for (const row of detailsRows) {
-      const detail = {
-        VchNo: vchNo,
-        TLID: parseInt(row.TLID),
-        Debit: parseFloat(row.Debit) || 0,
-        Credit: parseFloat(row.Credit) || 0,
-        Description: row.Description || ''
-      };
-
-      await db.collection('voucher_details').insertOne(detail);
-
-      // Save corresponding active general ledger posting
-      const ledgerPosting = {
-        ACLedgerID: `LG-${vchNo}-${idx++}`,
-        VchNo: vchNo,
-        TxDate: header.VchDate,
-        TLID: detail.TLID,
-        Debit: detail.Debit,
-        Credit: detail.Credit,
-        Remarks: detail.Description || header.Remarks
-      };
-
-      await db.collection('ac_ledger').updateOne(
-        { ACLedgerID: ledgerPosting.ACLedgerID },
-        { $set: ledgerPosting },
-        { upsert: true }
-      );
-
-      // Adjust ledger live balance atomically!
-      // Assets/Expenses increase with Debit, decrease with Credit.
-      // Liabilities/Equity/Revenue increase with Credit, decrease with Debit.
-      const tlidPrefix = Math.floor(detail.TLID / 100000); // Check First Level ID (1=Asset, 5=Expense)
-      const amountChange = detail.Debit - detail.Credit;
-      const adjustedAmount = (tlidPrefix === 1 || tlidPrefix === 5) ? amountChange : -amountChange;
-
-      await db.collection('accounts').updateOne(
-        { TLID: detail.TLID },
-        { $inc: { AcBalance: adjustedAmount } }
-      );
+    const header = await createBackendVoucher(vchNo, VchDate, VchType, Remarks, detailsRows);
+    
+    if (!header) {
+      return res.status(400).json({ error: 'Failed to post voucher. Ensure debits equal credits.' });
     }
 
     res.json({ success: true, message: 'Voucher posted successfully. Financial general ledger updated.', VchNo: vchNo });
@@ -2550,105 +2678,7 @@ app.post('/api/settings/sms', async (req, res) => {
   }
 });
 
-// Get Version Control / GitHub Settings
-app.get('/api/settings/version-control', async (req, res) => {
-  try {
-    const settings = await db.collection('version_control').findOne({});
-    res.json(settings || {
-      githubRepoUrl: 'https://github.com/organization/nhc-emr-clinic',
-      branch: 'main',
-      autoSyncEnabled: false,
-      lastSyncDate: null,
-      status: 'idle',
-      syncHistory: []
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
-// Save Version Control / GitHub Settings
-app.post('/api/settings/version-control', async (req, res) => {
-  try {
-    const settings = req.body;
-    if (settings._id) delete settings._id;
-    await db.collection('version_control').updateOne(
-      {},
-      { $set: settings },
-      { upsert: true }
-    );
-    res.json({ success: true, message: 'GitHub Version Control settings saved successfully.' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Sync GitHub Repository Endpoint
-app.post('/api/settings/sync-github', async (req, res) => {
-  try {
-    const { githubRepoUrl, branch = 'main' } = req.body;
-    
-    if (!githubRepoUrl || !githubRepoUrl.trim()) {
-      return res.status(400).json({ success: false, error: 'GitHub Repository URL is required.' });
-    }
-
-    const cleanUrl = githubRepoUrl.trim();
-    if (!cleanUrl.startsWith('https://github.com/') && !cleanUrl.startsWith('git@github.com:')) {
-      return res.status(400).json({ success: false, error: 'Invalid repository format. Must start with https://github.com/ or git@github.com:' });
-    }
-
-    const syncDate = new Date().toISOString();
-    const commitHash = Math.random().toString(36).substring(2, 10);
-    const logs = [
-      `[${new Date().toLocaleTimeString()}] Initiating connection to repository: ${cleanUrl}`,
-      `[${new Date().toLocaleTimeString()}] Target branch specified: '${branch}'`,
-      `[${new Date().toLocaleTimeString()}] Fetching latest code commit reference...`,
-      `[${new Date().toLocaleTimeString()}] Synced commit hash #${commitHash} from branch origin/${branch}`,
-      `[${new Date().toLocaleTimeString()}] Verifying application modules and dependencies...`,
-      `[${new Date().toLocaleTimeString()}] Codebase synchronization completed with zero conflict errors.`
-    ];
-
-    const syncRecord = {
-      timestamp: syncDate,
-      commitHash,
-      branch,
-      status: 'Success',
-      message: `Successfully synchronized with branch ${branch}`
-    };
-
-    const currentDoc = await db.collection('version_control').findOne({}) || {};
-    const updatedHistory = [syncRecord, ...(currentDoc.syncHistory || [])].slice(0, 20);
-
-    const updatedDoc = {
-      ...currentDoc,
-      githubRepoUrl: cleanUrl,
-      branch,
-      lastSyncDate: syncDate,
-      lastCommitHash: commitHash,
-      status: 'synced',
-      syncHistory: updatedHistory
-    };
-    delete updatedDoc._id;
-
-    await db.collection('version_control').updateOne(
-      {},
-      { $set: updatedDoc },
-      { upsert: true }
-    );
-
-    res.json({
-      success: true,
-      status: 'synced',
-      message: `Repository code successfully updated from branch '${branch}'!`,
-      lastSyncDate: syncDate,
-      lastCommitHash: commitHash,
-      logs,
-      syncHistory: updatedHistory
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
 
 // ------------------------------------------------------------------------------------------
 // 🗺️ ALIAS ROUTES FOR DUAL COLLECTION SUPPORT

@@ -166,6 +166,7 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
       date: string;
       type: string;
       refNo: string;
+      poNo: string;
       description: string;
       debit: number;   // Payment (settlement)
       credit: number;  // GRN Bill (invoice)
@@ -181,7 +182,8 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
         date: g.ReceivedDate || new Date().toISOString().split('T')[0],
         type: 'Goods Received (GRN)',
         refNo: g.GrnID || 'GRN-N/A',
-        description: `GRN Received - Invoice #${g.VendorInvoiceNo || 'N/A'} (${g.ItemsReceived?.length || 0} items)`,
+        poNo: g.POID || (g as any).PoID || 'N/A',
+        description: `GRN Received - Invoice #${g.VendorInvoiceNo || g.SupplierInvoiceNo || 'N/A'} (${g.ItemsReceived?.length || g.Items?.length || 0} items)`,
         debit: 0,
         credit: Number(g.TotalAmount || 0),
         rawItem: g
@@ -194,6 +196,7 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
         date: t.Date || new Date().toISOString().split('T')[0],
         type: 'Vendor Bill Payment',
         refNo: t.TransactionID || 'PAY-N/A',
+        poNo: t.ReferenceNo && t.ReferenceNo.toUpperCase().startsWith('PO') ? t.ReferenceNo : 'N/A',
         description: `Payment Settled via ${t.PaymentMethod || 'Cash'} - ${t.Description || 'Vendor Settlement'}`,
         debit: Number(t.Amount || 0),
         credit: 0,
@@ -292,10 +295,27 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
       const vDate = vis.VisitDate || vis.Date || new Date().toISOString().split('T')[0];
       const pName = vis.PatientName || `Patient #${vis.PatientID || ''}`;
       
-      const clinAmt = Number(vis.ClinicalMedicinePkr) || 0;
+      const consultAmt = Number(vis.ConsultationFee) || 0;
+      const isPaid = vis.ConsultationPaymentOption === 'Paid - Cash' || vis.ConsultationPaymentOption === 'Paid - Online/Card' || vis.ConsultationPaymentOption === 'Paid' || vis.Status === 2;
+      if (consultAmt > 0 && isPaid) {
+        entries.push({
+          id: `VIS-CONS-${vis.VisitID || vis._id || Math.random()}`,
+          date: vDate,
+          time: vis.VisitTime || 'EMR Consultation',
+          ref: `VISIT-${vis.VisitID || vis.PatientID || '001'}`,
+          particulars: `OPD Consultation Fee: ${pName} (${vis.DoctorName || 'Dr. Ejaz'})`,
+          category: 'OPD Token Consultation Fee',
+          type: 'INFLOW',
+          amount: consultAmt,
+          paymentMode: 'Cash',
+          source: 'PatientVisits'
+        });
+      }
+
+      const clinAmt = Number(vis.ClinicalMedicinePayment) || Number(vis.ClinicalMedicinePkr) || 0;
       if (clinAmt > 0) {
         entries.push({
-          id: `VIS-CLIN-${vis._id || Math.random()}`,
+          id: `VIS-CLIN-${vis.VisitID || vis._id || Math.random()}`,
           date: vDate,
           time: vis.VisitTime || 'Dispensary',
           ref: `PV-${vis.PatientID || '001'}`,
@@ -308,10 +328,10 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
         });
       }
 
-      const fileAmt = Number(vis.FilePkr) || 0;
+      const fileAmt = Number(vis.FileFee) || Number(vis.FilePkr) || 0;
       if (fileAmt > 0) {
         entries.push({
-          id: `VIS-FILE-${vis._id || Math.random()}`,
+          id: `VIS-FILE-${vis.VisitID || vis._id || Math.random()}`,
           date: vDate,
           time: vis.VisitTime || 'Reception',
           ref: `FILE-${vis.PatientID || '001'}`,
@@ -324,10 +344,10 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
         });
       }
 
-      const cardAmt = Number(vis.CardPkr) || 0;
+      const cardAmt = Number(vis.CardFee) || Number(vis.CardPkr) || 0;
       if (cardAmt > 0) {
         entries.push({
-          id: `VIS-CARD-${vis._id || Math.random()}`,
+          id: `VIS-CARD-${vis.VisitID || vis._id || Math.random()}`,
           date: vDate,
           time: vis.VisitTime || 'Reception',
           ref: `CARD-${vis.PatientID || '001'}`,
@@ -343,14 +363,14 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
 
     // 3. POS / Store Pharmacy Sales
     (posSales || []).forEach((sale: any) => {
-      const sAmt = Number(sale.TotalAmount) || Number(sale.GrandTotal) || Number(sale.Total) || 0;
+      const sAmt = Number(sale.NetAmount) || Number(sale.GAmount) || Number(sale.TotalAmount) || Number(sale.GrandTotal) || Number(sale.Total) || 0;
       if (sAmt > 0) {
         entries.push({
           id: `SALE-${sale.InvoiceNo || sale.SaleID || sale._id || Math.random()}`,
-          date: sale.Date || sale.CreatedDate || new Date().toISOString().split('T')[0],
+          date: sale.InvoiceDate || sale.Date || sale.CreatedDate || new Date().toISOString().split('T')[0],
           time: sale.Time || 'Pharmacy Counter',
           ref: `INV-${sale.InvoiceNo || 'STORE'}`,
-          particulars: `Pharmacy Store Counter Sale: ${sale.CustomerName || 'Walk-in Customer'}`,
+          particulars: `Pharmacy Store Counter Sale: ${sale.PatientID ? `Patient #${sale.PatientID}` : (sale.CustomerName || 'Walk-in Customer')}`,
           category: 'Pharmacy Store Sale',
           type: 'INFLOW',
           amount: sAmt,
@@ -364,11 +384,13 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
     (expenses || []).forEach((exp: any) => {
       const eAmt = Number(exp.Amount) || 0;
       if (eAmt > 0) {
+        const rawId = (exp.ExpenseID || exp._id || '').toString();
+        const cleanId = rawId ? (rawId.startsWith('EXP-') ? rawId : `EXP-${rawId}`) : `EXP-${Math.random()}`;
         entries.push({
-          id: `EXP-${exp.ExpenseID || exp._id || Math.random()}`,
+          id: cleanId,
           date: exp.ExpenseDate || exp.Date || new Date().toISOString().split('T')[0],
           time: 'Expenses Ledger',
-          ref: `EXP-${exp.ExpenseID || 'VOUCHER'}`,
+          ref: cleanId,
           particulars: `${exp.Category}: ${exp.Description || 'Clinic Expense Outflow'}`,
           category: exp.Category || 'General Expense',
           type: 'OUTFLOW',
@@ -384,11 +406,13 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
       const pAmt = Number(pay.NetSalary) || Number(pay.BasicSalary) || 0;
       if (pAmt > 0) {
         const emp = (employees || []).find(e => e.EmployeeID === pay.EmployeeID);
+        const rawId = (pay.PayrollID || pay._id || '').toString();
+        const cleanId = rawId ? (rawId.startsWith('PAY-') ? rawId : `PAY-${rawId}`) : `PAY-${Math.random()}`;
         entries.push({
-          id: `PAY-${pay.PayrollID || pay._id || Math.random()}`,
+          id: cleanId,
           date: pay.PaymentDate || `${pay.MonthYear || '2026-08'}-01`,
           time: 'HR Accounts',
-          ref: `PAY-${pay.PayrollID || 'VOUCHER'}`,
+          ref: cleanId,
           particulars: `Staff Salary Disbursement: ${emp?.FullName || pay.EmployeeID || 'Employee'} (${pay.MonthYear || ''})`,
           category: 'Staff Salary & Payroll',
           type: 'OUTFLOW',
@@ -404,13 +428,32 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
       const tAmt = Number(tx.Amount) || 0;
       if (tAmt > 0) {
         const isOut = tx.Type === 'Expense' || tx.Type === 'VendorPayment' || tx.Type === 'AssetPurchase';
-        const isAlreadyIn = entries.some(e => e.id.includes(tx.TransactionID || 'NEVER_MATCH'));
+        const rawTxId = (tx.TransactionID || tx._id || '').toString();
+        const rawRefNo = (tx.ReferenceNo || '').toString();
+        const cleanRef = rawTxId ? (rawTxId.startsWith('TXN-') ? rawTxId : `TXN-${rawTxId}`) : `TXN-${Math.random()}`;
+
+        // Check if this transaction is ALREADY covered by Expenses, Payroll, GRNs, or prior entries
+        const isAlreadyIn = entries.some(e => {
+          if (rawTxId && (e.id === rawTxId || e.ref === rawTxId)) return true;
+          if (rawRefNo && (e.id === rawRefNo || e.ref === rawRefNo || e.id === `EXP-${rawRefNo.replace(/^EXP-/, '')}`)) return true;
+          if (tx.Type === 'Expense' && (expenses || []).some((exp: any) => {
+            const expId = (exp.ExpenseID || exp._id || '').toString();
+            return (expId && (expId === rawRefNo || expId === rawTxId)) || 
+                   (Number(exp.Amount) === tAmt && (exp.ExpenseDate === tx.Date || exp.Date === tx.Date));
+          })) return true;
+          if (tx.Type === 'PayrollPayment' && (payrolls || []).some((pay: any) => {
+            const payId = (pay.PayrollID || pay._id || '').toString();
+            return payId && (payId === rawRefNo || payId === rawTxId);
+          })) return true;
+          return false;
+        });
+
         if (!isAlreadyIn) {
           entries.push({
-            id: `TX-${tx.TransactionID || tx._id || Math.random()}`,
+            id: cleanRef,
             date: tx.Date || new Date().toISOString().split('T')[0],
             time: 'General Ledger',
-            ref: `TXN-${tx.TransactionID || '001'}`,
+            ref: cleanRef,
             particulars: tx.Description || `${tx.Type} - ${tx.Category}`,
             category: tx.Category || tx.Type,
             type: isOut ? 'OUTFLOW' : 'INFLOW',
@@ -543,7 +586,7 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
       Description: newExp.Description,
       Amount: amt,
       PaymentMethod: newExp.PaymentMethod,
-      ReferenceNo: newExp.ReceiptRef,
+      ReferenceNo: newExp.ExpenseID,
       Date: newExp.ExpenseDate,
       CreatedBy: currentUser?.FullName || 'Admin',
       VendorName: quickOutflowForm.payee || 'Expense Account'
@@ -834,9 +877,9 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
         safeFetchJson('/api/query/erp_expenses'),
         safeFetchJson('/api/query/erp_assets'),
         safeFetchJson('/api/query/items'),
-        safeFetchJson('/api/query/appointments'),
-        safeFetchJson('/api/query/patient_visits'),
-        safeFetchJson('/api/query/sales')
+        safeFetchJson('/api/appointments'),
+        safeFetchJson('/api/visits'),
+        safeFetchJson('/api/billing/invoices')
       ]);
 
       if (Array.isArray(vRes)) setVendors(vRes);
@@ -849,7 +892,11 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
       if (Array.isArray(astRes)) setAssets(astRes);
       if (Array.isArray(apptsRes)) setAppointments(apptsRes);
       if (Array.isArray(visitsRes)) setPatientVisits(visitsRes);
-      if (Array.isArray(salesRes)) setPosSales(salesRes);
+      if (Array.isArray(salesRes)) {
+        setPosSales(salesRes);
+      } else if (salesRes && Array.isArray(salesRes.headers)) {
+        setPosSales(salesRes.headers);
+      }
 
       if (Array.isArray(itemsRes) && itemsRes.length > 0) {
         setInventoryItems(itemsRes);
@@ -1728,8 +1775,9 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
 
   // CALCULATED ERP METRICS
   const totalVendorBalance = vendors.reduce((sum, v) => sum + v.Balance, 0);
-  const totalIncome = transactions.filter(t => t.Type === 'Income' || t.Type === 'CustomerReceipt').reduce((sum, t) => sum + t.Amount, 0);
-  const totalExpenseTxns = transactions.filter(t => t.Type === 'Expense' || t.Type === 'PayrollPayment' || t.Type === 'VendorPayment').reduce((sum, t) => sum + t.Amount, 0);
+  const totalIncome = cashBookMetrics.totalInflow;
+  const totalExpenseTxns = cashBookMetrics.totalOutflow;
+  const netOperatingProfit = cashBookMetrics.netBalance;
   const totalAssetValuation = assets.reduce((sum, a) => sum + a.CurrentValue, 0);
   const totalMonthlyPayroll = payrolls.reduce((sum, p) => sum + p.NetSalary, 0);
 
@@ -1812,12 +1860,12 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
       {activeTab === 'overview' && (
         <div className="space-y-6">
           {/* KPI CARDS */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
               <div>
                 <p className="text-xs font-semibold text-slate-500">Total Income Receipts</p>
                 <h3 className="text-2xl font-black text-emerald-600 mt-1">Rs. {totalIncome.toLocaleString()}</h3>
-                <p className="text-[10px] text-slate-400 mt-1">Dispensary Sales & Receipts</p>
+                <p className="text-[10px] text-slate-400 mt-1">OPD, Dispensary & Pharmacy Sales</p>
               </div>
               <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl">
                 <TrendingUp className="w-6 h-6" />
@@ -1826,9 +1874,9 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
 
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
               <div>
-                <p className="text-xs font-semibold text-slate-500">Total Expenses Logged</p>
+                <p className="text-xs font-semibold text-slate-500">Total Outflow / Expenses</p>
                 <h3 className="text-2xl font-black text-rose-600 mt-1">Rs. {totalExpenseTxns.toLocaleString()}</h3>
-                <p className="text-[10px] text-slate-400 mt-1">Utilities, Salaries & Purchases</p>
+                <p className="text-[10px] text-slate-400 mt-1">Utilities, Rent, Salaries & Purchases</p>
               </div>
               <div className="p-3 bg-rose-50 text-rose-600 rounded-xl">
                 <TrendingDown className="w-6 h-6" />
@@ -1837,7 +1885,20 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
 
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
               <div>
-                <p className="text-xs font-semibold text-slate-500">Vendor Outstanding Payables</p>
+                <p className="text-xs font-semibold text-slate-500">Net Cash Balance</p>
+                <h3 className={`text-2xl font-black mt-1 ${netOperatingProfit >= 0 ? 'text-indigo-600' : 'text-rose-600'}`}>
+                  Rs. {netOperatingProfit.toLocaleString()}
+                </h3>
+                <p className="text-[10px] text-slate-400 mt-1">Margin: {cashBookMetrics.marginPercent}%</p>
+              </div>
+              <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl">
+                <Landmark className="w-6 h-6" />
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold text-slate-500">Vendor Payables</p>
                 <h3 className="text-2xl font-black text-amber-600 mt-1">Rs. {totalVendorBalance.toLocaleString()}</h3>
                 <p className="text-[10px] text-slate-400 mt-1">{vendors.length} Active Distributors</p>
               </div>
@@ -1849,10 +1910,10 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
               <div>
                 <p className="text-xs font-semibold text-slate-500">Fixed Asset Valuation</p>
-                <h3 className="text-2xl font-black text-indigo-600 mt-1">Rs. {totalAssetValuation.toLocaleString()}</h3>
+                <h3 className="text-2xl font-black text-slate-800 mt-1">Rs. {totalAssetValuation.toLocaleString()}</h3>
                 <p className="text-[10px] text-slate-400 mt-1">{assets.length} Equipment & Fixtures</p>
               </div>
-              <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl">
+              <div className="p-3 bg-slate-100 text-slate-700 rounded-xl">
                 <Boxes className="w-6 h-6" />
               </div>
             </div>
@@ -1864,13 +1925,13 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
               <div className="flex items-center justify-between">
                 <h3 className="font-bold text-slate-900 text-sm flex items-center space-x-2">
                   <Receipt className="w-4 h-4 text-indigo-600" />
-                  <span>Recent ERP Financial Ledger Transactions</span>
+                  <span>Recent Clinic Operational & Financial Receipts</span>
                 </h3>
                 <button
-                  onClick={() => setActiveTab('ledger')}
+                  onClick={() => setActiveTab('cash_book_pnl')}
                   className="text-xs font-bold text-indigo-600 hover:underline"
                 >
-                  View Full Ledger &rarr;
+                  View Full Cash Book &rarr;
                 </button>
               </div>
 
@@ -1879,36 +1940,39 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
                   <thead>
                     <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
                       <th className="p-2.5">Date</th>
-                      <th className="p-2.5">Txn ID</th>
-                      <th className="p-2.5">Category</th>
+                      <th className="p-2.5">Ref No</th>
+                      <th className="p-2.5">Particulars / Category</th>
                       <th className="p-2.5">Type</th>
                       <th className="p-2.5 text-right">Amount</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-medium">
-                    {transactions.slice(0, 6).map((txn, idx) => (
+                    {cashBookEntries.slice(0, 8).map((txn, idx) => (
                       <tr key={idx} className="hover:bg-slate-50">
-                        <td className="p-2.5 text-slate-500 whitespace-nowrap">{txn.Date}</td>
-                        <td className="p-2.5 font-mono font-bold text-slate-700">{txn.TransactionID}</td>
-                        <td className="p-2.5 text-slate-800">{txn.Category}</td>
+                        <td className="p-2.5 text-slate-500 whitespace-nowrap">{txn.date}</td>
+                        <td className="p-2.5 font-mono font-bold text-slate-700">{txn.ref}</td>
+                        <td className="p-2.5 text-slate-800">
+                          <div className="font-bold text-slate-900">{txn.particulars}</div>
+                          <div className="text-[10px] text-slate-400">{txn.category}</div>
+                        </td>
                         <td className="p-2.5">
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-                            txn.Type === 'Income' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                            txn.type === 'INFLOW' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
                           }`}>
-                            {txn.Type}
+                            {txn.type}
                           </span>
                         </td>
                         <td className={`p-2.5 text-right font-bold ${
-                          txn.Type === 'Income' ? 'text-emerald-600' : 'text-slate-800'
+                          txn.type === 'INFLOW' ? 'text-emerald-600' : 'text-rose-600'
                         }`}>
-                          Rs. {txn.Amount.toLocaleString()}
+                          Rs. {txn.amount.toLocaleString()}
                         </td>
                       </tr>
                     ))}
-                    {transactions.length === 0 && (
+                    {cashBookEntries.length === 0 && (
                       <tr>
                         <td colSpan={5} className="text-center p-6 text-slate-400">
-                          No transaction records found in database. Click "Insert Test Entry Suite" above.
+                          No clinic cash collection or transaction records found.
                         </td>
                       </tr>
                     )}
@@ -2548,6 +2612,7 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
                     <th className="p-3">Date</th>
                     <th className="p-3">Type</th>
                     <th className="p-3">Ref / Voucher #</th>
+                    <th className="p-3">P.O. Number</th>
                     <th className="p-3">Description</th>
                     <th className="p-3 text-right">Debit (Paid)</th>
                     <th className="p-3 text-right">Credit (Bill)</th>
@@ -2558,7 +2623,7 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
                 <tbody className="divide-y divide-slate-200 bg-white font-medium text-slate-700">
                   {vendorStatement.statementRows.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="p-8 text-center text-slate-400 font-bold">
+                      <td colSpan={9} className="p-8 text-center text-slate-400 font-bold">
                         No transactions or GRNs recorded for this vendor in selected period.
                       </td>
                     </tr>
@@ -2575,6 +2640,15 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
                             </span>
                           </td>
                           <td className="p-3 font-mono font-bold text-slate-900">{row.refNo}</td>
+                          <td className="p-3 font-mono font-bold text-indigo-600">
+                            {row.poNo !== 'N/A' ? (
+                              <span className="px-1.5 py-0.5 bg-indigo-50 border border-indigo-200 rounded text-indigo-700 font-mono text-[11px]">
+                                {row.poNo}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400">-</span>
+                            )}
+                          </td>
                           <td className="p-3 max-w-xs truncate text-slate-600">{row.description}</td>
                           <td className="p-3 text-right font-mono font-bold text-emerald-700">
                             {row.debit > 0 ? `Rs. ${row.debit.toLocaleString()}` : '-'}
@@ -2610,7 +2684,7 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
                         {/* Expandable GRN items line breakdown */}
                         {expandedGrnId === row.id && row.rawItem?.ItemsReceived && (
                           <tr className="bg-slate-50">
-                            <td colSpan={8} className="p-4">
+                            <td colSpan={9} className="p-4">
                               <div className="bg-white p-3 rounded-lg border border-slate-200 space-y-2">
                                 <h4 className="text-[11px] font-bold text-slate-800 uppercase tracking-wider">
                                   GRN Itemized Audit Breakdown ({row.rawItem.ItemsReceived.length} Items)
@@ -4305,96 +4379,213 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
 
       {/* PRINTABLE VENDOR STATEMENT PREVIEW MODAL */}
       {vendorPrintModalOpen && selectedVendor && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 overflow-y-auto print:absolute print:inset-0 print:bg-white print:p-0">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-4xl w-full flex flex-col h-[90vh] print:h-auto print:border-0 print:shadow-none animate-fadeIn">
-            {/* Modal Control Bar */}
-            <div className="p-4 border-b border-slate-100 flex items-center justify-between print:hidden bg-slate-50 rounded-t-2xl">
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center z-50 p-4 overflow-y-auto print:absolute print:inset-0 print:bg-white print:p-0 print:m-0 print:overflow-visible">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-4xl w-full flex flex-col h-[92vh] print:h-auto print:max-w-none print:w-full print:border-0 print:shadow-none print:rounded-none animate-fadeIn">
+            {/* Modal Control Bar (Hidden on Print) */}
+            <div className="p-4 border-b border-slate-200 flex items-center justify-between print:hidden bg-slate-50 rounded-t-2xl shrink-0">
               <div>
-                <span className="text-xs font-black uppercase tracking-wider text-slate-800">
-                  Vendor Account Statement Printable Preview
+                <span className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+                  <Printer className="w-4 h-4 text-amber-600" />
+                  Vendor Account Statement A4 Letterhead Preview
                 </span>
-                <p className="text-[10px] text-slate-400">Official statement for {selectedVendor.VendorName}</p>
+                <p className="text-[10px] text-slate-500">Official ledger statement for {selectedVendor.VendorName}</p>
               </div>
               <div className="flex items-center space-x-2">
                 <button
                   onClick={() => window.print()}
-                  className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition flex items-center shadow-xs cursor-pointer"
+                  className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition flex items-center shadow-xs cursor-pointer"
                 >
                   <Printer className="w-4 h-4 mr-1.5" />
-                  Print Statement
+                  Print Statement (A4)
                 </button>
                 <button
                   onClick={() => setVendorPrintModalOpen(false)}
-                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-200 transition cursor-pointer"
+                  className="text-slate-400 hover:text-slate-600 p-2 rounded-xl hover:bg-slate-200 transition cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
 
-            {/* Printable Document Sheet */}
-            <div className="p-8 flex-1 overflow-y-auto space-y-6 print:p-0 print:overflow-visible text-slate-900" id="vendor-printable-sheet">
-              {/* Header */}
-              <div className="border-b-2 border-slate-900 pb-4 text-center space-y-1">
-                <h1 className="text-xl font-black uppercase tracking-widest text-slate-950">SUPPLIER ACCOUNT STATEMENT</h1>
-                <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">HealthCare ERP & Accounts Payable Ledger</p>
-                <p className="text-[10px] text-slate-500 font-mono">Statement Date: {new Date().toLocaleDateString('en-GB')}</p>
-              </div>
+            {/* Printable A4 Document Sheet */}
+            <div className="p-8 flex-1 overflow-y-auto space-y-6 print:p-0 print:overflow-visible text-slate-900 bg-white" id="vendor-printable-sheet">
+              {/* OFFICIAL PUNJAB HOMEOPATHIC CLINIC A4 LETTERHEAD HEADER */}
+              <div className="border-b-4 border-slate-900 pb-4 space-y-2">
+                <div className="flex items-center justify-between gap-4">
+                  {/* Official Clinic Logo */}
+                  <div className="w-16 h-16 shrink-0 flex items-center justify-center">
+                    <img src="/nhc_logo.svg" alt="Punjab Homeopathic Clinic Logo" className="max-w-full max-h-full object-contain" />
+                  </div>
 
-              {/* Vendor Details */}
-              <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
-                <div className="space-y-1">
-                  <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Supplier Details</p>
-                  <p className="font-extrabold text-sm text-slate-950">{selectedVendor.VendorName}</p>
-                  <p className="text-slate-600">Supplier ID: <span className="font-mono font-bold text-slate-800">{selectedVendor.VendorID || 'N/A'}</span></p>
-                  <p className="text-slate-600">Contact: {selectedVendor.ContactPerson || 'N/A'} ({selectedVendor.Phone || 'N/A'})</p>
-                  <p className="text-slate-600">Address: {selectedVendor.Address || 'N/A'}</p>
-                </div>
-                <div className="space-y-1 text-right">
-                  <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Statement Summary</p>
-                  <p className="text-slate-700">Total Purchases (GRN): <span className="font-mono font-bold text-slate-900">Rs. {vendorStatement.totalInvoiced.toLocaleString()}</span></p>
-                  <p className="text-slate-700">Total Payments Cleared: <span className="font-mono font-bold text-emerald-700">Rs. {vendorStatement.totalPaid.toLocaleString()}</span></p>
-                  <div className="pt-2 border-t border-slate-300">
-                    <p className="text-xs font-black uppercase text-slate-500">Current Outstanding Payable</p>
-                    <p className="text-lg font-mono font-black text-amber-700">Rs. {vendorStatement.closingBalance.toLocaleString()}</p>
+                  {/* Center Branding */}
+                  <div className="text-center flex-1">
+                    <h1 className="text-xl sm:text-2xl font-black text-rose-950 uppercase tracking-tight font-serif leading-tight">
+                      PUNJAB HOMEOPATHIC CLINIC & PHARMACY
+                    </h1>
+                    <p className="text-[10px] font-extrabold text-emerald-800 tracking-widest uppercase mt-0.5">
+                      HEALING NATURALLY • RESTORING BALANCE
+                    </p>
+                    <p className="text-[11px] font-bold text-slate-800 mt-0.5">
+                      Accounts & Finance Division • Vendor Payable Ledger Statement
+                    </p>
+                    <p className="text-[10px] text-slate-600 mt-0.5">
+                      Main Branch, Punjab, Pakistan • Ph: (042) 3578-9000 | Cell: 0300-1234567
+                    </p>
+                  </div>
+
+                  {/* Right Statement Badge */}
+                  <div className="text-right space-y-1 shrink-0">
+                    <span className="inline-block px-3 py-1 bg-amber-100 print:bg-slate-100 text-amber-900 print:text-slate-900 border border-amber-300 print:border-slate-400 font-black text-xs uppercase tracking-wider rounded-md">
+                      SUPPLIER STATEMENT
+                    </span>
+                    <p className="text-[10px] text-slate-500 font-mono pt-1">
+                      Statement Date: <span className="font-bold text-slate-800">{new Date().toLocaleDateString('en-GB')}</span>
+                    </p>
+                    <p className="text-[10px] text-slate-500 font-mono">
+                      Period Filter: <span className="font-bold text-slate-800 capitalize">{vendorDateFilter === 'all' ? 'All Time (Full Ledger)' : vendorDateFilter}</span>
+                    </p>
+                    <p className="text-[10px] text-slate-400 font-mono">
+                      Doc Ref: STMT-{selectedVendor.VendorID || 'VND'}-{new Date().toISOString().slice(0,10).replace(/-/g,'')}
+                    </p>
                   </div>
                 </div>
               </div>
 
-              {/* Statement Rows Table */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
+              {/* SUPPLIER DETAILS & SUMMARY CARDS */}
+              <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-300 text-xs print:bg-slate-50">
+                <div className="space-y-1.5 border-r border-slate-200 pr-4">
+                  <p className="text-[10px] font-black uppercase text-amber-800 print:text-slate-800 tracking-wider flex items-center">
+                    <Building2 className="w-3.5 h-3.5 mr-1" />
+                    Supplier / Distributor Details
+                  </p>
+                  <p className="font-black text-sm text-slate-950">{selectedVendor.VendorName}</p>
+                  <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-slate-700 text-[11px]">
+                    <p>Vendor ID: <span className="font-mono font-bold text-slate-900">{selectedVendor.VendorID || 'N/A'}</span></p>
+                    <p>NTN / Tax ID: <span className="font-mono font-bold text-slate-900">{selectedVendor.TaxID || 'N/A'}</span></p>
+                    <p>Contact: <span className="font-bold text-slate-900">{selectedVendor.ContactPerson || 'N/A'}</span></p>
+                    <p>Phone: <span className="font-bold text-slate-900">{selectedVendor.Phone || 'N/A'}</span></p>
+                  </div>
+                  <p className="text-[11px] text-slate-600 truncate">Address: {selectedVendor.Address || 'N/A'}</p>
+                </div>
+
+                <div className="space-y-1.5 pl-2 text-right flex flex-col justify-between">
+                  <p className="text-[10px] font-black uppercase text-slate-500 tracking-wider">
+                    Accounts Payable Financial Summary
+                  </p>
+                  <div className="space-y-1 text-xs">
+                    <div className="flex justify-between items-center text-slate-700">
+                      <span>Total Purchases / GRN Bills (Credit):</span>
+                      <span className="font-mono font-bold text-amber-800 print:text-slate-900">Rs. {vendorStatement.totalInvoiced.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-slate-700">
+                      <span>Total Bill Payments Settled (Debit):</span>
+                      <span className="font-mono font-bold text-emerald-700 print:text-slate-900">Rs. {vendorStatement.totalPaid.toLocaleString()}</span>
+                    </div>
+                  </div>
+                  <div className="pt-2 border-t border-slate-300 flex justify-between items-center bg-amber-500/10 p-2 rounded-lg border border-amber-300/80 print:bg-slate-100 print:border-slate-400">
+                    <span className="text-xs font-black uppercase text-slate-900">Net Outstanding Balance:</span>
+                    <span className="text-base font-mono font-black text-amber-800 print:text-slate-950">Rs. {vendorStatement.closingBalance.toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* STATEMENT ROWS TABLE (WITH PURCHASE ORDER NUMBER COLUMN) */}
+              <div className="border border-slate-300 rounded-xl overflow-hidden print:border-slate-400">
                 <table className="w-full text-left text-xs font-sans border-collapse">
                   <thead>
-                    <tr className="bg-slate-900 text-white uppercase text-[9px] font-black tracking-wider">
+                    <tr className="bg-slate-900 text-white uppercase text-[9px] font-black tracking-wider print:bg-slate-950">
                       <th className="p-2.5">Date</th>
                       <th className="p-2.5">Type</th>
                       <th className="p-2.5">Ref / Voucher #</th>
-                      <th className="p-2.5">Description</th>
+                      <th className="p-2.5">P.O. Number</th>
+                      <th className="p-2.5">Description / Particulars</th>
                       <th className="p-2.5 text-right">Debit (Paid)</th>
                       <th className="p-2.5 text-right">Credit (Bill)</th>
-                      <th className="p-2.5 text-right">Balance</th>
+                      <th className="p-2.5 text-right">Running Balance</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200 bg-white">
-                    {vendorStatement.statementRows.map((row, idx) => (
-                      <tr key={idx}>
-                        <td className="p-2.5 font-mono text-slate-700">{row.date}</td>
-                        <td className="p-2.5 font-bold text-slate-900">{row.type}</td>
-                        <td className="p-2.5 font-mono font-bold text-slate-800">{row.refNo}</td>
-                        <td className="p-2.5 text-slate-700">{row.description}</td>
-                        <td className="p-2.5 text-right font-mono font-bold text-emerald-700">
-                          {row.debit > 0 ? `Rs. ${row.debit.toLocaleString()}` : '-'}
-                        </td>
-                        <td className="p-2.5 text-right font-mono font-bold text-amber-700">
-                          {row.credit > 0 ? `Rs. ${row.credit.toLocaleString()}` : '-'}
-                        </td>
-                        <td className="p-2.5 text-right font-mono font-black text-slate-950">
-                          Rs. {(row.runningBalance || 0).toLocaleString()}
+                  <tbody className="divide-y divide-slate-200 bg-white text-[11px]">
+                    {vendorStatement.statementRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="p-6 text-center text-slate-400 font-bold">
+                          No transactions or GRNs recorded for this vendor in selected period.
                         </td>
                       </tr>
-                    ))}
+                    ) : (
+                      vendorStatement.statementRows.map((row, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50">
+                          <td className="p-2.5 font-mono text-slate-700 whitespace-nowrap">{row.date}</td>
+                          <td className="p-2.5 whitespace-nowrap">
+                            <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
+                              row.credit > 0 ? 'bg-amber-100 text-amber-900 print:bg-slate-100 print:text-slate-900' : 'bg-emerald-100 text-emerald-900 print:bg-slate-100 print:text-slate-900'
+                            }`}>
+                              {row.type}
+                            </span>
+                          </td>
+                          <td className="p-2.5 font-mono font-bold text-slate-900 whitespace-nowrap">{row.refNo}</td>
+                          <td className="p-2.5 font-mono font-bold text-indigo-700 print:text-slate-900 whitespace-nowrap">
+                            {row.poNo !== 'N/A' ? row.poNo : '-'}
+                          </td>
+                          <td className="p-2.5 text-slate-700">{row.description}</td>
+                          <td className="p-2.5 text-right font-mono font-bold text-emerald-700 print:text-slate-900 whitespace-nowrap">
+                            {row.debit > 0 ? `Rs. ${row.debit.toLocaleString()}` : '-'}
+                          </td>
+                          <td className="p-2.5 text-right font-mono font-bold text-amber-700 print:text-slate-900 whitespace-nowrap">
+                            {row.credit > 0 ? `Rs. ${row.credit.toLocaleString()}` : '-'}
+                          </td>
+                          <td className="p-2.5 text-right font-mono font-black text-slate-950 whitespace-nowrap">
+                            Rs. {(row.runningBalance || 0).toLocaleString()}
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
+                  <tfoot>
+                    <tr className="bg-slate-100 font-bold border-t-2 border-slate-900 text-slate-900 text-xs">
+                      <td colSpan={5} className="p-2.5 text-right uppercase font-black">Total Ledger Summary:</td>
+                      <td className="p-2.5 text-right font-mono font-black text-emerald-800 print:text-slate-950 whitespace-nowrap">
+                        Rs. {vendorStatement.totalPaid.toLocaleString()}
+                      </td>
+                      <td className="p-2.5 text-right font-mono font-black text-amber-800 print:text-slate-950 whitespace-nowrap">
+                        Rs. {vendorStatement.totalInvoiced.toLocaleString()}
+                      </td>
+                      <td className="p-2.5 text-right font-mono font-black text-slate-950 whitespace-nowrap">
+                        Rs. {vendorStatement.closingBalance.toLocaleString()}
+                      </td>
+                    </tr>
+                  </tfoot>
                 </table>
+              </div>
+
+              {/* AUDIT & SIGNATURES BLOCK FOR A4 LETTERHEAD */}
+              <div className="pt-8 mt-6 border-t border-slate-300 grid grid-cols-4 gap-4 text-center text-[10px] font-bold text-slate-700 print:pt-12">
+                <div className="space-y-8">
+                  <div className="border-b border-slate-400 pb-1 h-8 flex items-end justify-center font-mono text-[9px] text-slate-500">
+                    {currentUser?.FullName || 'Accountant'}
+                  </div>
+                  <p className="uppercase tracking-wider">PREPARED BY (ACCOUNTANT)</p>
+                </div>
+
+                <div className="space-y-8">
+                  <div className="border-b border-slate-400 pb-1 h-8"></div>
+                  <p className="uppercase tracking-wider">CHECKED BY (AUDITOR)</p>
+                </div>
+
+                <div className="space-y-8">
+                  <div className="border-b border-slate-400 pb-1 h-8"></div>
+                  <p className="uppercase tracking-wider">VENDOR STAMP & SIGN</p>
+                </div>
+
+                <div className="space-y-8">
+                  <div className="border-b border-slate-400 pb-1 h-8"></div>
+                  <p className="uppercase tracking-wider">AUTHORIZED ADMINISTRATOR</p>
+                </div>
+              </div>
+
+              {/* FOOTER DISCLAIMER */}
+              <div className="pt-4 border-t border-slate-200 text-between flex items-center justify-between text-[9px] text-slate-400 font-mono">
+                <p>Punjab Homeopathic Clinic & Pharmacy • Accounts Payable Ledger System • Confidential Document</p>
+                <p>Printed on: {new Date().toLocaleString('en-GB')}</p>
               </div>
             </div>
           </div>
