@@ -362,37 +362,37 @@ export default function App() {
 
     try {
       const tasks = [
-        fetch(`${bridgeUrl}/api/users`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setUsersList(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/users`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && setUsersList(data)).catch(() => {}),
         fetch(`${bridgeUrl}/api/settings/clinic`).then(r => r.ok ? r.json() : null).then(data => data && data.ClinicName && setClinicSettings(data)).catch(() => {}),
         fetch(`${bridgeUrl}/api/settings/sms`).then(r => r.ok ? r.json() : null).then(data => data && data.ApiUrl && setSmsSettings(data)).catch(() => {}),
-        fetch(`${bridgeUrl}/api/patients`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setPatients(data)).catch(() => {}),
-        fetch(`${bridgeUrl}/api/items`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setItems(data)).catch(() => {}),
-        fetch(`${bridgeUrl}/api/lab-tests`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setLabTests(data)).catch(() => {}),
-        fetch(`${bridgeUrl}/api/smart-locator`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setSmartLocatorMedicines(data)).catch(() => {}),
-        fetch(`${bridgeUrl}/api/appointments`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setAppointments(data)).catch(() => {}),
-        fetch(`${bridgeUrl}/api/tokens`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setTokens(data)).catch(() => {}),
-        fetch(`${bridgeUrl}/api/visits`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setVisits(data)).catch(() => {}),
-        fetch(`${bridgeUrl}/api/visit-medicines`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setVisitMedicines(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/patients`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && setPatients(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/items`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && setItems(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/lab-tests`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && setLabTests(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/smart-locator`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && setSmartLocatorMedicines(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/appointments`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && setAppointments(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/tokens`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && setTokens(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/visits`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && setVisits(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/visit-medicines`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && setVisitMedicines(data)).catch(() => {}),
         fetch(`${bridgeUrl}/api/billing/invoices`).then(r => r.ok ? r.json() : null).then(data => {
           if (data && Array.isArray(data.headers)) setInvoices(data.headers);
           if (data && Array.isArray(data.details)) setInvoiceDetails(data.details);
         }).catch(() => {}),
-        fetch(`${bridgeUrl}/api/certificates`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setMedicalCertificates(data)).catch(() => {}),
-        fetch(`${bridgeUrl}/api/sbp-certificates`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setSbpCertificates(data)).catch(() => {}),
-        fetch(`${bridgeUrl}/api/billing/returns`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setSalesReturns(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/certificates`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && setMedicalCertificates(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/sbp-certificates`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && setSbpCertificates(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/billing/returns`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && setSalesReturns(data)).catch(() => {}),
         fetch(`${bridgeUrl}/api/grns`).then(r => r.ok ? r.json() : null).then(data => {
           if (data && Array.isArray(data.headers)) setGrns(data.headers);
           if (data && Array.isArray(data.details)) setGrnDetails(data.details);
         }).catch(() => {}),
-        fetch(`${bridgeUrl}/api/suppliers`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setSuppliers(data)).catch(() => {}),
-        fetch(`${bridgeUrl}/api/accounts/fl`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setFlAccounts(data)).catch(() => {}),
-        fetch(`${bridgeUrl}/api/accounts/sl`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setSlAccounts(data)).catch(() => {}),
-        fetch(`${bridgeUrl}/api/accounts`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setTlAccounts(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/suppliers`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && setSuppliers(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/accounts/fl`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && setFlAccounts(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/accounts/sl`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && setSlAccounts(data)).catch(() => {}),
+        fetch(`${bridgeUrl}/api/accounts`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && setTlAccounts(data)).catch(() => {}),
         fetch(`${bridgeUrl}/api/vouchers`).then(r => r.ok ? r.json() : null).then(data => {
           if (data && Array.isArray(data.headers)) setVouchers(data.headers);
           if (data && Array.isArray(data.details)) setVoucherDetails(data.details);
         }).catch(() => {}),
-        fetch(`${bridgeUrl}/api/acledger`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && data.length > 0 && setAcLedger(data)).catch(() => {})
+        fetch(`${bridgeUrl}/api/acledger`).then(r => r.ok ? r.json() : null).then(data => Array.isArray(data) && setAcLedger(data)).catch(() => {})
       ];
 
       await Promise.allSettled(tasks);
@@ -410,6 +410,15 @@ export default function App() {
     if (!mongoDbSettings.SyncEnabled) return;
     refreshAllData();
   }, [mongoDbSettings.BridgeUrl, mongoDbSettings.SyncEnabled]);
+
+  // Global listener for DB mutations/deletions across components
+  useEffect(() => {
+    const handleDbUpdate = () => {
+      refreshAllData();
+    };
+    window.addEventListener('phc_db_updated', handleDbUpdate);
+    return () => window.removeEventListener('phc_db_updated', handleDbUpdate);
+  }, []);
 
   // Active User Rights Matrix helper
   const currentUserRights = currentUser.UserRights || ROLE_RIGHTS[currentUser.Role] || ROLE_RIGHTS['Administrator'];

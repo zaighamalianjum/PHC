@@ -383,7 +383,16 @@ async function runAutoSeeder() {
       'erp_payroll', 'erp_expenses', 'erp_assets', 'erp_grn'
     ];
 
-    // Explicitly create any missing collections and add search indexes
+    // Automatically drop version_control collection if requested or present
+    if (collectionNames.includes('version_control')) {
+      if (db instanceof InMemoryDB) {
+        delete db.collections['version_control'];
+        delete db.indexes['version_control'];
+      } else {
+        await db.collection('version_control').drop().catch(() => {});
+      }
+      console.log('🔥 Automatically dropped "version_control" collection from database.');
+    }
     for (const name of collectionsNeeded) {
       if (!collectionNames.includes(name)) {
         await db.createCollection(name);
@@ -3454,6 +3463,25 @@ app.delete('/api/query/:collection/:id', async (req, res) => {
 
     const result = await db.collection(collection).deleteOne(query);
     res.json({ success: true, message: 'Document deleted successfully.', result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Purge / Drop entire database collection (e.g. version_control)
+app.delete('/api/query/:collection', async (req, res) => {
+  try {
+    const { collection } = req.params;
+    if (!collection) return res.status(400).json({ error: 'Collection name is required.' });
+    
+    if (db instanceof InMemoryDB) {
+      delete db.collections[collection];
+      delete db.indexes[collection];
+    } else {
+      await db.collection(collection).drop().catch(() => {});
+    }
+    console.log(`🔥 Dropped collection/table "${collection}" from database.`);
+    res.json({ success: true, message: `Collection "${collection}" has been deleted/dropped successfully.` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

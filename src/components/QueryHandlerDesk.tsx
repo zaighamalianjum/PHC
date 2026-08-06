@@ -36,10 +36,12 @@ export default function QueryHandlerDesk({ bridgeUrl }: QueryHandlerDeskProps) {
     { id: 'nhc_patient_history', label: 'PHC History (nhc_patient_history)', description: 'Legacy patient archive and treatment histories' },
     { id: 'users', label: 'Users (users)', description: 'Authorized staff login and role credentials' },
     { id: 'clinic', label: 'Clinic Config (clinic)', description: 'Establishment details, timing, and clinic header' },
-    { id: 'sms', label: 'SMS Settings (sms)', description: 'Messaging service credentials and notifications' }
+    { id: 'sms', label: 'SMS Settings (sms)', description: 'Messaging service credentials and notifications' },
+    { id: 'version_control', label: 'Version Control (version_control)', description: 'System version logs and schema migrations' }
   ];
 
   const [selectedCollection, setSelectedCollection] = useState<string>('patients');
+  const [customCollectionName, setCustomCollectionName] = useState<string>('');
   const [records, setRecords] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -164,11 +166,41 @@ export default function QueryHandlerDesk({ bridgeUrl }: QueryHandlerDeskProps) {
       if (data.success) {
         setSuccess('Record deleted successfully from database.');
         fetchRecords();
+        window.dispatchEvent(new CustomEvent('phc_db_updated'));
       } else {
         throw new Error(data.error || 'Failed to delete record.');
       }
     } catch (err: any) {
       setError(err.message || 'Error deleting record.');
+    }
+  };
+
+  const handleDropCollection = async (collName?: string) => {
+    const targetColl = (collName || selectedCollection).trim();
+    if (!targetColl) return alert('Please specify a collection/table name to delete.');
+    
+    if (!window.confirm(`⚠️ ARE YOU SURE? You are about to PERMANENTLY DELETE / DROP the database table "${targetColl}". All records inside it will be erased.`)) {
+      return;
+    }
+
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch(`${bridgeUrl}/api/query/${targetColl}`, {
+        method: 'DELETE'
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setSuccess(`Database table/collection "${targetColl}" deleted successfully!`);
+        setRecords([]);
+        fetchRecords();
+        window.dispatchEvent(new CustomEvent('phc_db_updated'));
+      } else {
+        throw new Error(data.error || 'Failed to delete table.');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Error deleting database table.');
     }
   };
 
@@ -426,13 +458,53 @@ export default function QueryHandlerDesk({ bridgeUrl }: QueryHandlerDeskProps) {
 
           {/* RECORDS TABLE */}
           <div className="bg-slate-800/60 rounded-xl border border-slate-800 overflow-hidden">
-            <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between bg-slate-800/30">
+            <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between bg-slate-800/30 gap-3">
               <span className="text-xs font-semibold text-slate-300">
                 Live Records found: <strong className="text-white text-sm">{records.length}</strong>
               </span>
-              <span className="text-[10px] px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 rounded">
-                Collection: {selectedCollection}
+              
+              <div className="flex items-center space-x-2">
+                <span className="text-[10px] px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 rounded font-mono">
+                  Collection: {selectedCollection}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() => handleDropCollection(selectedCollection)}
+                  className="px-2.5 py-1 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 rounded text-[11px] font-bold transition flex items-center gap-1"
+                  title={`Delete entire ${selectedCollection} table from database`}
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span>Delete Table</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Custom Table Drop Tool */}
+            <div className="px-4 py-2 bg-slate-900/60 border-b border-slate-800 flex items-center justify-between text-xs text-slate-400 gap-2">
+              <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400 shrink-0">
+                Delete Custom Table:
               </span>
+              <div className="flex items-center space-x-2 flex-1 max-w-sm">
+                <input
+                  type="text"
+                  value={customCollectionName}
+                  onChange={(e) => setCustomCollectionName(e.target.value)}
+                  placeholder="e.g. version_control"
+                  className="w-full px-2 py-1 bg-slate-950 border border-slate-700 rounded text-xs text-white focus:outline-none focus:border-rose-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!customCollectionName) return alert('Enter table name to delete (e.g. version_control)');
+                    handleDropCollection(customCollectionName);
+                    setCustomCollectionName('');
+                  }}
+                  className="px-3 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded text-xs font-bold transition shrink-0"
+                >
+                  Delete
+                </button>
+              </div>
             </div>
 
             {loading ? (
