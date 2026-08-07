@@ -1399,7 +1399,7 @@ export default function ErpDesk({ currentUser, rights, clinicSettings }: ErpDesk
   // HANDLERS FOR GOODS RECEIVED NOTE (GRN) & PARTIAL BATCH RECEIVING
   const getPoItemsReceiptInfo = (po: ErpPurchaseOrder) => {
     const approvedGrns = grns.filter(g => g.POID === po.POID && g.Status === 'Approved');
-    return po.Items.map(i => {
+    const items = po.Items.map(i => {
       const ordered = Number(i.Qty) || 0;
       let alreadyReceived = 0;
       approvedGrns.forEach(g => {
@@ -1423,6 +1423,7 @@ export default function ErpDesk({ currentUser, rights, clinicSettings }: ErpDesk
         BatchNo: i.BatchNo || `B-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`
       };
     });
+    return items.filter(i => i.PendingQty > 0);
   };
 
   const handleOpenGrnForPo = (po?: ErpPurchaseOrder) => {
@@ -4920,7 +4921,8 @@ export default function ErpDesk({ currentUser, rights, clinicSettings }: ErpDesk
                   <div className="flex items-center space-x-2">
                     {(() => {
                       const selectedPo = purchaseOrders.find(p => p.POID === grnForm.POID);
-                      const fullCount = selectedPo ? selectedPo.Items.length : 0;
+                      const pendingPoItems = selectedPo ? getPoItemsReceiptInfo(selectedPo) : [];
+                      const fullCount = pendingPoItems.length;
                       if (fullCount > grnForm.Items.length) {
                         return (
                           <button
