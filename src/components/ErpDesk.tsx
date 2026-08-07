@@ -798,6 +798,21 @@ export default function ErpDesk({ currentUser, rights, clinicSettings }: ErpDesk
   const [showQrScannerModal, setShowQrScannerModal] = useState(false);
   const [showQrGeneratorModal, setShowQrGeneratorModal] = useState(false);
 
+  // Pay Vendor Popup Modal State
+  const [payVendorModalData, setPayVendorModalData] = useState<{
+    vendor: ErpVendor;
+    invNo: string;
+    poId: string;
+    amount: number;
+    paymentMethod: 'Cash' | 'Bank' | 'Cheque' | 'Online';
+    date: string;
+    category: string;
+    description: string;
+  } | null>(null);
+
+  // Vendor POs Modal State
+  const [vendorPoModalData, setVendorPoModalData] = useState<ErpVendor | null>(null);
+
   // Selected item for Edit/Print
   const [selectedPoForPrint, setSelectedPoForPrint] = useState<ErpPurchaseOrder | null>(null);
 
@@ -1731,7 +1746,10 @@ export default function ErpDesk({ currentUser, rights, clinicSettings }: ErpDesk
 
   // HANDLERS FOR TRANSACTIONS & VENDOR BILL PAYMENTS
   const handlePayVendor = (vendor: ErpVendor) => {
-    // Find recent GRN invoice numbers for this vendor
+    const vendorPOs = purchaseOrders.filter(po => 
+      (po.VendorID && po.VendorID === vendor.VendorID) || 
+      (po.VendorName && po.VendorName.toLowerCase() === vendor.VendorName.toLowerCase())
+    );
     const vendorGrns = grns.filter(g => 
       (g.VendorID && g.VendorID === vendor.VendorID) || 
       (g.VendorName && g.VendorName.toLowerCase() === vendor.VendorName.toLowerCase())
@@ -1741,31 +1759,69 @@ export default function ErpDesk({ currentUser, rights, clinicSettings }: ErpDesk
     if (vendorGrns.length > 0) {
       const latest = vendorGrns.find(g => g.SupplierInvoiceNo) || vendorGrns[0];
       suggestedInv = latest.SupplierInvoiceNo || latest.ChallanNo || latest.GRNID || '';
+    } else if (vendorPOs.length > 0) {
+      suggestedInv = vendorPOs[0].POID || '';
     }
 
-    const userInvNo = prompt(
-      `Enter Vendor Invoice Number / Supplier Bill No for ${vendor.VendorName}:`,
-      suggestedInv
-    );
-
-    if (userInvNo === null) return; // User cancelled prompt
-
-    const invNo = userInvNo.trim();
-
-    setTxnForm({
-      Type: 'VendorPayment',
-      Category: 'Supplier Sales Invoice Payment',
-      Description: invNo 
-        ? `Payment against Vendor Invoice #${invNo} for ${vendor.VendorName}`
-        : `Payment towards outstanding bill for Vendor ${vendor.VendorName}`,
-      Amount: vendor.Balance > 0 ? vendor.Balance : 0,
-      PaymentMethod: 'Bank',
-      ReferenceNo: invNo,
-      Date: new Date().toISOString().split('T')[0],
-      VendorID: vendor.VendorID,
-      VendorName: vendor.VendorName
+    setPayVendorModalData({
+      vendor,
+      invNo: suggestedInv,
+      poId: vendorPOs.length > 0 ? vendorPOs[0].POID : '',
+      amount: vendor.Balance > 0 ? vendor.Balance : 0,
+      paymentMethod: 'Bank',
+      date: new Date().toISOString().split('T')[0],
+      category: 'Supplier Sales Invoice Payment',
+      description: suggestedInv 
+        ? `Payment against Vendor Invoice #${suggestedInv} for ${vendor.VendorName}`
+        : `Payment towards outstanding bill for Vendor ${vendor.VendorName}`
     });
-    setShowTxnModal(true);
+  };
+
+  const handleConfirmPayVendor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!payVendorModalData) return;
+    const { vendor, invNo, amount, paymentMethod, date, description, category } = payVendorModalData;
+
+    if (!invNo || invNo.trim() === '') {
+      return alert('Vendor Invoice Number is required to process vendor bill payment.');
+    }
+    if (!amount || amount <= 0) {
+      return alert('Please enter a valid payment amount greater than zero.');
+    }
+
+    setIsSubmitting(true);
+    try {
+      const newTxn: ErpTransaction = {
+        TransactionID: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
+        Type: 'VendorPayment',
+        Category: category || 'Supplier Sales Invoice Payment',
+        Description: description || `Payment against Vendor Invoice #${invNo.trim()} for ${vendor.VendorName}`,
+        Amount: Number(amount),
+        PaymentMethod: paymentMethod || 'Bank',
+        ReferenceNo: invNo.trim(),
+        Date: date || new Date().toISOString().split('T')[0],
+        CreatedBy: currentUser?.FullName || 'Admin',
+        VendorID: vendor.VendorID || '',
+        VendorName: vendor.VendorName || ''
+      };
+
+      await saveToDatabase('erp_transactions', newTxn);
+      setTransactions(prev => [newTxn, ...prev]);
+
+      // Settle Vendor's Outstanding Balance in DB
+      const pAmt = Number(amount);
+      const newBalance = Math.max(0, vendor.Balance - pAmt);
+      await saveToDatabase('erp_vendors', { ...vendor, Balance: newBalance });
+      setVendors(prev => prev.map(v => (v.VendorID === vendor.VendorID ? { ...v, Balance: newBalance } : v)));
+
+      setPayVendorModalData(null);
+      setSyncMessage('Vendor Bill Payment logged and balance updated successfully!');
+      setTimeout(() => setSyncMessage(null), 3000);
+    } catch (err: any) {
+      alert('Error logging vendor payment: ' + err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleAddTxn = async (e: React.FormEvent) => {
@@ -2875,10 +2931,19 @@ export default function ErpDesk({ currentUser, rights, clinicSettings }: ErpDesk
                           <span>View Statement</span>
                         </button>
                         <button
+                          onClick={() => setVendorPoModalData(v)}
+                          className="px-2.5 py-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded border border-indigo-200 transition cursor-pointer flex items-center space-x-1 shadow-2xs"
+                          title="View all Purchase Orders for this vendor"
+                        >
+                          <Boxes className="w-3.5 h-3.5" />
+                          <span>View PO</span>
+                        </button>
+                        <button
                           onClick={() => handlePayVendor(v)}
                           className="px-2.5 py-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded border border-emerald-200 transition cursor-pointer flex items-center space-x-1 shadow-2xs"
                           title="Pay vendor bill & clear Accounts Payable"
                         >
+                          <Coins className="w-3.5 h-3.5" />
                           <span>Pay Bill</span>
                         </button>
                         <button
@@ -2914,6 +2979,20 @@ export default function ErpDesk({ currentUser, rights, clinicSettings }: ErpDesk
             </div>
 
             <div className="flex flex-wrap items-center gap-2 print:hidden">
+              <button
+                onClick={() => {
+                  if (selectedVendor) {
+                    setVendorPoModalData(selectedVendor);
+                  }
+                }}
+                disabled={!selectedVendor}
+                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                title="View Purchase Orders for selected vendor"
+              >
+                <Boxes className="w-4 h-4" />
+                <span>View PO</span>
+              </button>
+
               <button
                 onClick={() => {
                   if (selectedVendor) {
@@ -5131,46 +5210,58 @@ export default function ErpDesk({ currentUser, rights, clinicSettings }: ErpDesk
             {/* Printable A4 Document Sheet */}
             <div className="p-8 flex-1 overflow-y-auto space-y-6 print:p-0 print:overflow-visible text-slate-900 bg-white" id="vendor-printable-sheet">
               {/* OFFICIAL PUNJAB HOMEOPATHIC CLINIC A4 LETTERHEAD HEADER */}
-              <div className="border-b-4 border-slate-900 pb-4 space-y-2">
-                <div className="flex items-center justify-between gap-4">
-                  {/* Official Clinic Logo */}
-                  <div className="w-16 h-16 shrink-0 flex items-center justify-center">
-                    <img src="/nhc_logo.svg" alt="Punjab Homeopathic Clinic Logo" className="max-w-full max-h-full object-contain" />
-                  </div>
+              {(() => {
+                const cName = clinicSettings?.ClinicName || 'PUNJAB HOMEOPATHIC CLINIC & PHARMACY';
+                const cTag = clinicSettings?.ClinicLogoText || 'HEALING NATURALLY • RESTORING BALANCE';
+                const cDoc = clinicSettings?.DoctorName || 'Dr. Ejaz Ahmad, D.H.M.S (Pak)';
+                const cDocSub = clinicSettings?.DoctorSignatureText || 'Reg No: 48776 | Homeopathic Medical Specialist';
+                const cAddr = clinicSettings?.ClinicAddress || 'Main Boulevard, Lahore, Pakistan';
+                const cPhone = clinicSettings?.PhoneMobile || '+92 300 1234567';
+                const logoSrc = clinicSettings?.ClinicLogoImage || '/nhc_logo.svg';
 
-                  {/* Center Branding */}
-                  <div className="text-center flex-1">
-                    <h1 className="text-xl sm:text-2xl font-black text-rose-950 uppercase tracking-tight font-serif leading-tight">
-                      PUNJAB HOMEOPATHIC CLINIC & PHARMACY
-                    </h1>
-                    <p className="text-[10px] font-extrabold text-emerald-800 tracking-widest uppercase mt-0.5">
-                      HEALING NATURALLY • RESTORING BALANCE
-                    </p>
-                    <p className="text-[11px] font-bold text-slate-800 mt-0.5">
-                      Accounts & Finance Division • Vendor Payable Ledger Statement
-                    </p>
-                    <p className="text-[10px] text-slate-600 mt-0.5">
-                      Main Branch, Punjab, Pakistan • Ph: (042) 3578-9000 | Cell: 0300-1234567
-                    </p>
-                  </div>
+                return (
+                  <div className="border-b-2 border-slate-900 pb-3 mb-4 space-y-2">
+                    <div className="flex items-center justify-between gap-4">
+                      {/* Official Clinic Logo */}
+                      <div className="w-16 h-16 shrink-0 flex items-center justify-center">
+                        <img src={logoSrc} alt={cName} className="max-w-full max-h-full object-contain" />
+                      </div>
 
-                  {/* Right Statement Badge */}
-                  <div className="text-right space-y-1 shrink-0">
-                    <span className="inline-block px-3 py-1 bg-amber-100 print:bg-slate-100 text-amber-900 print:text-slate-900 border border-amber-300 print:border-slate-400 font-black text-xs uppercase tracking-wider rounded-md">
-                      SUPPLIER STATEMENT
-                    </span>
-                    <p className="text-[10px] text-slate-500 font-mono pt-1">
-                      Statement Date: <span className="font-bold text-slate-800">{new Date().toLocaleDateString('en-GB')}</span>
-                    </p>
-                    <p className="text-[10px] text-slate-500 font-mono">
-                      Period Filter: <span className="font-bold text-slate-800 capitalize">{vendorDateFilter === 'all' ? 'All Time (Full Ledger)' : vendorDateFilter}</span>
-                    </p>
-                    <p className="text-[10px] text-slate-400 font-mono">
-                      Doc Ref: STMT-{selectedVendor.VendorID || 'VND'}-{new Date().toISOString().slice(0,10).replace(/-/g,'')}
-                    </p>
+                      {/* Center Branding */}
+                      <div className="text-center flex-1">
+                        <h1 className="text-xl sm:text-2xl font-black text-rose-950 uppercase tracking-tight font-serif leading-tight">
+                          {cName}
+                        </h1>
+                        <p className="text-[10px] font-extrabold text-rose-800 tracking-widest uppercase mt-0.5">
+                          {cTag}
+                        </p>
+                        <p className="text-[11px] font-extrabold text-slate-800 mt-0.5">
+                          {cDoc} <span className="font-normal text-slate-600">({cDocSub})</span>
+                        </p>
+                        <p className="text-[10px] text-slate-600 font-semibold mt-0.5">
+                          📍 {cAddr} &nbsp;|&nbsp; 📞 {cPhone}
+                        </p>
+                      </div>
+
+                      {/* Right Statement Badge */}
+                      <div className="text-right space-y-1 shrink-0">
+                        <span className="inline-block px-3 py-1 bg-amber-100 print:bg-slate-100 text-amber-900 print:text-slate-900 border border-amber-300 print:border-slate-400 font-black text-xs uppercase tracking-wider rounded-md">
+                          SUPPLIER STATEMENT
+                        </span>
+                        <p className="text-[10px] text-slate-500 font-mono pt-1">
+                          Statement Date: <span className="font-bold text-slate-800">{new Date().toLocaleDateString('en-GB')}</span>
+                        </p>
+                        <p className="text-[10px] text-slate-500 font-mono">
+                          Period Filter: <span className="font-bold text-slate-800 capitalize">{vendorDateFilter === 'all' ? 'All Time (Full Ledger)' : vendorDateFilter}</span>
+                        </p>
+                        <p className="text-[10px] text-slate-400 font-mono">
+                          Doc Ref: STMT-{selectedVendor.VendorID || 'VND'}-{new Date().toISOString().slice(0,10).replace(/-/g,'')}
+                        </p>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
+                );
+              })()}
 
               {/* SUPPLIER DETAILS & SUMMARY CARDS */}
               <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-300 text-xs print:bg-slate-50">
@@ -5308,6 +5399,397 @@ export default function ErpDesk({ currentUser, rights, clinicSettings }: ErpDesk
                 <p>Punjab Homeopathic Clinic & Pharmacy • Accounts Payable Ledger System • Confidential Document</p>
                 <p>Printed on: {new Date().toLocaleString('en-GB')}</p>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PAY VENDOR BILL POPUP MODAL */}
+      {payVendorModalData && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 space-y-5 max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 bg-emerald-100 text-emerald-800 rounded-xl font-bold">
+                  <Coins className="w-6 h-6 text-emerald-600" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-base">Pay Vendor Bill & Clear Payable</h3>
+                  <p className="text-xs text-slate-500">
+                    Vendor: <strong className="text-slate-800">{payVendorModalData.vendor.VendorName}</strong> ({payVendorModalData.vendor.VendorID || 'N/A'})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPayVendorModalData(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Payable Balance Banner */}
+            <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl p-4 flex items-center justify-between">
+              <div>
+                <span className="text-xs font-extrabold text-emerald-800 uppercase tracking-wider">Current Outstanding Payable</span>
+                <div className="text-2xl font-black text-emerald-900 font-mono mt-0.5">
+                  Rs. {payVendorModalData.vendor.Balance.toLocaleString()}
+                </div>
+              </div>
+              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100 px-3 py-1 rounded-full border border-emerald-200">
+                Status: {payVendorModalData.vendor.Balance > 0 ? 'Payable Due' : 'Cleared'}
+              </span>
+            </div>
+
+            {/* Purchase Orders & GRNs for this Vendor */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-extrabold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                  <Boxes className="w-4 h-4 text-indigo-600" />
+                  <span>Select Purchase Order / Invoice Number</span>
+                </label>
+                <span className="text-[11px] text-slate-500 italic">Click PO to auto-fill invoice & amount</span>
+              </div>
+
+              {(() => {
+                const vPos = purchaseOrders.filter(po => 
+                  (po.VendorID && po.VendorID === payVendorModalData.vendor.VendorID) || 
+                  (po.VendorName && po.VendorName.toLowerCase() === payVendorModalData.vendor.VendorName.toLowerCase())
+                );
+                const vGrns = grns.filter(g => 
+                  (g.VendorID && g.VendorID === payVendorModalData.vendor.VendorID) || 
+                  (g.VendorName && g.VendorName.toLowerCase() === payVendorModalData.vendor.VendorName.toLowerCase())
+                );
+
+                if (vPos.length === 0 && vGrns.length === 0) {
+                  return (
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-500 font-medium text-center">
+                      No prior Purchase Orders or GRNs logged for this vendor. Enter Supplier Invoice Number manually below.
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-36 overflow-y-auto p-1 bg-slate-50 border border-slate-200 rounded-xl">
+                    {vPos.map((po, idx) => {
+                      const matchGrn = vGrns.find(g => g.POID === po.POID);
+                      const invStr = matchGrn?.SupplierInvoiceNo || po.POID;
+                      const isSelected = payVendorModalData.invNo === invStr || payVendorModalData.poId === po.POID;
+
+                      return (
+                        <button
+                          key={po.POID || idx}
+                          type="button"
+                          onClick={() => {
+                            setPayVendorModalData(prev => prev ? ({
+                              ...prev,
+                              invNo: invStr,
+                              poId: po.POID,
+                              amount: po.TotalAmount > 0 && po.TotalAmount <= prev.vendor.Balance ? po.TotalAmount : prev.amount,
+                              description: `Payment against PO #${po.POID} (Invoice #${invStr}) for ${prev.vendor.VendorName}`
+                            }) : null);
+                          }}
+                          className={`p-2.5 rounded-lg border text-left transition flex items-center justify-between cursor-pointer ${
+                            isSelected
+                              ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-200 text-indigo-950 font-bold'
+                              : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-100/80 text-slate-700'
+                          }`}
+                        >
+                          <div>
+                            <div className="flex items-center space-x-1.5">
+                              <span className="font-mono text-xs font-black text-indigo-700">P.O. #{po.POID}</span>
+                              {matchGrn?.SupplierInvoiceNo && (
+                                <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded border font-mono">
+                                  Inv: {matchGrn.SupplierInvoiceNo}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[10px] text-slate-500 mt-0.5">
+                              Date: {po.OrderDate} | {po.Items?.length || 0} Items
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xs font-extrabold font-mono text-slate-900">Rs. {(po.TotalAmount || 0).toLocaleString()}</div>
+                            <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full inline-block mt-0.5 ${
+                              po.Status === 'Received' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                            }`}>
+                              {po.Status || 'Pending'}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Payment Form */}
+            <form onSubmit={handleConfirmPayVendor} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 mb-1 block">
+                    Vendor Invoice / Supplier Bill No <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. INV-9821 / Challan # / PO #"
+                    value={payVendorModalData.invNo}
+                    onChange={e => setPayVendorModalData({ ...payVendorModalData, invNo: e.target.value })}
+                    className="w-full text-xs p-2.5 bg-white border border-slate-300 rounded-xl font-mono font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 mb-1 block">
+                    Payment Amount (PKR) <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min={1}
+                    step="any"
+                    placeholder="Amount to pay"
+                    value={payVendorModalData.amount || ''}
+                    onChange={e => setPayVendorModalData({ ...payVendorModalData, amount: Number(e.target.value) })}
+                    className="w-full text-xs p-2.5 bg-white border border-slate-300 rounded-xl font-mono font-bold text-emerald-800 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 mb-1 block">Payment Method</label>
+                  <select
+                    value={payVendorModalData.paymentMethod}
+                    onChange={e => setPayVendorModalData({ ...payVendorModalData, paymentMethod: e.target.value as any })}
+                    className="w-full text-xs p-2.5 bg-white border border-slate-300 rounded-xl font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  >
+                    <option value="Cash">Cash</option>
+                    <option value="Bank">Bank Transfer / Online</option>
+                    <option value="Cheque">Cheque</option>
+                    <option value="Online">Online Gateway</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 mb-1 block">Payment Date</label>
+                  <input
+                    type="date"
+                    required
+                    value={payVendorModalData.date}
+                    onChange={e => setPayVendorModalData({ ...payVendorModalData, date: e.target.value })}
+                    className="w-full text-xs p-2.5 bg-white border border-slate-300 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 mb-1 block">Payment Description / Notes</label>
+                <input
+                  type="text"
+                  placeholder="Payment notes or bank transaction ref"
+                  value={payVendorModalData.description}
+                  onChange={e => setPayVendorModalData({ ...payVendorModalData, description: e.target.value })}
+                  className="w-full text-xs p-2.5 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Modal Buttons */}
+              <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setPayVendorModalData(null)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-100 transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition flex items-center space-x-2 cursor-pointer disabled:opacity-50"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Confirm & Post Vendor Payment</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* VENDOR PURCHASE ORDERS MODAL */}
+      {vendorPoModalData && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-slate-200 space-y-5 max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 bg-indigo-100 text-indigo-800 rounded-xl font-bold">
+                  <Boxes className="w-6 h-6 text-indigo-600" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-base">
+                    Purchase Orders — {vendorPoModalData.VendorName}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Vendor Code: <strong className="text-slate-800">{vendorPoModalData.VendorID || 'N/A'}</strong> | Contact: {vendorPoModalData.Phone || 'N/A'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setVendorPoModalData(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {(() => {
+              const vPos = purchaseOrders.filter(po => 
+                (po.VendorID && po.VendorID === vendorPoModalData.VendorID) || 
+                (po.VendorName && po.VendorName.toLowerCase() === vendorPoModalData.VendorName.toLowerCase())
+              );
+
+              if (vPos.length === 0) {
+                return (
+                  <div className="p-8 text-center bg-slate-50 border border-dashed border-slate-300 rounded-2xl space-y-3">
+                    <Boxes className="w-10 h-10 text-slate-300 mx-auto" />
+                    <div className="text-slate-700 font-bold text-sm">No Purchase Orders Found</div>
+                    <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                      No official purchase orders have been created for {vendorPoModalData.VendorName} yet.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setVendorPoModalData(null);
+                        setPoForm(prev => ({
+                          ...prev,
+                          VendorID: vendorPoModalData.VendorID || '',
+                          VendorName: vendorPoModalData.VendorName || ''
+                        }));
+                        setShowPoModal(true);
+                      }}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition inline-flex items-center space-x-1.5 shadow-xs cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Create New PO for this Vendor</span>
+                    </button>
+                  </div>
+                );
+              }
+
+              const totalValue = vPos.reduce((acc, p) => acc + (p.TotalAmount || 0), 0);
+
+              return (
+                <div className="space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-slate-50 border border-slate-200 rounded-xl p-3 gap-2">
+                    <div className="text-xs font-bold text-slate-700">
+                      Total Purchase Orders: <span className="text-indigo-700 font-black">{vPos.length} Orders</span>
+                    </div>
+                    <div className="text-xs font-bold text-slate-700">
+                      Total Orders Value: <span className="text-emerald-700 font-mono font-black">Rs. {totalValue.toLocaleString()}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setVendorPoModalData(null);
+                        setPoForm(prev => ({
+                          ...prev,
+                          VendorID: vendorPoModalData.VendorID || '',
+                          VendorName: vendorPoModalData.VendorName || ''
+                        }));
+                        setShowPoModal(true);
+                      }}
+                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg transition inline-flex items-center space-x-1 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>New PO</span>
+                    </button>
+                  </div>
+
+                  <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="bg-slate-100 text-slate-700 font-extrabold uppercase text-[10px] tracking-wider">
+                          <th className="p-3">PO Ref No</th>
+                          <th className="p-3">Order Date</th>
+                          <th className="p-3">Expected Delivery</th>
+                          <th className="p-3 text-center">Items Count</th>
+                          <th className="p-3 text-right">Total Amount</th>
+                          <th className="p-3 text-center">Status</th>
+                          <th className="p-3 text-center">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 font-medium">
+                        {vPos.map((po, idx) => (
+                          <tr key={po.POID || idx} className="hover:bg-slate-50 transition">
+                            <td className="p-3 font-mono font-bold text-indigo-700">{po.POID}</td>
+                            <td className="p-3 text-slate-600">{po.OrderDate}</td>
+                            <td className="p-3 text-slate-600">{po.ExpectedDeliveryDate || 'Immediate'}</td>
+                            <td className="p-3 text-center font-bold text-slate-700">
+                              {po.Items?.length || 0} items
+                            </td>
+                            <td className="p-3 text-right font-mono font-bold text-slate-900">
+                              Rs. {(po.TotalAmount || 0).toLocaleString()}
+                            </td>
+                            <td className="p-3 text-center">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                po.Status === 'Received'
+                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                  : po.Status === 'Partially Received'
+                                  ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                                  : 'bg-indigo-100 text-indigo-900 border border-indigo-300'
+                              }`}>
+                                {po.Status || 'Pending'}
+                              </span>
+                            </td>
+                            <td className="p-3 text-center">
+                              <div className="flex items-center justify-center space-x-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handlePrintPo(po)}
+                                  className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded border border-slate-300 transition cursor-pointer flex items-center space-x-1"
+                                  title="Print Official PO"
+                                >
+                                  <Printer className="w-3 h-3 text-slate-600" />
+                                  <span>Print</span>
+                                </button>
+                                {po.Status !== 'Received' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setVendorPoModalData(null);
+                                      handleOpenGrnForPo(po);
+                                    }}
+                                    className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold rounded border border-emerald-200 transition cursor-pointer flex items-center space-x-1"
+                                    title="Process Goods Received Note (GRN)"
+                                  >
+                                    <PackageCheck className="w-3 h-3 text-emerald-600" />
+                                    <span>GRN</span>
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
+
+            <div className="flex items-center justify-end pt-3 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => setVendorPoModalData(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
+              >
+                Close Window
+              </button>
             </div>
           </div>
         </div>

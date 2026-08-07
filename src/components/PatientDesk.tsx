@@ -7740,12 +7740,12 @@ export default function PatientDesk({
         };
 
         // Filter patients
-        const filteredPatients = patients.filter((pt) => {
-          const ptVisits = (visits || []).filter(v => v.PatientID === pt.PatientID);
+        const rawFilteredPatients = patients.filter((pt) => {
+          const ptVisits = (visits || []).filter(v => isSamePatient(v.PatientID, pt.PatientID));
           const ptVisitIds = new Set(ptVisits.map(v => String(v.VisitID || '').trim().toLowerCase()).filter(Boolean));
           const ptVisitDates = new Set(ptVisits.map(v => v.VisitDate ? v.VisitDate.split('T')[0] : '').filter(Boolean));
           const ptNhc = (pvNhcHistory || []).filter(nhc => {
-            if (nhc.PatientID !== pt.PatientID) return false;
+            if (!isSamePatient(nhc.PatientID, pt.PatientID)) return false;
             const nhcId = String(nhc.VisitID || '').trim().toLowerCase();
             if (nhcId && ptVisitIds.has(nhcId)) return false;
             const nhcDate = nhc.date || (nhc as any).VisitDate || '';
@@ -7815,6 +7815,52 @@ export default function PatientDesk({
             matchedMeds ||
             matchedSymptoms
           );
+        });
+
+        // Helper to get latest activity date for sorting & deduplication
+        const getPtLatestActivityDate = (p: typeof patients[0]) => {
+          const pVisits = (visits || []).filter(v => isSamePatient(v.PatientID, p.PatientID));
+          const pNhc = (pvNhcHistory || []).filter(nhc => isSamePatient(nhc.PatientID, p.PatientID));
+          let maxDate = p.RegistrationDate ? p.RegistrationDate.split('T')[0] : '';
+          pVisits.forEach(v => {
+            const vD = v.VisitDate ? v.VisitDate.split('T')[0] : '';
+            if (vD && vD > maxDate) maxDate = vD;
+          });
+          pNhc.forEach(nhc => {
+            const nD = nhc.date || (nhc as any).VisitDate || '';
+            if (nD) {
+              const cleanD = nD.split('T')[0];
+              if (cleanD > maxDate) maxDate = cleanD;
+            }
+          });
+          return maxDate || '1970-01-01';
+        };
+
+        // Deduplicate patients by PatientID to ensure each patient appears once with latest entry
+        const uniquePatientsMap = new Map<string, typeof patients[0]>();
+        rawFilteredPatients.forEach(pt => {
+          const key = String(pt.PatientID || '').trim().toLowerCase();
+          if (!key) return;
+          const existing = uniquePatientsMap.get(key);
+          if (!existing) {
+            uniquePatientsMap.set(key, pt);
+          } else {
+            const dateExisting = getPtLatestActivityDate(existing);
+            const datePt = getPtLatestActivityDate(pt);
+            if (datePt > dateExisting) {
+              uniquePatientsMap.set(key, pt);
+            }
+          }
+        });
+
+        // Sort patients descending by latest entry/visit date (newest first)
+        const filteredPatients = Array.from(uniquePatientsMap.values()).sort((a, b) => {
+          const dateA = getPtLatestActivityDate(a);
+          const dateB = getPtLatestActivityDate(b);
+          if (dateA !== dateB) {
+            return dateB.localeCompare(dateA); // Newest date first
+          }
+          return (Number(b.PatientID) || 0) - (Number(a.PatientID) || 0);
         });
 
         const totalVisitsCount = visits ? visits.length : 0;
