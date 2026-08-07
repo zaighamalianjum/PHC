@@ -371,6 +371,14 @@ async function runAutoSeeder() {
     const collections = await db.listCollections().toArray();
     const collectionNames = collections.map(c => c.name);
 
+    // Check if system was already initialized
+    const initDoc = await db.collection('system_init').findOne({ _id: 'INIT_FLAG' });
+    if (initDoc && initDoc.seeded) {
+      console.log('⚡ Database initialization flag found. Skipping auto-reseeding to keep user deletions & live updates intact.');
+      seederStatus = "Completed Successfully (User Managed)";
+      return;
+    }
+
     // List of collections we need
     const collectionsNeeded = [
       'users', 'patients', 'items', 'cities', 'appointments', 'tokens',
@@ -803,6 +811,12 @@ async function runAutoSeeder() {
       ]);
       console.log('🌱 Seeded Mini ERP assets table.');
     }
+
+    await db.collection('system_init').updateOne(
+      { _id: 'INIT_FLAG' },
+      { $set: { _id: 'INIT_FLAG', seeded: true, initializedAt: new Date().toISOString() } },
+      { upsert: true }
+    );
 
     console.log('⭐ Seeding verified. MongoDB structures are fully populated!');
     seederStatus = "Completed Successfully";

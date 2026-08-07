@@ -31,10 +31,12 @@ import {
   Landmark,
   Wallet,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  BarChart3
 } from 'lucide-react';
 import ItemQRScannerModal from './ItemQRScannerModal';
 import ItemQRGeneratorModal from './ItemQRGeneratorModal';
+import ReportingDesk from './ReportingDesk';
 
 import {
   ErpVendor,
@@ -56,7 +58,7 @@ interface ErpDeskProps {
 }
 
 export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'cash_book_pnl' | 'vendors' | 'vendor_statement' | 'po' | 'ledger' | 'hr' | 'expenses_assets'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'cash_book_pnl' | 'vendors' | 'vendor_statement' | 'po' | 'ledger' | 'hr' | 'expenses_assets' | 'reporting'>('overview');
   const [loading, setLoading] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
@@ -81,6 +83,7 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
   const [appointments, setAppointments] = useState<any[]>([]);
   const [patientVisits, setPatientVisits] = useState<any[]>([]);
   const [posSales, setPosSales] = useState<any[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   // Cash Book Filter States
   const [cashBookDateFilter, setCashBookDateFilter] = useState<'today' | 'this_week' | 'this_month' | 'all_time'>('today');
@@ -273,7 +276,7 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
 
     // 1. Appointments (OPD Token Collections)
     (appointments || []).forEach((app: any) => {
-      const amt = Number(app.FeeCharged) || 1500;
+      const amt = typeof app.FeeCharged === 'number' ? app.FeeCharged : (Number(app.FeeCharged) || 0);
       if (amt > 0 && app.Status !== 3) {
         entries.push({
           id: `APP-${app.AppointmentID || app._id || Math.random()}`,
@@ -555,60 +558,71 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
 
   const handleQuickOutflowSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+
     const amt = Number(quickOutflowForm.amount) || 0;
     if (amt <= 0) {
       alert("Please enter a valid expense amount.");
       return;
     }
 
-    const expCatRaw = quickOutflowForm.category || 'Building Rent & Maintenance';
-    let expCatMapped: 'Rent' | 'Utilities' | 'Salaries' | 'Maintenance' | 'Marketing' | 'Supplies' | 'Refreshment' | 'Other' = 'Other';
-    if (expCatRaw.includes('Rent')) expCatMapped = 'Rent';
-    else if (expCatRaw.includes('Salary') || expCatRaw.includes('Payroll')) expCatMapped = 'Salaries';
-    else if (expCatRaw.includes('Utility') || expCatRaw.includes('Electricity')) expCatMapped = 'Utilities';
-    else if (expCatRaw.includes('Tea') || expCatRaw.includes('Refreshment')) expCatMapped = 'Refreshment';
-    else if (expCatRaw.includes('Repair') || expCatRaw.includes('Maintenance')) expCatMapped = 'Maintenance';
+    setIsSubmitting(true);
+    try {
+      const expCatRaw = quickOutflowForm.category || 'Building Rent & Maintenance';
+      let expCatMapped: 'Rent' | 'Utilities' | 'Salaries' | 'Maintenance' | 'Marketing' | 'Supplies' | 'Refreshment' | 'Other' = 'Other';
+      if (expCatRaw.includes('Rent')) expCatMapped = 'Rent';
+      else if (expCatRaw.includes('Salary') || expCatRaw.includes('Payroll')) expCatMapped = 'Salaries';
+      else if (expCatRaw.includes('Utility') || expCatRaw.includes('Electricity')) expCatMapped = 'Utilities';
+      else if (expCatRaw.includes('Tea') || expCatRaw.includes('Refreshment')) expCatMapped = 'Refreshment';
+      else if (expCatRaw.includes('Repair') || expCatRaw.includes('Maintenance')) expCatMapped = 'Maintenance';
 
-    const newExp: ErpExpense = {
-      ExpenseID: `EXP-${Date.now().toString().slice(-6)}`,
-      Category: expCatMapped,
-      Description: quickOutflowForm.description ? `${quickOutflowForm.description} (Paid to: ${quickOutflowForm.payee})` : `${expCatRaw} to ${quickOutflowForm.payee || 'Payee'}`,
-      Amount: amt,
-      ExpenseDate: quickOutflowForm.date || new Date().toISOString().split('T')[0],
-      PaymentMethod: quickOutflowForm.paymentMethod as any || 'Cash',
-      ReceiptRef: `REC-${Math.floor(1000 + Math.random() * 9000)}`
-    };
+      const newExp: ErpExpense = {
+        ExpenseID: `EXP-${Date.now().toString().slice(-6)}`,
+        Category: expCatMapped,
+        Description: quickOutflowForm.description ? `${quickOutflowForm.description} (Paid to: ${quickOutflowForm.payee})` : `${expCatRaw} to ${quickOutflowForm.payee || 'Payee'}`,
+        Amount: amt,
+        ExpenseDate: quickOutflowForm.date || new Date().toISOString().split('T')[0],
+        PaymentMethod: quickOutflowForm.paymentMethod as any || 'Cash',
+        ReceiptRef: `REC-${Math.floor(1000 + Math.random() * 9000)}`
+      };
 
-    const newTxn: ErpTransaction = {
-      TransactionID: `TXN-${Date.now().toString().slice(-6)}`,
-      Type: 'Expense',
-      Category: expCatRaw,
-      Description: newExp.Description,
-      Amount: amt,
-      PaymentMethod: newExp.PaymentMethod,
-      ReferenceNo: newExp.ExpenseID,
-      Date: newExp.ExpenseDate,
-      CreatedBy: currentUser?.FullName || 'Admin',
-      VendorName: quickOutflowForm.payee || 'Expense Account'
-    };
+      const newTxn: ErpTransaction = {
+        TransactionID: `TXN-${Date.now().toString().slice(-6)}`,
+        Type: 'Expense',
+        Category: expCatRaw,
+        Description: newExp.Description,
+        Amount: amt,
+        PaymentMethod: newExp.PaymentMethod,
+        ReferenceNo: newExp.ExpenseID,
+        Date: newExp.ExpenseDate,
+        CreatedBy: currentUser?.FullName || 'Admin',
+        VendorName: quickOutflowForm.payee || 'Expense Account'
+      };
 
-    await saveToDatabase('erp_expenses', newExp);
-    await saveToDatabase('erp_transactions', newTxn);
+      await saveToDatabase('erp_expenses', newExp);
+      await saveToDatabase('erp_transactions', newTxn);
 
-    setExpenses(prev => [newExp, ...prev]);
-    setTransactions(prev => [newTxn, ...prev]);
+      setExpenses(prev => [newExp, ...prev]);
+      setTransactions(prev => [newTxn, ...prev]);
 
-    setQuickOutflowForm({
-      category: 'Building Rent & Maintenance',
-      amount: '',
-      payee: '',
-      paymentMethod: 'Cash',
-      date: new Date().toISOString().split('T')[0],
-      description: ''
-    });
+      setQuickOutflowForm({
+        category: 'Building Rent & Maintenance',
+        amount: '',
+        payee: '',
+        paymentMethod: 'Cash',
+        date: new Date().toISOString().split('T')[0],
+        description: ''
+      });
 
-    setSyncMessage(`Outflow of Rs. ${amt.toLocaleString()} recorded in Cash Book & P&L!`);
-    setTimeout(() => setSyncMessage(null), 3000);
+      setSyncMessage(`Outflow of Rs. ${amt.toLocaleString()} recorded in Cash Book & P&L!`);
+      setTimeout(() => setSyncMessage(null), 3000);
+      window.dispatchEvent(new CustomEvent('phc_db_updated'));
+    } catch (err: any) {
+      console.error('Failed to submit quick outflow:', err);
+      alert('Error recording outflow: ' + err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handlePrintCashBookReport = () => {
@@ -898,21 +912,8 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
         setPosSales(salesRes.headers);
       }
 
-      if (Array.isArray(itemsRes) && itemsRes.length > 0) {
+      if (Array.isArray(itemsRes)) {
         setInventoryItems(itemsRes);
-      } else {
-        setInventoryItems([
-          { ItemID: 'ITM-001', ItemName: 'Panadol 500mg (Paracetamol)', Category: 'Tablet / Capsule', Price: 3.5, PurchasePrice: 2.8, CStock: 120, MinStock: 200, Unit: 'Tab' },
-          { ItemID: 'ITM-002', ItemName: 'Augmentin 625mg (Co-Amoxiclav)', Category: 'Tablet / Capsule', Price: 45.0, PurchasePrice: 38.0, CStock: 30, MinStock: 100, Unit: 'Tab' },
-          { ItemID: 'ITM-003', ItemName: 'Lofnac 50mg (Diclofenac Sodium)', Category: 'Tablet / Capsule', Price: 8.0, PurchasePrice: 6.2, CStock: 80, MinStock: 150, Unit: 'Tab' },
-          { ItemID: 'ITM-004', ItemName: 'Arinac Syrup 120ml', Category: 'Syrup / Liquid', Price: 12.0, PurchasePrice: 9.5, CStock: 150, MinStock: 100, Unit: 'Syr' },
-          { ItemID: 'ITM-005', ItemName: 'Surbex-Z (Multivitamins & Zinc)', Category: 'Tablet / Capsule', Price: 15.0, PurchasePrice: 12.0, CStock: 40, MinStock: 100, Unit: 'Tab' },
-          { ItemID: 'ITM-006', ItemName: 'Omeprazole 20mg (Capsules)', Category: 'Tablet / Capsule', Price: 18.0, PurchasePrice: 14.5, CStock: 15, MinStock: 80, Unit: 'Cap' },
-          { ItemID: 'ITM-007', ItemName: 'Flagyl 400mg (Metronidazole)', Category: 'Tablet / Capsule', Price: 7.5, PurchasePrice: 5.5, CStock: 250, MinStock: 100, Unit: 'Tab' },
-          { ItemID: 'ITM-008', ItemName: 'Dicloran Injection 75mg/3ml', Category: 'Injection / Ampoule', Price: 35.0, PurchasePrice: 28.0, CStock: 12, MinStock: 50, Unit: 'Amp' },
-          { ItemID: 'ITM-009', ItemName: 'Betnovate-N Ointment 20g', Category: 'Ointment / Cream', Price: 110.0, PurchasePrice: 92.0, CStock: 8, MinStock: 30, Unit: 'Tube' },
-          { ItemID: 'ITM-010', ItemName: 'Tobradex Eye Drops 5ml', Category: 'Drops', Price: 220.0, PurchasePrice: 185.0, CStock: 5, MinStock: 25, Unit: 'Bot' }
-        ]);
       }
 
       setSyncMessage('Data retrieved successfully!');
@@ -926,6 +927,9 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
 
   useEffect(() => {
     fetchErpData();
+    const handleDbUpdate = () => fetchErpData();
+    window.addEventListener('phc_db_updated', handleDbUpdate);
+    return () => window.removeEventListener('phc_db_updated', handleDbUpdate);
   }, []);
 
   // Universal Database Helper (Insert, Retrieve, Delete)
@@ -940,8 +944,9 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
         body: JSON.stringify(data)
       });
       const ct = res.headers.get('content-type') || '';
-      if (!ct.includes('application/json')) return { success: false };
-      return await res.json();
+      const result = ct.includes('application/json') ? await res.json() : { success: false };
+      window.dispatchEvent(new CustomEvent('phc_db_updated'));
+      return result;
     } catch (e) {
       console.error(`Failed to save to ${collection}:`, e);
       return { success: false };
@@ -954,8 +959,9 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
         method: 'DELETE'
       });
       const ct = res.headers.get('content-type') || '';
-      if (!ct.includes('application/json')) return { success: false };
-      return await res.json();
+      const result = ct.includes('application/json') ? await res.json() : { success: false };
+      window.dispatchEvent(new CustomEvent('phc_db_updated'));
+      return result;
     } catch (e) {
       console.error(`Failed to delete from ${collection}:`, e);
       return { success: false };
@@ -1042,6 +1048,7 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
   // HANDLERS FOR VENDORS
   const handleAddVendor = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (!vendorForm.VendorName?.trim()) return alert('Vendor Name is required.');
 
     // Prevent double entry: duplicate vendor name check
@@ -1050,24 +1057,31 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
       return alert('Vendor with this name already exists! Duplicate entry prevented.');
     }
 
-    const newVendor: ErpVendor = {
-      VendorID: vendorForm.VendorID || `VND-${Math.floor(100 + Math.random() * 900)}`,
-      VendorName: vendorForm.VendorName.trim(),
-      ContactPerson: vendorForm.ContactPerson || 'N/A',
-      Phone: vendorForm.Phone || 'N/A',
-      Email: vendorForm.Email || '',
-      Address: vendorForm.Address || 'Lahore, Pakistan',
-      TaxID: vendorForm.TaxID || '',
-      Balance: Number(vendorForm.Balance) || 0,
-      Status: vendorForm.Status || 'Active'
-    };
+    setIsSubmitting(true);
+    try {
+      const newVendor: ErpVendor = {
+        VendorID: vendorForm.VendorID || `VND-${Math.floor(100 + Math.random() * 900)}`,
+        VendorName: vendorForm.VendorName.trim(),
+        ContactPerson: vendorForm.ContactPerson || 'N/A',
+        Phone: vendorForm.Phone || 'N/A',
+        Email: vendorForm.Email || '',
+        Address: vendorForm.Address || 'Lahore, Pakistan',
+        TaxID: vendorForm.TaxID || '',
+        Balance: Number(vendorForm.Balance) || 0,
+        Status: vendorForm.Status || 'Active'
+      };
 
-    await saveToDatabase('erp_vendors', newVendor);
-    setVendors(prev => [newVendor, ...prev]);
-    setShowVendorModal(false);
-    setVendorForm({ VendorName: '', ContactPerson: '', Phone: '', Address: '', Balance: 0, Status: 'Active' });
-    setSyncMessage('Vendor saved successfully!');
-    setTimeout(() => setSyncMessage(null), 3000);
+      await saveToDatabase('erp_vendors', newVendor);
+      setVendors(prev => [newVendor, ...prev]);
+      setShowVendorModal(false);
+      setVendorForm({ VendorName: '', ContactPerson: '', Phone: '', Address: '', Balance: 0, Status: 'Active' });
+      setSyncMessage('Vendor saved successfully!');
+      setTimeout(() => setSyncMessage(null), 3000);
+    } catch (err: any) {
+      alert('Error saving vendor: ' + err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleDeleteVendor = async (vendor: ErpVendor) => {
@@ -1159,45 +1173,61 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
 
   const handleCreatePo = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (!poForm.VendorName) return alert('Please select a supplier / vendor.');
     if (!poForm.Items || poForm.Items.length === 0) return alert('Please select at least one medicine item for the Purchase Order.');
 
-    const totalAmount = poForm.Items.reduce((sum, i) => sum + (Number(i.Qty) * Number(i.UnitPrice)), 0);
+    setIsSubmitting(true);
+    try {
+      const totalAmount = poForm.Items.reduce((sum, i) => sum + (Number(i.Qty) * Number(i.UnitPrice)), 0);
 
-    const newPo: ErpPurchaseOrder = {
-      POID: `PO-${Math.floor(1000 + Math.random() * 9000)}`,
-      VendorID: poForm.VendorID || 'VND-001',
-      VendorName: poForm.VendorName,
-      OrderDate: new Date().toISOString().split('T')[0],
-      ExpectedDeliveryDate: poForm.ExpectedDeliveryDate,
-      TotalAmount: totalAmount,
-      PaidAmount: 0,
-      Status: 'Sent',
-      Notes: poForm.Notes,
-      Items: poForm.Items.map(i => ({
-        ItemID: i.ItemID,
-        ItemName: i.ItemName || 'General Item',
-        Category: i.Category || 'General Medicine',
-        Qty: Number(i.Qty),
-        UnitPrice: Number(i.UnitPrice),
-        LineTotal: Number(i.Qty) * Number(i.UnitPrice),
-        BatchNo: i.BatchNo || `B-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`
-      }))
-    };
+      const newPo: ErpPurchaseOrder = {
+        POID: `PO-${Math.floor(1000 + Math.random() * 9000)}`,
+        VendorID: poForm.VendorID || 'VND-001',
+        VendorName: poForm.VendorName,
+        OrderDate: new Date().toISOString().split('T')[0],
+        ExpectedDeliveryDate: poForm.ExpectedDeliveryDate,
+        TotalAmount: totalAmount,
+        PaidAmount: 0,
+        Status: 'Sent',
+        Notes: poForm.Notes,
+        Items: poForm.Items.map(i => ({
+          ItemID: i.ItemID,
+          ItemName: i.ItemName || 'General Item',
+          Category: i.Category || 'General Medicine',
+          Qty: Number(i.Qty),
+          UnitPrice: Number(i.UnitPrice),
+          LineTotal: Number(i.Qty) * Number(i.UnitPrice),
+          BatchNo: i.BatchNo || `B-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`
+        }))
+      };
 
-    await saveToDatabase('erp_purchase_orders', newPo);
-    setPurchaseOrders(prev => [newPo, ...prev]);
-    setShowPoModal(false);
-    setSyncMessage('Purchase Order saved successfully!');
-    setTimeout(() => setSyncMessage(null), 3000);
+      await saveToDatabase('erp_purchase_orders', newPo);
+      setPurchaseOrders(prev => [newPo, ...prev]);
+      setShowPoModal(false);
+      setSyncMessage('Purchase Order saved successfully!');
+      setTimeout(() => setSyncMessage(null), 3000);
+    } catch (err: any) {
+      alert('Error creating Purchase Order: ' + err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleDeletePo = async (po: ErpPurchaseOrder) => {
-    if (!confirm(`Delete Purchase Order ${po.POID}?`)) return;
+    if (!confirm(`Delete Purchase Order ${po.POID}? This will also remove linked Goods Received Notes.`)) return;
     const targetId = po._id || po.POID;
     await deleteFromDatabase('erp_purchase_orders', targetId);
+
+    // Also delete linked GRNs
+    const matchGrns = grns.filter(g => g.POID === po.POID);
+    for (const g of matchGrns) {
+      await deleteFromDatabase('erp_grn', g._id || g.GRNID);
+    }
+    setGrns(prev => prev.filter(g => g.POID !== po.POID));
+
     setPurchaseOrders(prev => prev.filter(p => (p._id ? p._id !== po._id : p.POID !== po.POID)));
-    setSyncMessage('Purchase Order deleted successfully!');
+    setSyncMessage('Purchase Order and linked GRNs deleted successfully!');
     setTimeout(() => setSyncMessage(null), 3000);
   };
 
@@ -1268,6 +1298,7 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
 
   const handleApproveGrn = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (!grnForm.POID) return alert('Please select a valid Purchase Order ID.');
     if (grnForm.Items.length === 0) return alert('No items in GRN to receive.');
 
@@ -1276,6 +1307,7 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
       return alert('A Goods Received Note (GRN) for this Purchase Order has already been approved! Duplicate entry prevented.');
     }
 
+    setIsSubmitting(true);
     const totalAmount = grnForm.Items.reduce((sum, i) => sum + (Number(i.ReceivedQty) * Number(i.UnitPrice)), 0);
 
     const payload = {
@@ -1335,6 +1367,7 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
         setShowGrnModal(false);
         setSyncMessage('GRN saved successfully!');
         setTimeout(() => setSyncMessage(null), 3000);
+        window.dispatchEvent(new CustomEvent('phc_db_updated'));
       } else {
         alert(data.error || 'Failed to approve GRN.');
       }
@@ -1343,7 +1376,25 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
       alert('Network error while processing GRN approval.');
     } finally {
       setLoading(false);
+      setIsSubmitting(false);
     }
+  };
+
+  const handleDeleteGrn = async (grn: ErpGrn) => {
+    if (!confirm(`Delete Goods Received Note ${grn.GRNID}?`)) return;
+    const targetId = grn._id || grn.GRNID;
+    await deleteFromDatabase('erp_grn', targetId);
+
+    // Delete matching transaction if exists
+    const matchTxn = transactions.find(t => t.ReferenceNo === grn.GRNID || t.ReferenceNo === grn.POID);
+    if (matchTxn) {
+      await deleteFromDatabase('erp_transactions', matchTxn._id || matchTxn.TransactionID);
+      setTransactions(prev => prev.filter(t => t.TransactionID !== matchTxn.TransactionID && t._id !== matchTxn._id));
+    }
+
+    setGrns(prev => prev.filter(g => (g._id ? g._id !== grn._id : g.GRNID !== grn.GRNID)));
+    setSyncMessage('GRN deleted successfully!');
+    setTimeout(() => setSyncMessage(null), 3000);
   };
 
   const handlePrintGrn = (grn: ErpGrn) => {
@@ -1444,47 +1495,70 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
 
   const handleAddTxn = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (!txnForm.Amount || !txnForm.Category) return alert('Category and Amount are required.');
 
-    const newTxn: ErpTransaction = {
-      TransactionID: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
-      Type: txnForm.Type || 'Expense',
-      Category: txnForm.Category,
-      Description: txnForm.Description || '',
-      Amount: Number(txnForm.Amount),
-      PaymentMethod: txnForm.PaymentMethod || 'Cash',
-      ReferenceNo: txnForm.ReferenceNo || 'N/A',
-      Date: txnForm.Date || new Date().toISOString().split('T')[0],
-      CreatedBy: currentUser?.FullName || 'Admin',
-      VendorID: txnForm.VendorID || '',
-      VendorName: txnForm.VendorName || ''
-    };
+    setIsSubmitting(true);
+    try {
+      const newTxn: ErpTransaction = {
+        TransactionID: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
+        Type: txnForm.Type || 'Expense',
+        Category: txnForm.Category,
+        Description: txnForm.Description || '',
+        Amount: Number(txnForm.Amount),
+        PaymentMethod: txnForm.PaymentMethod || 'Cash',
+        ReferenceNo: txnForm.ReferenceNo || 'N/A',
+        Date: txnForm.Date || new Date().toISOString().split('T')[0],
+        CreatedBy: currentUser?.FullName || 'Admin',
+        VendorID: txnForm.VendorID || '',
+        VendorName: txnForm.VendorName || ''
+      };
 
-    await saveToDatabase('erp_transactions', newTxn);
-    setTransactions(prev => [newTxn, ...prev]);
+      await saveToDatabase('erp_transactions', newTxn);
+      setTransactions(prev => [newTxn, ...prev]);
 
-    // If this is a Vendor Payment, settle the Vendor's Outstanding Balance in DB
-    if (txnForm.Type === 'VendorPayment' && (txnForm.VendorID || txnForm.VendorName)) {
-      const pAmt = Number(txnForm.Amount);
-      const targetVendor = vendors.find(v => v.VendorID === txnForm.VendorID || v.VendorName === txnForm.VendorName);
-      if (targetVendor) {
-        const newBalance = Math.max(0, targetVendor.Balance - pAmt);
-        const targetId = targetVendor._id || targetVendor.VendorID;
-        await saveToDatabase('erp_vendors', { ...targetVendor, Balance: newBalance });
-        setVendors(prev => prev.map(v => (v.VendorID === targetVendor.VendorID ? { ...v, Balance: newBalance } : v)));
+      // If this is a Vendor Payment, settle the Vendor's Outstanding Balance in DB
+      if (txnForm.Type === 'VendorPayment' && (txnForm.VendorID || txnForm.VendorName)) {
+        const pAmt = Number(txnForm.Amount);
+        const targetVendor = vendors.find(v => v.VendorID === txnForm.VendorID || v.VendorName === txnForm.VendorName);
+        if (targetVendor) {
+          const newBalance = Math.max(0, targetVendor.Balance - pAmt);
+          const targetId = targetVendor._id || targetVendor.VendorID;
+          await saveToDatabase('erp_vendors', { ...targetVendor, Balance: newBalance });
+          setVendors(prev => prev.map(v => (v.VendorID === targetVendor.VendorID ? { ...v, Balance: newBalance } : v)));
+        }
       }
-    }
 
-    setShowTxnModal(false);
-    setTxnForm({ Type: 'Expense', Category: 'Office Maintenance', Description: '', Amount: 0, PaymentMethod: 'Cash', VendorID: '', VendorName: '' });
-    setSyncMessage('Transaction saved successfully!');
-    setTimeout(() => setSyncMessage(null), 3000);
+      setShowTxnModal(false);
+      setTxnForm({ Type: 'Expense', Category: 'Office Maintenance', Description: '', Amount: 0, PaymentMethod: 'Cash', VendorID: '', VendorName: '' });
+      setSyncMessage('Transaction saved successfully!');
+      setTimeout(() => setSyncMessage(null), 3000);
+    } catch (err: any) {
+      alert('Error saving transaction: ' + err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleDeleteTxn = async (txn: ErpTransaction) => {
     if (!confirm(`Delete transaction ${txn.TransactionID}?`)) return;
     const targetId = txn._id || txn.TransactionID;
     await deleteFromDatabase('erp_transactions', targetId);
+
+    // Delete matching expense if exists
+    if (txn.ReferenceNo && txn.ReferenceNo !== 'N/A') {
+      const matchExp = expenses.find(e => e.ExpenseID === txn.ReferenceNo || e._id === txn.ReferenceNo);
+      if (matchExp) {
+        await deleteFromDatabase('erp_expenses', matchExp._id || matchExp.ExpenseID);
+        setExpenses(prev => prev.filter(e => e.ExpenseID !== matchExp.ExpenseID && e._id !== matchExp._id));
+      }
+      const matchPay = payrolls.find(p => p.PayrollID === txn.ReferenceNo || p._id === txn.ReferenceNo);
+      if (matchPay) {
+        await deleteFromDatabase('erp_payroll', matchPay._id || matchPay.PayrollID);
+        setPayrolls(prev => prev.filter(p => p.PayrollID !== matchPay.PayrollID && p._id !== matchPay._id));
+      }
+    }
+
     setTransactions(prev => prev.filter(t => (t._id ? t._id !== txn._id : t.TransactionID !== txn.TransactionID)));
     setSyncMessage('Transaction deleted successfully!');
     setTimeout(() => setSyncMessage(null), 3000);
@@ -1493,6 +1567,7 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
   // HANDLERS FOR EMPLOYEES & PAYROLL
   const handleAddEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (!empForm.FullName || !empForm.Salary) return alert('Employee Name and Salary are required.');
 
     // Prevent double entry: check duplicate employee name
@@ -1501,26 +1576,33 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
       return alert('An employee with this name already exists! Duplicate entry prevented.');
     }
 
-    const newEmp: ErpEmployee = {
-      EmployeeID: `EMP-${Math.floor(100 + Math.random() * 900)}`,
-      FullName: empForm.FullName.trim(),
-      Role: empForm.Role || 'Staff Member',
-      Department: empForm.Department || 'General',
-      Phone: empForm.Phone || 'N/A',
-      Email: empForm.Email || '',
-      JoiningDate: empForm.JoiningDate || new Date().toISOString().split('T')[0],
-      Salary: Number(empForm.Salary),
-      Status: empForm.Status || 'Active',
-      CNIC: empForm.CNIC || '35202-0000000-0',
-      BankAccount: empForm.BankAccount || ''
-    };
+    setIsSubmitting(true);
+    try {
+      const newEmp: ErpEmployee = {
+        EmployeeID: `EMP-${Math.floor(100 + Math.random() * 900)}`,
+        FullName: empForm.FullName.trim(),
+        Role: empForm.Role || 'Staff Member',
+        Department: empForm.Department || 'General',
+        Phone: empForm.Phone || 'N/A',
+        Email: empForm.Email || '',
+        JoiningDate: empForm.JoiningDate || new Date().toISOString().split('T')[0],
+        Salary: Number(empForm.Salary),
+        Status: empForm.Status || 'Active',
+        CNIC: empForm.CNIC || '35202-0000000-0',
+        BankAccount: empForm.BankAccount || ''
+      };
 
-    await saveToDatabase('erp_employees', newEmp);
-    setEmployees(prev => [newEmp, ...prev]);
-    setShowEmpModal(false);
-    setEmpForm({ FullName: '', Role: 'Pharmacist Assistant', Salary: 45000, Phone: '', CNIC: '' });
-    setSyncMessage('Employee saved successfully!');
-    setTimeout(() => setSyncMessage(null), 3000);
+      await saveToDatabase('erp_employees', newEmp);
+      setEmployees(prev => [newEmp, ...prev]);
+      setShowEmpModal(false);
+      setEmpForm({ FullName: '', Role: 'Pharmacist Assistant', Salary: 45000, Phone: '', CNIC: '' });
+      setSyncMessage('Employee saved successfully!');
+      setTimeout(() => setSyncMessage(null), 3000);
+    } catch (err: any) {
+      alert('Error saving employee: ' + err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleDeleteEmp = async (emp: ErpEmployee) => {
@@ -1534,6 +1616,7 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
 
   const handleProcessPayroll = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     const emp = employees.find(e => e.EmployeeID === payrollForm.EmployeeID);
     if (!emp) return alert('Select a valid employee.');
 
@@ -1542,91 +1625,131 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
       return alert(`Payroll for ${emp.FullName} for period ${payrollForm.MonthYear} has already been processed! Duplicate entry prevented.`);
     }
 
-    const basic = Number(payrollForm.BasicSalary) || emp.Salary;
-    const allow = Number(payrollForm.Allowances) || 0;
-    const ded = Number(payrollForm.Deductions) || 0;
-    const net = basic + allow - ded;
+    setIsSubmitting(true);
+    try {
+      const basic = Number(payrollForm.BasicSalary) || emp.Salary;
+      const allow = Number(payrollForm.Allowances) || 0;
+      const ded = Number(payrollForm.Deductions) || 0;
+      const net = basic + allow - ded;
 
-    const newPayroll: ErpPayroll = {
-      PayrollID: `PAY-${payrollForm.MonthYear}-${emp.EmployeeID}`,
-      EmployeeID: emp.EmployeeID,
-      EmployeeName: emp.FullName,
-      MonthYear: payrollForm.MonthYear,
-      BasicSalary: basic,
-      Allowances: allow,
-      Deductions: ded,
-      NetSalary: net,
-      PaymentStatus: 'Paid',
-      PaymentDate: new Date().toISOString().split('T')[0],
-      PaymentMethod: payrollForm.PaymentMethod
-    };
+      const newPayroll: ErpPayroll = {
+        PayrollID: `PAY-${payrollForm.MonthYear}-${emp.EmployeeID}`,
+        EmployeeID: emp.EmployeeID,
+        EmployeeName: emp.FullName,
+        MonthYear: payrollForm.MonthYear,
+        BasicSalary: basic,
+        Allowances: allow,
+        Deductions: ded,
+        NetSalary: net,
+        PaymentStatus: 'Paid',
+        PaymentDate: new Date().toISOString().split('T')[0],
+        PaymentMethod: payrollForm.PaymentMethod
+      };
 
-    await saveToDatabase('erp_payroll', newPayroll);
-    setPayrolls(prev => [newPayroll, ...prev]);
+      await saveToDatabase('erp_payroll', newPayroll);
+      setPayrolls(prev => [newPayroll, ...prev]);
 
-    // Also record transaction for accounting ledger automatically
-    const salaryTxn: ErpTransaction = {
-      TransactionID: `TXN-PAY-${Date.now().toString().slice(-4)}`,
-      Type: 'PayrollPayment',
-      Category: 'Staff Salaries Expense',
-      Description: `Salary disbursement for ${emp.FullName} (${payrollForm.MonthYear})`,
-      Amount: net,
-      PaymentMethod: payrollForm.PaymentMethod,
-      ReferenceNo: newPayroll.PayrollID,
-      Date: new Date().toISOString().split('T')[0],
-      CreatedBy: currentUser?.FullName || 'Admin'
-    };
-    await saveToDatabase('erp_transactions', salaryTxn);
-    setTransactions(prev => [salaryTxn, ...prev]);
+      // Also record transaction for accounting ledger automatically
+      const salaryTxn: ErpTransaction = {
+        TransactionID: `TXN-PAY-${Date.now().toString().slice(-4)}`,
+        Type: 'PayrollPayment',
+        Category: 'Staff Salaries Expense',
+        Description: `Salary disbursement for ${emp.FullName} (${payrollForm.MonthYear})`,
+        Amount: net,
+        PaymentMethod: payrollForm.PaymentMethod,
+        ReferenceNo: newPayroll.PayrollID,
+        Date: new Date().toISOString().split('T')[0],
+        CreatedBy: currentUser?.FullName || 'Admin'
+      };
+      await saveToDatabase('erp_transactions', salaryTxn);
+      setTransactions(prev => [salaryTxn, ...prev]);
 
-    setShowPayrollModal(false);
-    setSyncMessage('Payroll processed successfully!');
+      setShowPayrollModal(false);
+      setSyncMessage('Payroll processed successfully!');
+      setTimeout(() => setSyncMessage(null), 3000);
+    } catch (err: any) {
+      alert('Error processing payroll: ' + err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeletePayroll = async (pay: ErpPayroll) => {
+    if (!confirm(`Delete payroll record for ${pay.EmployeeName} (${pay.MonthYear})?`)) return;
+    const targetId = pay._id || pay.PayrollID;
+    await deleteFromDatabase('erp_payroll', targetId);
+
+    // Delete corresponding transaction
+    const matchTxn = transactions.find(t => t.ReferenceNo === pay.PayrollID || t.TransactionID === `TXN-PAY-${pay.PayrollID}`);
+    if (matchTxn) {
+      await deleteFromDatabase('erp_transactions', matchTxn._id || matchTxn.TransactionID);
+      setTransactions(prev => prev.filter(t => t.TransactionID !== matchTxn.TransactionID && t._id !== matchTxn._id));
+    }
+
+    setPayrolls(prev => prev.filter(p => (p._id ? p._id !== pay._id : p.PayrollID !== pay.PayrollID)));
+    setSyncMessage('Payroll record deleted successfully!');
     setTimeout(() => setSyncMessage(null), 3000);
   };
 
   // HANDLERS FOR EXPENSES & ASSETS
   const handleAddExpense = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (!expenseForm.Amount || !expenseForm.Description) return alert('Expense Description and Amount are required.');
 
-    const newExpense: ErpExpense = {
-      ExpenseID: `EXP-${Math.floor(100 + Math.random() * 900)}`,
-      Category: expenseForm.Category || 'Other',
-      Description: expenseForm.Description,
-      Amount: Number(expenseForm.Amount),
-      ExpenseDate: expenseForm.ExpenseDate || new Date().toISOString().split('T')[0],
-      PaymentMethod: expenseForm.PaymentMethod || 'Cash',
-      ReceiptRef: expenseForm.ReceiptRef || 'N/A'
-    };
+    setIsSubmitting(true);
+    try {
+      const newExpense: ErpExpense = {
+        ExpenseID: `EXP-${Math.floor(100 + Math.random() * 900)}`,
+        Category: expenseForm.Category || 'Other',
+        Description: expenseForm.Description,
+        Amount: Number(expenseForm.Amount),
+        ExpenseDate: expenseForm.ExpenseDate || new Date().toISOString().split('T')[0],
+        PaymentMethod: expenseForm.PaymentMethod || 'Cash',
+        ReceiptRef: expenseForm.ReceiptRef || 'N/A'
+      };
 
-    await saveToDatabase('erp_expenses', newExpense);
-    setExpenses(prev => [newExpense, ...prev]);
+      await saveToDatabase('erp_expenses', newExpense);
+      setExpenses(prev => [newExpense, ...prev]);
 
-    // Auto log transaction
-    const expTxn: ErpTransaction = {
-      TransactionID: `TXN-EXP-${Date.now().toString().slice(-4)}`,
-      Type: 'Expense',
-      Category: `Operating Expense (${newExpense.Category})`,
-      Description: newExpense.Description,
-      Amount: newExpense.Amount,
-      PaymentMethod: newExpense.PaymentMethod,
-      ReferenceNo: newExpense.ExpenseID,
-      Date: newExpense.ExpenseDate,
-      CreatedBy: currentUser?.FullName || 'Admin'
-    };
-    await saveToDatabase('erp_transactions', expTxn);
-    setTransactions(prev => [expTxn, ...prev]);
+      // Auto log transaction
+      const expTxn: ErpTransaction = {
+        TransactionID: `TXN-EXP-${Date.now().toString().slice(-4)}`,
+        Type: 'Expense',
+        Category: `Operating Expense (${newExpense.Category})`,
+        Description: newExpense.Description,
+        Amount: newExpense.Amount,
+        PaymentMethod: newExpense.PaymentMethod,
+        ReferenceNo: newExpense.ExpenseID,
+        Date: newExpense.ExpenseDate,
+        CreatedBy: currentUser?.FullName || 'Admin'
+      };
+      await saveToDatabase('erp_transactions', expTxn);
+      setTransactions(prev => [expTxn, ...prev]);
 
-    setShowExpenseModal(false);
-    setExpenseForm({ Category: 'Utilities', Description: '', Amount: 0 });
-    setSyncMessage('Expense saved successfully!');
-    setTimeout(() => setSyncMessage(null), 3000);
+      setShowExpenseModal(false);
+      setExpenseForm({ Category: 'Utilities', Description: '', Amount: 0 });
+      setSyncMessage('Expense saved successfully!');
+      setTimeout(() => setSyncMessage(null), 3000);
+    } catch (err: any) {
+      alert('Error saving expense: ' + err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleDeleteExpense = async (exp: ErpExpense) => {
     if (!confirm(`Delete expense ${exp.ExpenseID}?`)) return;
     const targetId = exp._id || exp.ExpenseID;
     await deleteFromDatabase('erp_expenses', targetId);
+
+    // Delete matching transaction from erp_transactions so it doesn't linger in GL/CashBook
+    const matchTxn = transactions.find(t => t.ReferenceNo === exp.ExpenseID || t.TransactionID === exp.ExpenseID || t.ReferenceNo === exp._id || (t.Type === 'Expense' && t.Amount === exp.Amount && t.Date === exp.ExpenseDate));
+    if (matchTxn) {
+      await deleteFromDatabase('erp_transactions', matchTxn._id || matchTxn.TransactionID);
+      setTransactions(prev => prev.filter(t => t.TransactionID !== matchTxn.TransactionID && t._id !== matchTxn._id));
+    }
+
     setExpenses(prev => prev.filter(e => (e._id ? e._id !== exp._id : e.ExpenseID !== exp.ExpenseID)));
     setSyncMessage('Expense deleted successfully!');
     setTimeout(() => setSyncMessage(null), 3000);
@@ -1634,6 +1757,7 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
 
   const handleAddAsset = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (!assetForm.AssetName || !assetForm.PurchaseCost) return alert('Asset Name and Cost are required.');
 
     // Prevent double entry: check duplicate asset name
@@ -1641,24 +1765,31 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
       return alert('An asset with this name already exists! Duplicate entry prevented.');
     }
 
-    const cost = Number(assetForm.PurchaseCost);
-    const newAsset: ErpAsset = {
-      AssetID: `AST-${Math.floor(100 + Math.random() * 900)}`,
-      AssetName: assetForm.AssetName.trim(),
-      Category: assetForm.Category || 'Equipment',
-      PurchaseDate: assetForm.PurchaseDate || new Date().toISOString().split('T')[0],
-      PurchaseCost: cost,
-      CurrentValue: Number(assetForm.CurrentValue) || cost,
-      DepreciationRate: Number(assetForm.DepreciationRate) || 10,
-      Status: assetForm.Status || 'Active'
-    };
+    setIsSubmitting(true);
+    try {
+      const cost = Number(assetForm.PurchaseCost);
+      const newAsset: ErpAsset = {
+        AssetID: `AST-${Math.floor(100 + Math.random() * 900)}`,
+        AssetName: assetForm.AssetName.trim(),
+        Category: assetForm.Category || 'Equipment',
+        PurchaseDate: assetForm.PurchaseDate || new Date().toISOString().split('T')[0],
+        PurchaseCost: cost,
+        CurrentValue: Number(assetForm.CurrentValue) || cost,
+        DepreciationRate: Number(assetForm.DepreciationRate) || 10,
+        Status: assetForm.Status || 'Active'
+      };
 
-    await saveToDatabase('erp_assets', newAsset);
-    setAssets(prev => [newAsset, ...prev]);
-    setShowAssetModal(false);
-    setAssetForm({ AssetName: '', PurchaseCost: 0, DepreciationRate: 10 });
-    setSyncMessage('Asset saved successfully!');
-    setTimeout(() => setSyncMessage(null), 3000);
+      await saveToDatabase('erp_assets', newAsset);
+      setAssets(prev => [newAsset, ...prev]);
+      setShowAssetModal(false);
+      setAssetForm({ AssetName: '', PurchaseCost: 0, DepreciationRate: 10 });
+      setSyncMessage('Asset saved successfully!');
+      setTimeout(() => setSyncMessage(null), 3000);
+    } catch (err: any) {
+      alert('Error saving asset: ' + err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleDeleteAsset = async (ast: ErpAsset) => {
@@ -1835,7 +1966,8 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
           { id: 'po', label: 'Purchase Orders', icon: ShoppingCart },
           { id: 'ledger', label: 'Financial Ledger', icon: Receipt },
           { id: 'hr', label: 'HR & Payroll', icon: Users },
-          { id: 'expenses_assets', label: 'Expenses & Assets', icon: Boxes }
+          { id: 'expenses_assets', label: 'Expenses & Assets', icon: Boxes },
+          { id: 'reporting', label: 'Reporting & Analytics', icon: BarChart3 }
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -3208,6 +3340,25 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* TAB 7: REPORTING & ANALYTICS */}
+      {activeTab === 'reporting' && (
+        <ReportingDesk
+          vendors={vendors}
+          purchaseOrders={purchaseOrders}
+          grns={grns}
+          transactions={transactions}
+          employees={employees}
+          payrolls={payrolls}
+          expenses={expenses}
+          assets={assets}
+          inventoryItems={inventoryItems}
+          appointments={appointments}
+          patientVisits={patientVisits}
+          posSales={posSales}
+          currentUser={currentUser}
+        />
       )}
 
       {/* MODAL: ADD VENDOR */}
