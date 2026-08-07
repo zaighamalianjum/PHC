@@ -228,15 +228,7 @@ export default function App() {
       ClinicAddress: '10 Shalimar Road, Garhi Shahu, Lahore 39 Pakistan',
       PhoneMobile: '+92-300-4208323',
       OPDFee: 1500,
-      ClinicLogoImage: '/nhc_logo.svg',
-      ThermalPrinterName: 'Thermal Printer',
-      ThermalPaperWidth: '60mm',
-      ThermalPaperHeight: 'auto',
-      ThermalDirectPrint: true,
-      ThermalWidthOffset: '+0in',
-      ThermalFontSize: '11px',
-      ThermalBadgeStyle: 'white',
-      ThermalShowPrinterHeader: true
+      ClinicLogoImage: '/nhc_logo.svg'
     };
   });
 
@@ -288,7 +280,7 @@ export default function App() {
       if (cached) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed)) {
-          return parsed.length > 0 ? parsed : defaultVal;
+          return (parsed.length > 0 ? parsed : defaultVal) as T;
         }
         if (parsed && typeof parsed === 'object') return parsed;
       }
@@ -1167,22 +1159,38 @@ export default function App() {
       )
     );
 
-    // Mark appointment as Completed (Status = 4) & update FeeCharged if ConsultationFee set
-    setAppointments((prev) =>
-      prev.map(a =>
-        (a.PatientID === newVisit.PatientID && (a.AppointmentDate === visitDateStr || !a.AppointmentDate))
-          ? {
-              ...a,
-              Status: 4,
-              FeeCharged: newVisit.ConsultationFee !== undefined && newVisit.ConsultationFee > 0 ? newVisit.ConsultationFee : a.FeeCharged,
-              PaymentStatus: 'Paid'
-            }
-          : a
-      )
-    );
-
     const assocToken = tokens.find(t => t.PatientID === newVisit.PatientID && (t.Date === visitDateStr || t.Status === 2));
     const shift = assocToken ? assocToken.Shift : (currentUser.AssignedShift !== 'Both' && typeof currentUser.AssignedShift === 'number' ? currentUser.AssignedShift : 1);
+
+    // Mark appointment as Completed (Status = 4) & update FeeCharged if ConsultationFee set (or auto-create appointment record)
+    setAppointments((prev) => {
+      const matchFound = prev.some(a => a.PatientID === newVisit.PatientID && (a.AppointmentDate?.slice(0, 10) === visitDateStr || !a.AppointmentDate));
+      if (matchFound) {
+        return prev.map(a =>
+          (a.PatientID === newVisit.PatientID && (a.AppointmentDate?.slice(0, 10) === visitDateStr || !a.AppointmentDate))
+            ? {
+                ...a,
+                AppointmentDate: a.AppointmentDate || visitDateStr,
+                Status: 4,
+                FeeCharged: newVisit.ConsultationFee !== undefined && newVisit.ConsultationFee >= 0 ? newVisit.ConsultationFee : a.FeeCharged,
+                PaymentStatus: 'Paid'
+              }
+            : a
+        );
+      } else {
+        const autoAppt: Appointment = {
+          AppointmentID: `APP-${newVisit.PatientID}-${Date.now().toString().slice(-4)}`,
+          PatientID: newVisit.PatientID,
+          AppointmentDate: visitDateStr,
+          Shift: shift,
+          Status: 4,
+          FeeCharged: newVisit.ConsultationFee || 0,
+          PaymentStatus: 'Paid',
+          Remarks: 'Consultation Visit'
+        };
+        return [...prev, autoAppt];
+      }
+    });
 
     // Trigger financial postings on finalized post ONLY if it was not already posted
     if (newVisit.Status === 2 && !wasAlreadyPosted) {
@@ -1229,19 +1237,37 @@ export default function App() {
       )
     );
 
-    // Mark appointment as Completed (Status = 4) & update FeeCharged if ConsultationFee set
-    setAppointments((prev) =>
-      prev.map(a =>
-        (a.PatientID === updatedVisit.PatientID && (a.AppointmentDate === visitDateStr || !a.AppointmentDate))
-          ? {
-              ...a,
-              Status: 4,
-              FeeCharged: updatedVisit.ConsultationFee !== undefined && updatedVisit.ConsultationFee > 0 ? updatedVisit.ConsultationFee : a.FeeCharged,
-              PaymentStatus: 'Paid'
-            }
-          : a
-      )
-    );
+    // Mark appointment as Completed (Status = 4) & update FeeCharged if ConsultationFee set (or auto-create appointment record)
+    setAppointments((prev) => {
+      const matchFound = prev.some(a => a.PatientID === updatedVisit.PatientID && (a.AppointmentDate?.slice(0, 10) === visitDateStr || !a.AppointmentDate));
+      if (matchFound) {
+        return prev.map(a =>
+          (a.PatientID === updatedVisit.PatientID && (a.AppointmentDate?.slice(0, 10) === visitDateStr || !a.AppointmentDate))
+            ? {
+                ...a,
+                AppointmentDate: a.AppointmentDate || visitDateStr,
+                Status: 4,
+                FeeCharged: updatedVisit.ConsultationFee !== undefined && updatedVisit.ConsultationFee >= 0 ? updatedVisit.ConsultationFee : a.FeeCharged,
+                PaymentStatus: 'Paid'
+              }
+            : a
+        );
+      } else {
+        const assocToken = tokens.find(t => t.PatientID === updatedVisit.PatientID && (t.Date === visitDateStr || t.Status === 2));
+        const shift = assocToken ? assocToken.Shift : (currentUser.AssignedShift !== 'Both' && typeof currentUser.AssignedShift === 'number' ? currentUser.AssignedShift : 1);
+        const autoAppt: Appointment = {
+          AppointmentID: `APP-${updatedVisit.PatientID}-${Date.now().toString().slice(-4)}`,
+          PatientID: updatedVisit.PatientID,
+          AppointmentDate: visitDateStr,
+          Shift: shift,
+          Status: 4,
+          FeeCharged: updatedVisit.ConsultationFee || 0,
+          PaymentStatus: 'Paid',
+          Remarks: 'Consultation Visit'
+        };
+        return [...prev, autoAppt];
+      }
+    });
 
     // Trigger financial postings if transitioning to Posted (Status = 2)
     if (updatedVisit.Status === 2 && !wasAlreadyPosted) {
@@ -2530,6 +2556,7 @@ export default function App() {
                 <ErpDesk
                   currentUser={currentUser}
                   rights={currentUserRights}
+                  clinicSettings={clinicSettings}
                 />
               </Suspense>
             </div>

@@ -60,6 +60,7 @@ interface ReportingDeskProps {
   patientVisits: any[];
   posSales: any[];
   currentUser: User | null;
+  clinicSettings?: any;
 }
 
 export default function ReportingDesk({
@@ -75,7 +76,8 @@ export default function ReportingDesk({
   appointments = [],
   patientVisits = [],
   posSales = [],
-  currentUser
+  currentUser,
+  clinicSettings
 }: ReportingDeskProps) {
   // Active Report Type Selection
   const [activeReport, setActiveReport] = useState<ReportType>('pending_payments');
@@ -480,6 +482,17 @@ export default function ReportingDesk({
     const printWin = window.open('', '_blank');
     if (!printWin) return alert('Pop-up blocked! Please allow popups to print reports.');
 
+    let savedSettings: any = null;
+    try {
+      const saved = localStorage.getItem('phc_clinic_settings');
+      if (saved) savedSettings = JSON.parse(saved);
+    } catch (e) {
+      console.error(e);
+    }
+
+    const clinicName = savedSettings?.ClinicName || (clinicSettings as any)?.ClinicName || 'PUNJAB HOMEOPATHIC CLINIC';
+    const logoSrc = savedSettings?.ClinicLogoImage || (clinicSettings as any)?.ClinicLogoImage || '/nhc_logo.svg';
+
     const reportTitles: Record<ReportType, string> = {
       pending_payments: 'Pending Vendor Payments & Payable Balance Report',
       payroll_disbursement: 'Salary & Payroll Disbursement Audit Report',
@@ -490,6 +503,15 @@ export default function ReportingDesk({
       required_stock: 'Required Stock Requisition & Procurement Calculation Report',
       pnl_summary: 'Executive Profit & Loss Financial Summary Statement'
     };
+
+    const recordCountText =
+      activeReport === 'pending_payments' ? `${pendingPaymentsData.length} Vendors` :
+      activeReport === 'payroll_disbursement' ? `${payrollData.length} Disbursed Records` :
+      activeReport === 'expense_analysis' ? `${expenseData.length} Expense Records` :
+      activeReport === 'current_stock' ? `${currentStockData.length} Stock Items` :
+      activeReport === 'minimum_stock' ? `${minimumStockData.length} Alert Items` :
+      activeReport === 'required_stock' ? `${requiredStockData.length} Requisition Items` :
+      activeReport === 'pnl_summary' ? 'Executive Financial Summary' : `${poData.length} Purchase Orders`;
 
     let tableHtml = '';
 
@@ -515,7 +537,7 @@ export default function ReportingDesk({
                 <td>${v.ContactPerson}</td>
                 <td>${v.Phone}</td>
                 <td style="text-align: right">Rs. ${v.totalGrnBills.toLocaleString()}</td>
-                <td style="text-align: right; color: #047857;">Rs. ${v.totalPaid.toLocaleString()}</td>
+                <td style="text-align: right; color: #047857; font-weight: 700;">Rs. ${v.totalPaid.toLocaleString()}</td>
                 <td style="text-align: right; font-weight: 800; color: ${v.pendingBalance > 0 ? '#b91c1c' : '#15803d'};">
                   Rs. ${v.pendingBalance.toLocaleString()}
                 </td>
@@ -525,7 +547,7 @@ export default function ReportingDesk({
           <tfoot>
             <tr style="background: #f1f5f9; font-weight: bold;">
               <td colspan="6" style="text-align: right">TOTAL OUTSTANDING PAYABLE BALANCE:</td>
-              <td style="text-align: right; color: #b91c1c; font-size: 14px;">Rs. ${pendingPaymentsSummary.totalOwed.toLocaleString()}</td>
+              <td style="text-align: right; color: #b91c1c; font-size: 13px; font-weight: 900;">Rs. ${pendingPaymentsSummary.totalOwed.toLocaleString()}</td>
             </tr>
           </tfoot>
         </table>
@@ -564,7 +586,7 @@ export default function ReportingDesk({
           <tfoot>
             <tr style="background: #f1f5f9; font-weight: bold;">
               <td colspan="6" style="text-align: right">TOTAL SALARIES DISBURSED:</td>
-              <td style="text-align: right; color: #4338ca; font-size: 14px;">Rs. ${payrollSummary.totalDisbursed.toLocaleString()}</td>
+              <td style="text-align: right; color: #4338ca; font-size: 13px; font-weight: 900;">Rs. ${payrollSummary.totalDisbursed.toLocaleString()}</td>
               <td colspan="2"></td>
             </tr>
           </tfoot>
@@ -598,7 +620,7 @@ export default function ReportingDesk({
           <tfoot>
             <tr style="background: #f1f5f9; font-weight: bold;">
               <td colspan="5" style="text-align: right">TOTAL OPERATIONAL EXPENSES:</td>
-              <td style="text-align: right; color: #b91c1c; font-size: 14px;">Rs. ${expenseSummary.totalExpense.toLocaleString()}</td>
+              <td style="text-align: right; color: #b91c1c; font-size: 13px; font-weight: 900;">Rs. ${expenseSummary.totalExpense.toLocaleString()}</td>
             </tr>
           </tfoot>
         </table>
@@ -638,9 +660,9 @@ export default function ReportingDesk({
           <tfoot>
             <tr style="background: #f1f5f9; font-weight: bold;">
               <td colspan="3" style="text-align: right">TOTAL INVENTORY SUMMARY:</td>
-              <td style="text-align: center; font-size: 13px;">${currentStockSummary.totalStockUnits.toLocaleString()} Units</td>
+              <td style="text-align: center; font-size: 12px;">${currentStockSummary.totalStockUnits.toLocaleString()} Units</td>
               <td colspan="2" style="text-align: right">TOTAL PURCHASE VALUATION:</td>
-              <td style="text-align: right; color: #0369a1; font-size: 14px;">Rs. ${currentStockSummary.totalPurchaseValuation.toLocaleString()}</td>
+              <td style="text-align: right; color: #0369a1; font-size: 13px; font-weight: 900;">Rs. ${currentStockSummary.totalPurchaseValuation.toLocaleString()}</td>
             </tr>
           </tfoot>
         </table>
@@ -707,7 +729,7 @@ export default function ReportingDesk({
                 <td>${i.Category || i.category || 'General'}</td>
                 <td style="text-align: center">${i.cStock}</td>
                 <td style="text-align: center">${i.reorderTarget}</td>
-                <td style="text-align: center; font-weight: 900; color: #4338ca; font-size: 13px;">${i.requiredQty}</td>
+                <td style="text-align: center; font-weight: 900; color: #4338ca; font-size: 12px;">${i.requiredQty}</td>
                 <td style="text-align: right">Rs. ${i.unitCost.toLocaleString()}</td>
                 <td style="text-align: right; font-weight: 800; color: #4338ca;">Rs. ${i.estCost.toLocaleString()}</td>
               </tr>
@@ -716,45 +738,45 @@ export default function ReportingDesk({
           <tfoot>
             <tr style="background: #f1f5f9; font-weight: bold;">
               <td colspan="5" style="text-align: right">TOTAL REQUISITION CAPITAL NEEDED:</td>
-              <td style="text-align: center; font-size: 13px; color: #4338ca;">${requiredStockSummary.totalUnitsRequired.toLocaleString()} Units</td>
+              <td style="text-align: center; font-size: 12px; color: #4338ca;">${requiredStockSummary.totalUnitsRequired.toLocaleString()} Units</td>
               <td></td>
-              <td style="text-align: right; color: #4338ca; font-size: 14px;">Rs. ${requiredStockSummary.totalEstCapitalNeeded.toLocaleString()}</td>
+              <td style="text-align: right; color: #4338ca; font-size: 13px; font-weight: 900;">Rs. ${requiredStockSummary.totalEstCapitalNeeded.toLocaleString()}</td>
             </tr>
           </tfoot>
         </table>
       `;
     } else if (activeReport === 'pnl_summary') {
       tableHtml = `
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 15px;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 10px;">
           <div>
-            <h3 style="color: #15803d; border-bottom: 2px solid #15803d; padding-bottom: 5px; margin-bottom: 10px;">REVENUE & INFLOWS</h3>
+            <h3 style="color: #15803d; border-bottom: 2px solid #15803d; padding-bottom: 4px; margin-bottom: 8px; font-size: 12px; text-transform: uppercase;">REVENUE & INFLOWS</h3>
             <table class="report-table">
               <tr><td>OPD Consultation Token Fees</td><td style="text-align: right; font-weight: bold;">Rs. ${pnlSummaryData.apptFees.toLocaleString()}</td></tr>
               <tr><td>POS Pharmacy Counter Sales</td><td style="text-align: right; font-weight: bold;">Rs. ${pnlSummaryData.posIncome.toLocaleString()}</td></tr>
               <tr><td>Other Direct Inflows</td><td style="text-align: right; font-weight: bold;">Rs. ${pnlSummaryData.otherIncome.toLocaleString()}</td></tr>
               <tr style="background: #f0fdf4; font-weight: 900;">
                 <td style="color: #15803d;">TOTAL GROSS INFLOWS</td>
-                <td style="text-align: right; color: #15803d; font-size: 14px;">Rs. ${pnlSummaryData.totalIncome.toLocaleString()}</td>
+                <td style="text-align: right; color: #15803d; font-size: 13px;">Rs. ${pnlSummaryData.totalIncome.toLocaleString()}</td>
               </tr>
             </table>
           </div>
           <div>
-            <h3 style="color: #b91c1c; border-bottom: 2px solid #b91c1c; padding-bottom: 5px; margin-bottom: 10px;">EXPENSES & OUTFLOWS</h3>
+            <h3 style="color: #b91c1c; border-bottom: 2px solid #b91c1c; padding-bottom: 4px; margin-bottom: 8px; font-size: 12px; text-transform: uppercase;">EXPENSES & OUTFLOWS</h3>
             <table class="report-table">
               <tr><td>Vendor Payments & Stock Purchases</td><td style="text-align: right; font-weight: bold;">Rs. ${pnlSummaryData.vendorOutflows.toLocaleString()}</td></tr>
               <tr><td>Staff Salaries & Payroll</td><td style="text-align: right; font-weight: bold;">Rs. ${pnlSummaryData.salaryOutflows.toLocaleString()}</td></tr>
               <tr><td>Operational Expenses</td><td style="text-align: right; font-weight: bold;">Rs. ${pnlSummaryData.expenseOutflows.toLocaleString()}</td></tr>
               <tr style="background: #fef2f2; font-weight: 900;">
                 <td style="color: #b91c1c;">TOTAL GROSS OUTFLOWS</td>
-                <td style="text-align: right; color: #b91c1c; font-size: 14px;">Rs. ${pnlSummaryData.totalExpenses.toLocaleString()}</td>
+                <td style="text-align: right; color: #b91c1c; font-size: 13px;">Rs. ${pnlSummaryData.totalExpenses.toLocaleString()}</td>
               </tr>
             </table>
           </div>
         </div>
-        <div style="margin-top: 20px; background: #f8fafc; border: 2px dashed #64748b; padding: 15px; text-align: center; border-radius: 8px;">
-          <div style="font-size: 12px; font-weight: bold; color: #64748b; text-transform: uppercase;">NET OPERATING FINANCIAL RESULT FOR PERIOD</div>
-          <div style="font-size: 24px; font-weight: 900; color: ${pnlSummaryData.netProfit >= 0 ? '#15803d' : '#b91c1c'}; margin-top: 5px;">
-            ${pnlSummaryData.netProfit >= 0 ? 'PROFIT: Rs. ' + pnlSummaryData.netProfit.toLocaleString() : 'LOSS: - Rs. ' + Math.abs(pnlSummaryData.netProfit).toLocaleString()}
+        <div style="margin-top: 15px; background: #f8fafc; border: 2px dashed #64748b; padding: 12px; text-align: center; border-radius: 8px;">
+          <div style="font-size: 11px; font-weight: 800; color: #64748b; text-transform: uppercase; tracking-wide: 0.5px;">NET OPERATING FINANCIAL RESULT FOR PERIOD</div>
+          <div style="font-size: 22px; font-weight: 900; color: ${pnlSummaryData.netProfit >= 0 ? '#15803d' : '#b91c1c'}; margin-top: 4px;">
+            ${pnlSummaryData.netProfit >= 0 ? 'NET PROFIT: Rs. ' + pnlSummaryData.netProfit.toLocaleString() : 'NET LOSS: - Rs. ' + Math.abs(pnlSummaryData.netProfit).toLocaleString()}
           </div>
         </div>
       `;
@@ -791,55 +813,361 @@ export default function ReportingDesk({
       <!DOCTYPE html>
       <html>
         <head>
-          <title>${reportTitles[activeReport]} - Punjab Homeopathic Clinic ERP</title>
+          <title>${reportTitles[activeReport]} - Punjab Homeopathic Clinic</title>
           <style>
-            @page { size: A4 portrait; margin: 12mm; }
-            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #0f172a; margin: 0; padding: 0; font-size: 12px; }
-            .header { border-bottom: 2px solid #4338ca; padding-bottom: 10px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: flex-start; }
-            .clinic-title { font-size: 20px; font-weight: 900; color: #3730a3; margin: 0; }
-            .clinic-sub { font-size: 11px; font-weight: 700; color: #6366f1; text-transform: uppercase; letter-spacing: 0.5px; }
-            .report-name { font-size: 16px; font-weight: 800; color: #1e293b; margin-top: 8px; }
-            .meta-box { background: #f8fafc; border: 1px solid #cbd5e1; padding: 8px 12px; border-radius: 6px; font-size: 11px; margin-bottom: 15px; display: flex; justify-content: space-between; }
-            .report-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-            .report-table th { background: #1e293b; color: #ffffff; font-weight: 700; text-align: left; padding: 8px; font-size: 11px; }
-            .report-table td { border-bottom: 1px solid #e2e8f0; padding: 8px; }
-            .badge { padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; background: #e2e8f0; }
+            @page {
+              size: A4 portrait;
+              margin: 10mm 12mm 12mm 12mm;
+            }
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+              color: #0f172a;
+              margin: 0;
+              padding: 0;
+              font-size: 11.5px;
+              line-height: 1.4;
+              background: #ffffff;
+            }
+            * {
+              box-sizing: border-box;
+            }
+
+            /* Letterhead Header Section */
+            .letterhead-header {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              border-bottom: 3px double #064e3b;
+              padding-bottom: 10px;
+              margin-bottom: 12px;
+              gap: 12px;
+            }
+            .logo-col {
+              width: 80px;
+              height: 80px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              flex-shrink: 0;
+            }
+            .logo-img {
+              max-width: 100%;
+              max-height: 100%;
+              object-fit: contain;
+            }
+            .clinic-info {
+              text-align: center;
+              flex: 1;
+            }
+            .clinic-name {
+              font-family: Georgia, "Times New Roman", serif;
+              font-size: 24px;
+              font-weight: 900;
+              color: #881337;
+              text-transform: uppercase;
+              margin: 0;
+              letter-spacing: -0.5px;
+              line-height: 1.1;
+            }
+            .clinic-tagline {
+              font-size: 10px;
+              font-weight: 800;
+              color: #be123c;
+              letter-spacing: 1.5px;
+              text-transform: uppercase;
+              margin-top: 2px;
+            }
+            .clinic-reg {
+              font-size: 11px;
+              font-weight: 700;
+              color: #1e293b;
+              margin-top: 4px;
+            }
+            .clinic-timings {
+              font-size: 10px;
+              font-weight: 800;
+              color: #064e3b;
+              text-transform: uppercase;
+              margin-top: 3px;
+            }
+
+            /* Official Report Banner & Meta Box */
+            .report-banner {
+              background: #0f172a;
+              color: #ffffff;
+              padding: 8px 14px;
+              border-radius: 6px;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              margin-bottom: 10px;
+            }
+            .report-banner-title {
+              font-size: 12.5px;
+              font-weight: 900;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              color: #f8fafc;
+            }
+            .report-banner-ref {
+              font-size: 10px;
+              font-family: monospace;
+              color: #cbd5e1;
+              font-weight: 700;
+            }
+
+            .meta-grid {
+              background: #f8fafc;
+              border: 1.5px solid #cbd5e1;
+              border-radius: 8px;
+              padding: 10px 14px;
+              margin-bottom: 14px;
+              display: grid;
+              grid-template-columns: 1fr 1fr 1fr;
+              gap: 8px;
+              font-size: 11px;
+            }
+            .meta-item {
+              display: flex;
+              flex-direction: column;
+            }
+            .meta-label {
+              font-size: 9px;
+              font-weight: 800;
+              color: #64748b;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .meta-value {
+              font-size: 11px;
+              font-weight: 700;
+              color: #0f172a;
+              margin-top: 1px;
+            }
+
+            /* Table Styles */
+            .report-table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 8px;
+              font-size: 11px;
+            }
+            .report-table th {
+              background: #1e293b;
+              color: #ffffff;
+              font-weight: 800;
+              text-align: left;
+              padding: 7px 10px;
+              font-size: 10.5px;
+              text-transform: uppercase;
+              letter-spacing: 0.3px;
+              border: 1px solid #1e293b;
+            }
+            .report-table td {
+              border: 1px solid #e2e8f0;
+              padding: 7px 10px;
+              color: #0f172a;
+            }
+            .report-table tbody tr:nth-child(even) {
+              background-color: #f8fafc;
+            }
+            .report-table tfoot tr {
+              background-color: #f1f5f9;
+              font-weight: 800;
+            }
+            .report-table tfoot td {
+              border-top: 2px solid #0f172a;
+              padding: 8px 10px;
+            }
+
+            .badge {
+              padding: 2px 6px;
+              border-radius: 4px;
+              font-size: 9.5px;
+              font-weight: 800;
+              background: #e2e8f0;
+              display: inline-block;
+            }
             .badge-red { background: #fecdd3; color: #9f1239; }
             .badge-amber { background: #fef3c7; color: #92400e; }
-            .footer { margin-top: 30px; border-top: 1px solid #cbd5e1; pt: 10px; display: flex; justify-content: space-between; font-size: 10px; color: #64748b; }
+
+            /* Manager Signature Section */
+            .signature-section {
+              margin-top: 35px;
+              padding-top: 15px;
+              border-top: 2px solid #cbd5e1;
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-end;
+              page-break-inside: avoid;
+            }
+            .sig-box {
+              text-align: center;
+              width: 220px;
+            }
+            .sig-line-text {
+              border-bottom: 1.5px dashed #475569;
+              height: 38px;
+              margin-bottom: 6px;
+              display: flex;
+              align-items: flex-end;
+              justify-content: center;
+              font-size: 11px;
+              font-weight: 700;
+              color: #334155;
+              padding-bottom: 2px;
+            }
+            .sig-line-manager {
+              border-bottom: 2.5px solid #0f172a;
+              height: 38px;
+              margin-bottom: 6px;
+              display: flex;
+              align-items: flex-end;
+              justify-content: center;
+              font-size: 13px;
+              font-weight: 900;
+              color: #0f172a;
+              font-family: Georgia, 'Times New Roman', serif;
+              padding-bottom: 2px;
+            }
+            .sig-title-primary {
+              font-size: 11px;
+              font-weight: 900;
+              color: #881337;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .sig-title-sub {
+              font-size: 10px;
+              font-weight: 800;
+              color: #0f172a;
+              text-transform: uppercase;
+            }
+            .sig-title-dept {
+              font-size: 9px;
+              font-weight: 700;
+              color: #047857;
+            }
+
+            .stamp-box {
+              text-align: center;
+              width: 130px;
+              height: 65px;
+              border: 2px dashed #94a3b8;
+              border-radius: 8px;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              color: #64748b;
+              font-size: 8px;
+              font-weight: 800;
+              text-transform: uppercase;
+              background: #fafafa;
+            }
+
+            /* Footer Disclaimer */
+            .official-footer {
+              margin-top: 15px;
+              border-top: 1px solid #e2e8f0;
+              padding-top: 8px;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              font-size: 9px;
+              color: #64748b;
+              font-weight: 600;
+            }
           </style>
         </head>
         <body>
-          <div class="header">
-            <div>
-              <h1 class="clinic-title">PUNJAB HOMEOPATHIC CLINIC & PHARMACY</h1>
-              <div class="clinic-sub">Clinic ERP Management & Analytical Reporting Desk</div>
-              <div class="report-name">${reportTitles[activeReport]}</div>
+          <!-- A4 Official Letterhead Header -->
+          <div class="letterhead-header">
+            <div class="logo-col">
+              <img src="${logoSrc}" alt="PHC Logo" class="logo-img" />
             </div>
-            <div style="text-align: right; font-size: 10px; color: #64748b;">
-              <div>Generated On: ${new Date().toLocaleString()}</div>
-              <div>Generated By: ${currentUser?.FullName || 'Admin'}</div>
+            <div class="clinic-info">
+              <h1 class="clinic-name">${clinicName}</h1>
+              <div class="clinic-tagline">HEALING NATURALLY. RESTORING BALANCE.</div>
+              <div class="clinic-reg">
+                <span>PHC Reg. # <u style="text-decoration: underline;">R-___________</u></span>
+                &nbsp;|&nbsp;
+                <span>PHC License #: ___________________</span>
+              </div>
+              <div class="clinic-timings">
+                Clinic Timings: Morning 8:30 AM to 12:00 PM &nbsp;|&nbsp; Evening 4:30 PM to 9:00 PM
+              </div>
+            </div>
+            <div class="logo-col" style="visibility: hidden;">
+              <img src="${logoSrc}" alt="PHC Logo" class="logo-img" />
             </div>
           </div>
 
-          <div class="meta-box">
-            <div><b>Report Period:</b> ${startDate} to ${endDate} (${datePreset.toUpperCase()})</div>
-            <div><b>Total Filtered Records:</b> ${
-              activeReport === 'pending_payments' ? pendingPaymentsData.length :
-              activeReport === 'payroll_disbursement' ? payrollData.length :
-              activeReport === 'expense_analysis' ? expenseData.length :
-              activeReport === 'current_stock' ? currentStockData.length :
-              activeReport === 'minimum_stock' ? minimumStockData.length :
-              activeReport === 'required_stock' ? requiredStockData.length :
-              activeReport === 'pnl_summary' ? 'Financial Summary' : poData.length
-            }</div>
+          <!-- Official Report Banner & Meta Details -->
+          <div class="report-banner">
+            <span class="report-banner-title">OFFICIAL CLINIC & FINANCIAL AUDIT STATEMENT</span>
+            <span class="report-banner-ref">REF: PHC-RPT-${Date.now().toString().slice(-6)}</span>
           </div>
 
+          <div class="meta-grid">
+            <div class="meta-item">
+              <span class="meta-label">Statement Type</span>
+              <span class="meta-value" style="color: #4338ca;">${reportTitles[activeReport]}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Audit Period</span>
+              <span class="meta-value">${startDate} to ${endDate} (${datePreset.toUpperCase()})</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Generated Date & Time</span>
+              <span class="meta-value">${new Date().toLocaleString('en-GB')}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Audit Prepared By</span>
+              <span class="meta-value">${currentUser?.FullName || 'Staff Accountant'}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Responsible Manager</span>
+              <span class="meta-value" style="color: #881337;">Mr. Zaigham Ali Anjum</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Total Verified Records</span>
+              <span class="meta-value">${recordCountText}</span>
+            </div>
+          </div>
+
+          <!-- Main Report Data Table -->
           ${tableHtml}
 
-          <div class="footer">
-            <div>Punjab Homeopathic Clinic ERP System — Verified Official Report</div>
-            <div>Page 1 of 1</div>
+          <!-- Executive Signatures & Stamps Block -->
+          <div class="signature-section">
+            <div class="sig-box">
+              <div class="sig-line-text">
+                ${currentUser?.FullName || 'Accountant / Audit Officer'}
+              </div>
+              <div class="sig-title-primary" style="color: #0f172a;">PREPARED BY</div>
+              <div class="sig-title-sub" style="font-size: 9px; color: #475569;">Accounts & ERP Audit Desk</div>
+            </div>
+
+            <div class="stamp-box">
+              <span>PHC OFFICIAL STAMP</span>
+              <span style="font-size: 7px; color: #94a3b8; margin-top: 2px;">[ SEAL & STAMP ]</span>
+            </div>
+
+            <div class="sig-box" style="width: 250px;">
+              <div class="sig-line-manager">
+                Zaigham Ali Anjum
+              </div>
+              <div class="sig-title-primary">MR. ZAIGHAM ALI ANJUM</div>
+              <div class="sig-title-sub">Manager Operations & Administrative Head</div>
+              <div class="sig-title-dept">Punjab Homeopathic Clinic & Pharmacy</div>
+            </div>
+          </div>
+
+          <!-- Official Footer Note -->
+          <div class="official-footer">
+            <div>Punjab Homeopathic Clinic & Pharmacy • Official Financial & Operational Audit Document</div>
+            <div>Authorized Administrator: Mr. Zaigham Ali Anjum</div>
           </div>
 
           <script>

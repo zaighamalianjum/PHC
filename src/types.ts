@@ -34,6 +34,7 @@ export interface Appointment {
   Status: 1 | 2 | 3 | 4; // 1 = New, 2 = Visited, 3 = Cancel, 4 = Payment Posted
   Remarks: string;
   FeeCharged: number;
+  PaymentStatus?: string;
 }
 
 export interface Token {
@@ -343,16 +344,6 @@ export interface ClinicSettings {
   ClinicLogoImage?: string;
   LetterHeadImage?: string;
   ClinicalLabelImage?: string;
-  ThermalPrinterName?: string;
-  ThermalPaperWidth?: string;
-  ThermalPaperHeight?: string;
-  ThermalDirectPrint?: boolean;
-  ThermalWidthOffset?: string;
-  ThermalFontSize?: string;
-  ThermalBadgeStyle?: 'white' | 'black' | 'outline';
-  ThermalShowPrinterHeader?: boolean;
-  ThermalMargin?: string;
-  ThermalScale?: string;
 }
 
 export interface UserRight {
@@ -468,6 +459,8 @@ export interface ErpGrnItem {
   ItemID: string;
   ItemName: string;
   OrderedQty: number;
+  AlreadyReceivedQty?: number;
+  PendingQty?: number;
   ReceivedQty: number;
   UnitPrice: number;
   LineTotal: number;
@@ -539,7 +532,7 @@ export interface ErpPayroll {
 export interface ErpExpense {
   _id?: string;
   ExpenseID: string;
-  Category: 'Rent' | 'Utilities' | 'Salaries' | 'Maintenance' | 'Marketing' | 'Supplies' | 'Refreshment' | 'Other';
+  Category: string;
   Description: string;
   Amount: number;
   ExpenseDate: string;

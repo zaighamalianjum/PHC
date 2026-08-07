@@ -2884,10 +2884,45 @@ app.post('/api/erp/grn/approve', async (req, res) => {
       { upsert: true }
     );
 
-    // 2. Mark Purchase Order status as 'Received'
+    // 2. Calculate dynamic Purchase Order status based on cumulative GRN receipts
+    const poRecord = await db.collection('erp_purchase_orders').findOne({ POID: grn.POID });
+    const allPoGrns = await db.collection('erp_grn').find({ POID: grn.POID, Status: 'Approved' }).toArray();
+
+    let newPoStatus = 'Received';
+    if (poRecord && Array.isArray(poRecord.Items) && poRecord.Items.length > 0) {
+      let isFullyReceived = true;
+      let isPartiallyReceived = false;
+
+      for (const poItem of poRecord.Items) {
+        const orderedQty = parseInt(poItem.Qty) || 0;
+        let totalReceivedForItem = 0;
+
+        for (const g of allPoGrns) {
+          if (Array.isArray(g.Items)) {
+            const matchedGrnItem = g.Items.find(gi => 
+              (gi.ItemID && gi.ItemID === poItem.ItemID) || 
+              (gi.ItemName && gi.ItemName === poItem.ItemName)
+            );
+            if (matchedGrnItem) {
+              totalReceivedForItem += (parseInt(matchedGrnItem.ReceivedQty) || 0);
+            }
+          }
+        }
+
+        if (totalReceivedForItem < orderedQty) {
+          isFullyReceived = false;
+        }
+        if (totalReceivedForItem > 0) {
+          isPartiallyReceived = true;
+        }
+      }
+
+      newPoStatus = isFullyReceived ? 'Received' : (isPartiallyReceived ? 'Partially Received' : 'Approved');
+    }
+
     await db.collection('erp_purchase_orders').updateOne(
       { POID: grn.POID },
-      { $set: { Status: 'Received' } }
+      { $set: { Status: newPoStatus } }
     );
 
     // 3. Increment stock levels in items collection

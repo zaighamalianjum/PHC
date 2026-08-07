@@ -65,7 +65,7 @@ import {
   Appointment,
   Token
 } from '../types';
-import { printPharmacyThermalReceipt } from '../utils/thermalPrinter';
+
 
 interface PharmacyPOSProps {
   patients: Patient[];
@@ -2290,32 +2290,6 @@ export default function PharmacyPOS({
     setPrintBillData(billDataObj);
     setPrintModalOpen(true);
 
-    if (clinicSettings?.ThermalDirectPrint) {
-      const receiptItems = checkoutBasket.map(b => {
-        const item = items.find(i => i.ItemID === b.ItemID);
-        return {
-          ItemID: b.ItemID,
-          ItemName: item ? item.ItemName : b.ItemID,
-          Qty: b.Qty,
-          Price: b.Price,
-          isClinical: b.Price === 0 || b.MedicineType === 'C' || item?.MedicineType === 'C'
-        };
-      });
-      printPharmacyThermalReceipt(
-        {
-          invoiceNo: nextInvoiceNo,
-          invoiceDate: newHeader.InvoiceDate,
-          patient: billDataObj.patient,
-          shift: billingShift,
-          basket: receiptItems,
-          discount: discountInput,
-          netAmount: netAmount,
-          pharmacistName: currentUser?.FullName || currentUser?.LoginName || 'Duty Pharmacist'
-        },
-        clinicSettings
-      );
-    }
-
     // Reset forms
     setCheckoutBasket([]);
     setDiscountInput(0);
@@ -2449,32 +2423,6 @@ export default function PharmacyPOS({
     };
     setPrintBillData(storeBillObj);
     setPrintModalOpen(true);
-
-    if (clinicSettings?.ThermalDirectPrint) {
-      const receiptItems = storeBasket.map(b => {
-        const item = items.find(i => i.ItemID === b.ItemID);
-        return {
-          ItemID: b.ItemID,
-          ItemName: item ? item.ItemName : b.ItemID,
-          Qty: b.Qty,
-          Price: b.Price,
-          isClinical: false
-        };
-      });
-      printPharmacyThermalReceipt(
-        {
-          invoiceNo: nextInvoiceNo,
-          invoiceDate: newHeader.InvoiceDate,
-          patient: storeBillObj.patient,
-          shift: storeShift,
-          basket: receiptItems,
-          discount: storeDiscVal,
-          netAmount: storeNetAmount,
-          pharmacistName: currentUser?.FullName || currentUser?.LoginName || 'Duty Pharmacist'
-        },
-        clinicSettings
-      );
-    }
 
     // Reset forms
     setStoreBasket([]);
@@ -3457,45 +3405,7 @@ export default function PharmacyPOS({
                         </td>
                         <td className="py-3 text-center">
                           <div className="flex items-center justify-center space-x-1.5">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (currentUser?.Role !== 'Administrator' && (currentUser?.Permissions?.canPrintPOSInvoice === false || userRights.find(r => r.MenuID === 'pharmacy')?.PrintRec === false)) {
-                                  alert("Printing Pharmacy POS Bills is restricted by administrator permissions.");
-                                  return;
-                                }
-                                const details = invoiceDetails.filter((d) => d.InvoiceNo === inv.InvoiceNo);
-                                const receiptItems = details.map((d) => {
-                                  const item = items.find(i => i.ItemID === d.ItemID);
-                                  return {
-                                    ItemID: d.ItemID,
-                                    ItemName: item ? item.ItemName : d.ItemID,
-                                    Qty: d.Qty,
-                                    Price: d.Price,
-                                    isClinical: d.Price === 0 || d.MedicineType === 'C' || item?.MedicineType === 'C'
-                                  };
-                                });
 
-                                printPharmacyThermalReceipt(
-                                  {
-                                    invoiceNo: inv.InvoiceNo,
-                                    invoiceDate: inv.InvoiceDate,
-                                    patient: patients.find((p) => p.PatientID === inv.PatientID) || null,
-                                    shift: inv.shift,
-                                    basket: receiptItems,
-                                    discount: inv.Discount,
-                                    netAmount: inv.NetAmount,
-                                    pharmacistName: currentUser?.FullName || currentUser?.LoginName || 'Duty Pharmacist'
-                                  },
-                                  clinicSettings
-                                );
-                              }}
-                              className="px-2.5 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 text-xxs font-extrabold uppercase rounded-lg transition-all flex items-center justify-center cursor-pointer shadow-xs"
-                              title={`Thermal Print via ${clinicSettings?.ThermalPrinterName || 'Thermal Printer'}`}
-                            >
-                              <Printer className="w-3 h-3 mr-1" />
-                              Thermal
-                            </button>
                             <button
                               type="button"
                               onClick={() => {
@@ -5487,46 +5397,6 @@ export default function PharmacyPOS({
                 </div>
               </div>
               <div className="flex space-x-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (currentUser?.Role !== 'Administrator' && (currentUser?.Permissions?.canPrintPOSInvoice === false || userRights.find(r => r.MenuID === 'pharmacy')?.PrintRec === false)) {
-                      alert("Printing Pharmacy POS Bills is restricted by administrator permissions.");
-                      return;
-                    }
-                    const receiptItems = printBillData.basket.map(b => {
-                      const item = items.find(i => i.ItemID === b.ItemID);
-                      const isClinical = b.Price === 0 || (b as any).MedicineType === 'C' || item?.MedicineType === 'C';
-                      return {
-                        ItemID: b.ItemID,
-                        ItemName: item ? item.ItemName : b.ItemID,
-                        Qty: b.Qty,
-                        Price: b.Price,
-                        isClinical
-                      };
-                    });
-
-                    printPharmacyThermalReceipt(
-                      {
-                        invoiceNo: printBillData.invoiceNo,
-                        invoiceDate: printBillData.invoiceDate,
-                        patient: printBillData.patient,
-                        shift: printBillData.shift,
-                        basket: receiptItems,
-                        discount: printBillData.discount,
-                        netAmount: printBillData.netAmount,
-                        pharmacistName: currentUser?.FullName || currentUser?.LoginName || 'Duty Pharmacist'
-                      },
-                      clinicSettings
-                    );
-                  }}
-                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xxs rounded-lg flex items-center shadow-md transition cursor-pointer"
-                  title={`Direct thermal print via ${clinicSettings?.ThermalPrinterName || 'Thermal Printer'}`}
-                >
-                  <Printer className="w-3.5 h-3.5 mr-1" />
-                  <span>Thermal Print ({clinicSettings?.ThermalPrinterName || 'Thermal Printer'})</span>
-                </button>
-
                 <button
                   type="button"
                   onClick={() => {

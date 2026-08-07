@@ -81,14 +81,12 @@ import {
   getResolvedNhcPatientName
 } from './patient/patientDeskUtils';
 import PatientDeskSubNav, { PatientDeskSubTab } from './patient/PatientDeskSubNav';
-import ThermalTokenModal, { ThermalPrintData } from './patient/ThermalTokenModal';
 import LargeScreenTokenDisplay from './patient/LargeScreenTokenDisplay';
 import PatientRegisterView from './patient/PatientRegisterView';
 import InstantTokenIssueView from './patient/InstantTokenIssueView';
 import RegistrationSuccessModal from './patient/RegistrationSuccessModal';
 import EMRDesk from './EMRDesk';
 import { generatePatientId } from '../utils/idGenerator';
-import { generateOPDThermalTokenHtml, printOPDThermalToken } from '../utils/thermalPrinter';
 
 interface PatientDeskProps {
   patients: Patient[];
@@ -719,6 +717,12 @@ export default function PatientDesk({
   const [dailyCollectionReportData, setDailyCollectionReportData] = useState<any>(null);
   const [dailyCollectionReportFormat, setDailyCollectionReportFormat] = useState<'grid' | 'pdf'>('grid');
 
+  // States for All Patients Database Grid-View Visit Date Selector Modal
+  const [isGridVisitSelectorModalOpen, setIsGridVisitSelectorModalOpen] = useState<boolean>(false);
+  const [gridSelectorMode, setGridSelectorMode] = useState<'EDIT' | 'PRINT'>('PRINT');
+  const [gridSelectorPatientId, setGridSelectorPatientId] = useState<string | null>(null);
+  const [gridSelectorSelectedDate, setGridSelectorSelectedDate] = useState<string>('');
+
   // States for Edit Recent Visit Record Popup Modal
   const [isRecentVisitsModalOpen, setIsRecentVisitsModalOpen] = useState(false);
   const [recentModalSearch, setRecentModalSearch] = useState('');
@@ -842,26 +846,7 @@ export default function PatientDesk({
   };
 
   const handlePrintAppointmentReceipt = (app: Appointment) => {
-    const pat = patients.find((p) => p.PatientID === app.PatientID);
-    const matchedTok = tokens.find(
-      (t) => t.PatientID === app.PatientID && (t.Date === app.AppointmentDate || !app.AppointmentDate)
-    );
-
-    const appIndex = appointments.findIndex((a) => a.AppointmentID === app.AppointmentID);
-    const tokenNo = matchedTok ? matchedTok.TokenNo : (appIndex >= 0 ? appIndex + 1 : 1);
-
-    setThermalPrintData({
-      tokenNo: tokenNo,
-      patientName: pat?.PatientName || formPatientName || app.PatientID,
-      patientId: app.PatientID,
-      shiftName: app.Shift === 1 ? 'MORNING SHIFT (08:30 - 12:30)' : 'EVENING SHIFT (17:00 - 21:00)',
-      date: app.AppointmentDate || new Date().toISOString().split('T')[0],
-      fee: app.FeeCharged !== undefined ? Number(app.FeeCharged) : 0,
-      appId: app.AppointmentID,
-      patientType: getPatientType(app.PatientID),
-      remarks: app.Remarks || 'Appointment Booking Receipt'
-    });
-    setThermalPrintOpen(true);
+    window.print();
   };
 
   const handleSaveAddAppointment = (e: React.FormEvent | React.MouseEvent, shouldPrint?: boolean) => {
@@ -1056,21 +1041,6 @@ export default function PatientDesk({
     setPvPrescriptionModalOpen(true);
   };
 
-  // Thermal print modal state
-  const [thermalPrintOpen, setThermalPrintOpen] = useState(false);
-  const [thermalPrintData, setThermalPrintData] = useState<{
-    tokenNo: number;
-    patientName: string;
-    patientId: string;
-    shiftName: string;
-    date: string;
-    fee: number;
-    feeNote?: string;
-    appId: string;
-    patientType: 'New Patient' | 'Old Patient';
-    remarks?: string;
-  } | null>(null);
-
   // New Patient Registration Success Modal State
   const [regSuccessModalOpen, setRegSuccessModalOpen] = useState(false);
   const [regSuccessData, setRegSuccessData] = useState<{
@@ -1079,24 +1049,7 @@ export default function PatientDesk({
     phoneMobile: string;
   } | null>(null);
 
-  // Auto-trigger direct thermal print on token issue if direct printing is enabled
-  const autoPrintFiredRef = useRef(false);
-  useEffect(() => {
-    if (thermalPrintOpen && thermalPrintData) {
-      if (clinicSettings?.ThermalDirectPrint !== false) {
-        if (!autoPrintFiredRef.current) {
-          autoPrintFiredRef.current = true;
-          handleCleanThermalTokenPrint();
-          const closeTimer = setTimeout(() => {
-            setThermalPrintOpen(false);
-          }, 500);
-          return () => clearTimeout(closeTimer);
-        }
-      }
-    } else {
-      autoPrintFiredRef.current = false;
-    }
-  }, [thermalPrintOpen, thermalPrintData, clinicSettings?.ThermalDirectPrint]);
+
 
   // Helper function to check if patient is New Patient or Old Patient
   const getPatientType = (patientId: string): 'New Patient' | 'Old Patient' => {
@@ -1571,20 +1524,8 @@ export default function PatientDesk({
       onAddToken(newToken);
     }
 
-    // 4. Thermal print receipt option
     if (autoPrintTicket) {
-      setThermalPrintData({
-        tokenNo: nextTokenNo,
-        patientName: patient.PatientName,
-        patientId: patient.PatientID,
-        shiftName: selectedShift === 1 ? 'MORNING SHIFT (08:30 - 12:30)' : 'EVENING SHIFT (17:00 - 21:00)',
-        date: targetDate,
-        fee: feeVal,
-        appId: newAppId,
-        patientType: getPatientType(patient.PatientID),
-        remarks: remarks || 'Direct Walk-In Consultation'
-      });
-      setThermalPrintOpen(true);
+      window.print();
     }
 
     setPvSaveSuccess(`Direct Consultation Token #${nextTokenNo} generated for ${selectedShift === 1 ? 'Morning Shift (08:30 AM - 12:30 PM)' : 'Evening Shift (05:00 PM - 09:00 PM)'}. Fee charged: PKR ${feeVal}.`);
@@ -2200,18 +2141,12 @@ export default function PatientDesk({
     return Array.from(groupsMap.values());
   })();
 
-  const handleCleanThermalTokenPrint = () => {
+  const handleCleanTokenPrint = () => {
     if (currentUser?.Role !== 'Administrator' && (currentUser?.Permissions?.canPrintTokenSlip === false || userRights.find(r => r.MenuID === 'patients')?.PrintRec === false)) {
       alert("Printing Token Slips is restricted by administrator permissions.");
       return;
     }
-
-    if (!thermalPrintData) {
-      window.print();
-      return;
-    }
-
-    printOPDThermalToken(thermalPrintData, clinicSettings);
+    window.print();
   };
 
   const handleCleanPrintTab = (docType: 'A5_VISIT_SLIP' | 'A4_PRESCRIPTION' | 'A4_LAB_TESTS' | 'A4_PATIENT_INVOICE') => {
@@ -4114,6 +4049,122 @@ export default function PatientDesk({
     handleOpenRecentVisitsModal(pvSelectedPatientId);
   };
 
+  const getPatientVisitDateOptions = (patientId: string) => {
+    const pVisits = (visits || []).filter(v => isSamePatient(v.PatientID, patientId));
+    const pNhc = (pvNhcHistory || []).filter(nhc => isSamePatient(nhc.PatientID, patientId));
+
+    const dateMap = new Map<string, { date: string; vObj?: Visit; nhcObj?: any; symptoms: string; fee: number; summary: string }>();
+
+    pVisits.forEach((v) => {
+      const cleanD = parseCleanVisitDate(v.VisitDate);
+      if (!cleanD) return;
+      if (!dateMap.has(cleanD)) {
+        dateMap.set(cleanD, {
+          date: cleanD,
+          vObj: v,
+          symptoms: v.SymptomsDiagnosis || 'General Visit / Checkup',
+          fee: v.ConsultationFee || 0,
+          summary: (v as any).Prescription ? `Rx: ${(v as any).Prescription.slice(0, 40)}...` : 'Visit Record'
+        });
+      }
+    });
+
+    pNhc.forEach((nhc) => {
+      const cleanD = parseCleanVisitDate(nhc.date || nhc.VisitDate || nhc.Date);
+      if (!cleanD) return;
+      if (!dateMap.has(cleanD)) {
+        dateMap.set(cleanD, {
+          date: cleanD,
+          nhcObj: nhc,
+          symptoms: nhc.symptoms || nhc.SymptomsDiagnosis || 'Historical Visit Record',
+          fee: nhc.fee || 0,
+          summary: nhc.summary || 'PHC History'
+        });
+      }
+    });
+
+    const sorted = Array.from(dateMap.values()).sort((a, b) => b.date.localeCompare(a.date));
+
+    if (sorted.length === 0) {
+      const todayStr = new Date().toISOString().split('T')[0];
+      return [{
+        date: todayStr,
+        symptoms: 'Fresh Consultation Visit',
+        fee: clinicSettings?.OPDFee || 1500,
+        summary: 'New Visit Record'
+      }];
+    }
+
+    return sorted;
+  };
+
+  const openGridVisitSelectorModal = (patientId: string, mode: 'EDIT' | 'PRINT') => {
+    setGridSelectorPatientId(patientId);
+    setGridSelectorMode(mode);
+    setPvSelectedPatientId(patientId);
+
+    const options = getPatientVisitDateOptions(patientId);
+    if (options.length > 0) {
+      setGridSelectorSelectedDate(options[0].date);
+    } else {
+      setGridSelectorSelectedDate(new Date().toISOString().split('T')[0]);
+    }
+    setIsGridVisitSelectorModalOpen(true);
+  };
+
+  const handleConfirmGridVisitSelection = () => {
+    if (!gridSelectorPatientId || !gridSelectorSelectedDate) return;
+
+    const patientId = gridSelectorPatientId;
+    const targetDate = gridSelectorSelectedDate;
+
+    setPvSelectedPatientId(patientId);
+    loadPvPatientHistory(patientId, false);
+
+    const options = getPatientVisitDateOptions(patientId);
+    const matchedOpt = options.find(o => o.date === targetDate);
+
+    if (gridSelectorMode === 'EDIT') {
+      setIsGridVisitSelectorModalOpen(false);
+      setIsRecentVisitsModalOpen(true);
+      setModalSaveSuccess('');
+      setModalSaveError('');
+
+      if (matchedOpt?.vObj || matchedOpt?.nhcObj) {
+        loadVisitIntoModalForm(matchedOpt.vObj || matchedOpt.nhcObj);
+      } else {
+        const pVisits = (visits || []).filter(v => isSamePatient(v.PatientID, patientId));
+        const matchedVisit = pVisits.find(v => parseCleanVisitDate(v.VisitDate) === targetDate);
+        if (matchedVisit) {
+          loadVisitIntoModalForm(matchedVisit);
+        } else {
+          setModalEditingVisitId(`VIS-${Date.now()}`);
+          setModalPatientId(patientId);
+          const foundPt = patients.find(p => isSamePatient(p.PatientID, patientId));
+          setModalPatientName(foundPt?.PatientName || patientId);
+          setModalVisitDate(targetDate);
+        }
+      }
+    } else if (gridSelectorMode === 'PRINT') {
+      setIsGridVisitSelectorModalOpen(false);
+
+      if (matchedOpt?.vObj || matchedOpt?.nhcObj) {
+        handleEditVisit(matchedOpt.vObj || matchedOpt.nhcObj);
+      } else {
+        const pVisits = (visits || []).filter(v => isSamePatient(v.PatientID, patientId));
+        const matchedVisit = pVisits.find(v => parseCleanVisitDate(v.VisitDate) === targetDate);
+        if (matchedVisit) {
+          handleEditVisit(matchedVisit);
+        } else {
+          setPvVisitDate(targetDate);
+        }
+      }
+
+      setPrintDocType('A5_VISIT_SLIP');
+      setPvPrescriptionModalOpen(true);
+    }
+  };
+
   const handleSaveFromRecentModal = (andPrint: boolean = false) => {
     if (!modalPatientId) {
       setModalSaveError('Please select a patient.');
@@ -4755,20 +4806,7 @@ export default function PatientDesk({
         console.log(`[AUTOMATED SMS DISPATCH] Sent to: ${patient.PhoneMobile} via provider [${smsSettings.Provider.toUpperCase()}] message: "${parsedMessage}"`);
       }
 
-      // Load thermal ticket printing data and open popup
-      setThermalPrintData({
-        tokenNo: nextTokenNo,
-        patientName: patient.PatientName,
-        patientId: patient.PatientID,
-        shiftName: shift === 1 ? 'MORNING (08:30 - 12:30)' : 'EVENING (17:00 - 21:00)',
-        date: appDate,
-        fee: tokenFeeToCharge,
-        feeNote: isPrepaidAppointment ? `PREPAID (Fee PKR ${existingPreBookedApp?.FeeCharged || 0} Paid on Booking)` : undefined,
-        appId: activeAppId,
-        patientType: getPatientType(patient.PatientID),
-        remarks: finalRemarks
-      });
-      setThermalPrintOpen(true);
+
 
       if (isPrepaidAppointment) {
         setAppSuccess(`Pre-Booked Appointment Token No: ${nextTokenNo} allocated for ${shift === 1 ? 'Morning' : 'Evening'} shift. Fee: PKR 0 (Prepaid - PKR ${existingPreBookedApp?.FeeCharged || 0} paid on booking).`);
@@ -6935,11 +6973,12 @@ export default function PatientDesk({
                     <div className="pt-1.5 border-t-2 border-slate-800 flex justify-between items-center text-[10px]">
                       <div className="font-mono text-[10px]">
                         <span className="font-bold uppercase text-slate-500 mr-1.5">Charges (PKR):</span>
+                        <span>OPD/App: <strong>{pvOpdFeePkr || 0}</strong></span> &nbsp;|&nbsp; 
                         <span>Clinical: <strong>{pvClinicalMedicinePkr || 0}</strong></span> &nbsp;|&nbsp; 
                         <span>File: <strong>{pvFilePkr || 0}</strong></span> &nbsp;|&nbsp; 
                         <span>Card: <strong>{pvCardPkr || 0}</strong></span> &nbsp;|&nbsp; 
                         <span className="text-emerald-900 font-bold bg-emerald-100 px-1.5 py-0.2 rounded">
-                          Total: PKR {(Number(pvClinicalMedicinePkr)||0) + (Number(pvFilePkr)||0) + (Number(pvCardPkr)||0)}
+                          Total: PKR {(Number(pvOpdFeePkr)||0) + (Number(pvClinicalMedicinePkr)||0) + (Number(pvFilePkr)||0) + (Number(pvCardPkr)||0)}
                         </span>
                       </div>
                       <div className="text-slate-500 text-[9px] italic">
@@ -7408,7 +7447,8 @@ export default function PatientDesk({
                 {/* ========================================================================= */}
                 {printDocType === 'A4_PATIENT_INVOICE' && (() => {
                   const appt = (appointments || []).find(a => a.PatientID === selectedPvPatient?.PatientID && a.AppointmentDate && a.AppointmentDate.startsWith(pvVisitDate));
-                  const tokenFeeVal = Number(appt?.FeeCharged) || Number((selectedPvPatient as any)?.FeeCharged) || Number((selectedPvPatient as any)?.ConsultationFee) || 0;
+                  const currentVisit = (visits || []).find(v => v.PatientID === selectedPvPatient?.PatientID && v.VisitDate && v.VisitDate.startsWith(pvVisitDate));
+                  const tokenFeeVal = Number(pvOpdFeePkr) || Number(currentVisit?.ConsultationFee) || Number(appt?.FeeCharged) || Number((selectedPvPatient as any)?.FeeCharged) || Number((selectedPvPatient as any)?.ConsultationFee) || 0;
                   const clinFeeVal = Number(pvClinicalMedicinePkr) || 0;
                   const fileFeeVal = Number(pvFilePkr) || 0;
                   const cardFeeVal = Number(pvCardPkr) || 0;
@@ -8351,10 +8391,7 @@ export default function PatientDesk({
                             <td className="p-1.5 border border-slate-200 align-top text-center space-y-1">
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setPvSelectedPatientId(pt.PatientID);
-                                  handleOpenRecentVisitsModal(pt.PatientID);
-                                }}
+                                onClick={() => openGridVisitSelectorModal(pt.PatientID, 'EDIT')}
                                 className="w-full px-1.5 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[9px] rounded transition flex items-center justify-center space-x-0.5 cursor-pointer"
                                 title="Edit Medical Record in Popup Modal"
                               >
@@ -8379,15 +8416,7 @@ export default function PatientDesk({
 
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setPvSelectedPatientId(pt.PatientID);
-                                  loadPvPatientHistory(pt.PatientID, false);
-                                  if (latestRecord) {
-                                    handleEditVisit(latestRecord);
-                                  }
-                                  setPrintDocType('A5_VISIT_SLIP');
-                                  setPvPrescriptionModalOpen(true);
-                                }}
+                                onClick={() => openGridVisitSelectorModal(pt.PatientID, 'PRINT')}
                                 className="w-full px-1.5 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-250 font-bold text-[9px] rounded transition flex items-center justify-center space-x-0.5 cursor-pointer"
                                 title="Print Patient Document / Prescription Slip"
                               >
@@ -8662,7 +8691,11 @@ export default function PatientDesk({
                           const isSelected = selectedAppId === app.AppointmentID;
                           const patientNameStr = pat?.PatientName || app.PatientID;
                           const mobileStr = pat?.PhoneMobile || 'N/A';
-                          const feeVal = app.FeeCharged !== undefined && app.FeeCharged !== null ? app.FeeCharged : 0;
+                          const apptDateStr = (!app.AppointmentDate || app.AppointmentDate === 'Today') ? todayStr : app.AppointmentDate.slice(0, 10);
+                          const matchingVisit = visits.find(v => v.PatientID === app.PatientID && v.VisitDate && v.VisitDate.slice(0, 10) === apptDateStr);
+                          const feeVal = (Number(app.FeeCharged) > 0)
+                            ? Number(app.FeeCharged)
+                            : (matchingVisit?.ConsultationFee || 0);
 
                           return (
                             <tr
@@ -9365,18 +9398,7 @@ export default function PatientDesk({
                             <button
                               type="button"
                               onClick={() => {
-                                const pat = patients.find(p => p.PatientID === tok.PatientID);
-                                setThermalPrintData({
-                                  tokenNo: tok.TokenNo,
-                                  patientName: pat ? pat.PatientName : 'Unknown',
-                                  patientId: tok.PatientID,
-                                  shiftName: 'MORNING SHIFT (08:30 - 12:30)',
-                                  date: tok.Date,
-                                  fee: matchedApp?.FeeCharged !== undefined && matchedApp?.FeeCharged !== null ? matchedApp.FeeCharged : 0,
-                                  appId: matchedApp?.AppointmentID || 'N/A',
-                                  patientType: getPatientType(tok.PatientID)
-                                });
-                                setThermalPrintOpen(true);
+                                window.print();
                               }}
                               className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xxs font-bold rounded flex items-center transition border border-slate-200"
                             >
@@ -9456,18 +9478,7 @@ export default function PatientDesk({
                             <button
                               type="button"
                               onClick={() => {
-                                const pat = patients.find(p => p.PatientID === tok.PatientID);
-                                setThermalPrintData({
-                                  tokenNo: tok.TokenNo,
-                                  patientName: pat ? pat.PatientName : 'Unknown',
-                                  patientId: tok.PatientID,
-                                  shiftName: 'EVENING SHIFT (17:00 - 21:00)',
-                                  date: tok.Date,
-                                  fee: matchedApp?.FeeCharged !== undefined && matchedApp?.FeeCharged !== null ? matchedApp.FeeCharged : 0,
-                                  appId: matchedApp?.AppointmentID || 'N/A',
-                                  patientType: getPatientType(tok.PatientID)
-                                });
-                                setThermalPrintOpen(true);
+                                window.print();
                               }}
                               className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xxs font-bold rounded flex items-center transition border border-slate-200"
                             >
@@ -9561,18 +9572,7 @@ export default function PatientDesk({
                             <button
                               type="button"
                               onClick={() => {
-                                const pat = patients.find(p => p.PatientID === tok.PatientID);
-                                setThermalPrintData({
-                                  tokenNo: tok.TokenNo,
-                                  patientName: pat ? pat.PatientName : 'Unknown',
-                                  patientId: tok.PatientID,
-                                  shiftName: tok.Shift === 1 ? 'MORNING SHIFT (08:00 - 14:00)' : 'EVENING SHIFT (14:00 - 20:00)',
-                                  date: tok.Date,
-                                  fee: matchedApp?.FeeCharged !== undefined && matchedApp?.FeeCharged !== null ? matchedApp.FeeCharged : 0,
-                                  appId: matchedApp?.AppointmentID || 'N/A',
-                                  patientType: getPatientType(tok.PatientID)
-                                });
-                                setThermalPrintOpen(true);
+                                window.print();
                               }}
                               className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xxs font-bold rounded flex items-center transition border border-slate-200"
                             >
@@ -9931,45 +9931,7 @@ export default function PatientDesk({
         </div>
       )}
 
-      {/* Thermal Printer Ticket Modal (Black & White high contrast, dashed separators, compact roll style) */}
-      {thermalPrintOpen && thermalPrintData && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-[9999] print:absolute print:inset-0 print:bg-white print:p-0">
-          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full flex flex-col border border-slate-200 overflow-hidden print:shadow-none print:border-0 print:w-full print:rounded-none">
-            
-            {/* Modal Controls (Hidden in Print) */}
-            <div className="p-3 border-b border-slate-100 flex items-center justify-between bg-slate-50 print:hidden shrink-0">
-              <span className="text-xs font-bold text-slate-700">OPD Thermal Ticket Issued</span>
-              <div className="flex space-x-1.5">
-                <button
-                  type="button"
-                  onClick={handleCleanThermalTokenPrint}
-                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xxs rounded-lg flex items-center shadow-md transition cursor-pointer"
-                  title={`Direct print thermal ticket (+2in width)`}
-                >
-                  <Printer className="w-3.5 h-3.5 mr-1" />
-                  <span>Print Ticket ({clinicSettings?.ThermalPrinterName || 'Thermal Printer'})</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setThermalPrintOpen(false)}
-                  className="px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xxs rounded"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
 
-            {/* Thermal Print Receipt Frame */}
-            <div 
-              className="p-2 bg-white text-black font-black space-y-2 overflow-y-auto flex-1 select-all mx-auto font-sans" 
-              id="thermal-receipt"
-              dangerouslySetInnerHTML={{ __html: generateOPDThermalTokenHtml(thermalPrintData, clinicSettings) }}
-            />
-
-
-          </div>
-        </div>
-      )}
 
       {/* Patient Previous Visit History Alert Popup Modal */}
       {historyAlertModalOpen && (
@@ -10618,7 +10580,7 @@ export default function PatientDesk({
                 className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 h-4 w-4"
               />
               <label htmlFor="directVisitAutoPrint" className="text-xs font-semibold text-slate-700 cursor-pointer">
-                Print Thermal Token Ticket Receipt for Patient
+                Print Token Slip for Patient
               </label>
             </div>
 
@@ -11195,6 +11157,167 @@ export default function PatientDesk({
           </div>
         </div>
       )}
+
+      {/* GRID VIEW VISIT DATE SELECTOR MODAL */}
+      {isGridVisitSelectorModalOpen && gridSelectorPatientId && (() => {
+        const selectedPt = patients.find(p => isSamePatient(p.PatientID, gridSelectorPatientId)) || (nhcPatients || []).find(p => isSamePatient(p.PatientID, gridSelectorPatientId));
+        const options = getPatientVisitDateOptions(gridSelectorPatientId);
+        const isPrint = gridSelectorMode === 'PRINT';
+
+        return (
+          <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center z-50 p-3 sm:p-4 overflow-y-auto">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden space-y-0 transform transition-all my-auto">
+              
+              {/* Modal Header */}
+              <div className={`p-4 text-white flex items-center justify-between ${
+                isPrint ? 'bg-gradient-to-r from-emerald-800 to-teal-900' : 'bg-gradient-to-r from-amber-700 to-orange-800'
+              }`}>
+                <div className="flex items-center space-x-3">
+                  <div className="p-2.5 bg-white/10 rounded-xl border border-white/20">
+                    {isPrint ? <Printer className="w-5 h-5 text-emerald-200" /> : <Pencil className="w-5 h-5 text-amber-200" />}
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-sm sm:text-base tracking-tight">
+                      {isPrint ? 'Select Visit Date to Print' : 'Select Visit Date to Edit'}
+                    </h3>
+                    <p className="text-[11px] text-white/80 font-medium">
+                      Patient: <strong className="text-white">{selectedPt?.PatientName || gridSelectorPatientId}</strong> ({gridSelectorPatientId})
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsGridVisitSelectorModalOpen(false)}
+                  className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-4 sm:p-5 space-y-4 text-slate-800">
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between text-xs">
+                  <span className="font-semibold text-slate-600">Total Recorded Visits:</span>
+                  <span className="font-mono font-extrabold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                    {options.length} Visit Date{options.length > 1 ? 's' : ''}
+                  </span>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide">
+                    Select Visit Date:
+                  </label>
+
+                  <select
+                    value={gridSelectorSelectedDate}
+                    onChange={(e) => setGridSelectorSelectedDate(e.target.value)}
+                    className="w-full text-xs font-bold font-mono p-2.5 bg-white border-2 border-slate-300 rounded-xl text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 cursor-pointer shadow-2xs"
+                  >
+                    {options.map((opt, idx) => (
+                      <option key={opt.date + '-' + idx} value={opt.date}>
+                        {opt.date} {idx === 0 ? '(Latest Visit Date)' : ''} — {opt.symptoms.slice(0, 30)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Cards List for Visual Selection */}
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+                    Available Visit Records (Click to Select):
+                  </label>
+                  {options.map((opt, idx) => {
+                    const isSelected = gridSelectorSelectedDate === opt.date;
+                    return (
+                      <div
+                        key={`opt-${opt.date}-${idx}`}
+                        onClick={() => setGridSelectorSelectedDate(opt.date)}
+                        className={`p-3 rounded-xl border-2 transition cursor-pointer flex items-center justify-between gap-3 ${
+                          isSelected
+                            ? isPrint
+                              ? 'bg-emerald-50/90 border-emerald-500 shadow-xs'
+                              : 'bg-amber-50/90 border-amber-500 shadow-xs'
+                            : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="space-y-0.5 flex-1 min-w-0">
+                          <div className="flex items-center space-x-2">
+                            <span className="font-mono font-extrabold text-xs text-slate-900">
+                              {opt.date}
+                            </span>
+                            {idx === 0 && (
+                              <span className="text-[9px] font-black uppercase px-1.5 py-0.2 rounded bg-indigo-100 text-indigo-800 border border-indigo-200">
+                                Latest Visit
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-600 font-medium truncate">
+                            {opt.symptoms}
+                          </p>
+                          {opt.summary && (
+                            <p className="text-[10px] text-slate-400 font-mono truncate">
+                              {opt.summary}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="text-right flex flex-col items-end shrink-0">
+                          {opt.fee > 0 && (
+                            <span className="text-[11px] font-mono font-extrabold text-slate-800">
+                              PKR {opt.fee}
+                            </span>
+                          )}
+                          <div className={`w-4 h-4 rounded-full border flex items-center justify-center mt-1 ${
+                            isSelected
+                              ? isPrint ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-amber-600 border-amber-600 text-white'
+                              : 'border-slate-300 bg-white'
+                          }`}>
+                            {isSelected && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setIsGridVisitSelectorModalOpen(false)}
+                  className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-extrabold text-xs rounded-xl transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleConfirmGridVisitSelection}
+                  className={`px-5 py-2 text-white font-extrabold text-xs rounded-xl transition shadow-xs flex items-center space-x-1.5 cursor-pointer ${
+                    isPrint
+                      ? 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800'
+                      : 'bg-amber-600 hover:bg-amber-700 active:bg-amber-800'
+                  }`}
+                >
+                  {isPrint ? (
+                    <>
+                      <Printer className="w-4 h-4" />
+                      <span>Print Visit ({gridSelectorSelectedDate})</span>
+                    </>
+                  ) : (
+                    <>
+                      <Pencil className="w-4 h-4" />
+                      <span>Edit Visit ({gridSelectorSelectedDate})</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
 
       {/* POPUP MODAL: GRID-VIEW EDIT RECENT PATIENT MEDICAL RECORDS */}
       {isRecentVisitsModalOpen && (

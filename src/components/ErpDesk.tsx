@@ -49,15 +49,17 @@ import {
   ErpExpense,
   ErpAsset,
   User,
-  UserRight
+  UserRight,
+  ClinicSettings
 } from '../types';
 
 interface ErpDeskProps {
   currentUser: User | null;
   rights: UserRight[];
+  clinicSettings?: ClinicSettings;
 }
 
-export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
+export default function ErpDesk({ currentUser, rights, clinicSettings }: ErpDeskProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'cash_book_pnl' | 'vendors' | 'vendor_statement' | 'po' | 'ledger' | 'hr' | 'expenses_assets' | 'reporting'>('overview');
   const [loading, setLoading] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
@@ -632,24 +634,32 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
       return;
     }
 
-    const dateLabel = cashBookDateFilter === 'today' ? `Today (${new Date().toLocaleDateString()})` :
+    const cName = clinicSettings?.ClinicName || 'PUNJAB HOMEOPATHIC CLINIC';
+    const cTag = clinicSettings?.ClinicLogoText || 'HEALING NATURALLY. RESTORING BALANCE.';
+    const cDoc = clinicSettings?.DoctorName || 'Dr. Ejaz Ahmad, D.H.M.S (Pak)';
+    const cDocSub = clinicSettings?.DoctorSignatureText || 'Reg No: 48776 | Homeopathic Medical Specialist';
+    const cAddr = clinicSettings?.ClinicAddress || 'Main Boulevard, Lahore';
+    const cPhone = clinicSettings?.PhoneMobile || '+92 300 1234567';
+    const logoSrc = clinicSettings?.ClinicLogoImage || '/nhc_logo.svg';
+
+    const dateLabel = cashBookDateFilter === 'today' ? `Today (${new Date().toLocaleDateString('en-GB')})` :
                       cashBookDateFilter === 'this_week' ? 'Past 7 Days' :
                       cashBookDateFilter === 'this_month' ? `Month of ${new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}` : 'All Time Records';
 
     const rowsHtml = filteredCashBookEntries.map((e, idx) => `
-      <tr style="border-bottom: 1px solid #e2e8f0; font-size: 11px;">
-        <td style="padding: 6px; text-align: center; font-weight: bold; font-family: monospace;">${idx + 1}</td>
-        <td style="padding: 6px; font-family: monospace;">${e.date}</td>
-        <td style="padding: 6px; font-weight: bold; font-family: monospace;">${e.ref}</td>
-        <td style="padding: 6px; font-weight: bold; color: #0f172a;">${e.particulars}</td>
-        <td style="padding: 6px; color: #475569;">${e.category}</td>
-        <td style="padding: 6px; text-align: center;">
-          <span style="background: ${e.type === 'INFLOW' ? '#dcfce7' : '#ffe4e6'}; color: ${e.type === 'INFLOW' ? '#166534' : '#9f1239'}; font-weight: bold; padding: 2px 6px; border-radius: 4px; font-size: 9px;">
+      <tr style="border-bottom: 1px solid #e2e8f0; font-size: 11px; page-break-inside: avoid;">
+        <td style="padding: 7px 6px; text-align: center; font-weight: bold; font-family: monospace; color: #64748b;">${idx + 1}</td>
+        <td style="padding: 7px 6px; font-family: monospace; white-space: nowrap; font-weight: 600;">${e.date}</td>
+        <td style="padding: 7px 6px; font-weight: bold; font-family: monospace; color: #4338ca;">${e.ref}</td>
+        <td style="padding: 7px 6px; font-weight: bold; color: #0f172a;">${e.particulars}</td>
+        <td style="padding: 7px 6px; color: #475569; font-size: 10px;">${e.category}</td>
+        <td style="padding: 7px 6px; text-align: center;">
+          <span style="background: ${e.type === 'INFLOW' ? '#dcfce7' : '#ffe4e6'}; color: ${e.type === 'INFLOW' ? '#166534' : '#9f1239'}; font-weight: 800; padding: 2px 7px; border-radius: 4px; font-size: 9px; letter-spacing: 0.5px;">
             ${e.type}
           </span>
         </td>
-        <td style="padding: 6px; text-align: right; font-family: monospace; font-weight: bold; color: ${e.type === 'INFLOW' ? '#15803d' : '#be123c'};">
-          ${e.type === 'INFLOW' ? '+' : '-'} PKR ${e.amount.toLocaleString()}
+        <td style="padding: 7px 6px; text-align: right; font-family: monospace; font-weight: 800; color: ${e.type === 'INFLOW' ? '#15803d' : '#be123c'}; font-size: 11px;">
+          ${e.type === 'INFLOW' ? '+' : '-'} Rs. ${e.amount.toLocaleString()}
         </td>
       </tr>
     `).join('');
@@ -658,74 +668,113 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Clinic Cash Book & P&L Statement - Punjab Homeopathic Clinic</title>
+          <title>Cash Book & P&L Statement - ${cName}</title>
           <style>
-            @page { size: A4 portrait; margin: 12mm; }
-            body { font-family: system-ui, -apple-system, sans-serif; color: #0f172a; margin: 0; padding: 0; background: #fff; }
-            .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #581c87; padding-bottom: 10px; margin-bottom: 12px; }
-            .title-area { text-align: center; flex: 1; }
-            .clinic-name { font-size: 22px; font-weight: 900; color: #881337; font-serif: Georgia, serif; }
-            .sub { font-size: 10px; font-weight: 800; color: #be123c; letter-spacing: 1px; }
-            .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 15px; }
-            .card { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px; text-align: center; }
-            .card-val { font-size: 16px; font-weight: 900; margin-top: 4px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-            th { background: #581c87; color: #fff; font-size: 10px; text-transform: uppercase; padding: 6px; text-align: left; }
+            @page { size: A4 portrait; margin: 12mm 15mm; }
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #0f172a; margin: 0; padding: 0; background: #fff; line-height: 1.4; }
+            .letterhead-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px double #0f172a; padding-bottom: 12px; margin-bottom: 14px; }
+            .clinic-brand { flex: 1; text-align: center; padding: 0 10px; }
+            .clinic-title { font-size: 22px; font-weight: 900; color: #881337; letter-spacing: -0.5px; text-transform: uppercase; font-family: Georgia, serif; }
+            .clinic-tagline { font-size: 10px; font-weight: 800; color: #be123c; letter-spacing: 1px; margin-top: 2px; text-transform: uppercase; }
+            .doc-details { font-size: 11px; font-weight: 800; color: #1e293b; margin-top: 4px; }
+            .contact-line { font-size: 10px; color: #475569; font-weight: 600; margin-top: 2px; }
+            .report-banner { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+            .report-title { font-size: 14px; font-weight: 900; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px; }
+            .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+            .summary-card { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 12px; text-align: center; }
+            .card-label { font-size: 9px; font-weight: 800; uppercase; tracking-wider; }
+            .card-val { font-size: 16px; font-weight: 900; margin-top: 4px; font-family: monospace; }
+            table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+            th { background: #0f172a; color: #ffffff; font-size: 9.5px; text-transform: uppercase; padding: 8px 6px; text-align: left; font-weight: 800; letter-spacing: 0.5px; }
+            .footer-sign { margin-top: 40px; padding-top: 15px; border-top: 1px solid #cbd5e1; display: flex; justify-content: space-between; align-items: flex-end; font-size: 10px; color: #475569; page-break-inside: avoid; }
+            .sign-box { text-align: center; width: 180px; }
+            .sign-line { border-bottom: 1.5px dashed #64748b; height: 35px; margin-bottom: 6px; }
           </style>
         </head>
         <body>
-          <div class="header">
-            <img src="/nhc_logo.svg" style="width: 60px; height: 60px; object-fit: contain;" />
-            <div class="title-area">
-              <div class="clinic-name">PUNJAB HOMEOPATHIC CLINIC</div>
-              <div class="sub">HEALING NATURALLY. RESTORING BALANCE.</div>
-              <div style="font-size: 11px; font-weight: bold; color: #334155; margin-top: 4px;">PHC Reg. # R-__________ | Official Financial Ledger Statement</div>
+          <!-- OFFICIAL A4 LETTERHEAD HEADER -->
+          <div class="letterhead-header">
+            <img src="${logoSrc}" style="width: 70px; height: 70px; object-fit: contain;" alt="Logo" />
+            <div class="clinic-brand">
+              <div class="clinic-title">${cName}</div>
+              <div class="clinic-tagline">${cTag}</div>
+              <div class="doc-details">${cDoc} <span style="font-weight: 400; color: #64748b;">(${cDocSub})</span></div>
+              <div class="contact-line">📍 ${cAddr} &nbsp;|&nbsp; 📞 ${cPhone}</div>
             </div>
-            <div style="width: 60px;"></div>
+            <div style="width: 70px; text-align: right;">
+              <span style="font-size: 9px; font-weight: 900; background: #0f172a; color: #fff; padding: 3px 6px; border-radius: 4px;">FINANCIAL</span>
+            </div>
           </div>
 
-          <div style="background: #f3e8ff; border: 1px solid #d8b4fe; padding: 8px 12px; border-radius: 6px; display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 12px;">
-            <div><strong>Report Period:</strong> ${dateLabel}</div>
-            <div><strong>Generated On:</strong> ${new Date().toLocaleString()}</div>
+          <!-- REPORT TITLE & TIMESTAMP BANNER -->
+          <div class="report-banner">
+            <div>
+              <div class="report-title">CASH BOOK & FINANCIAL STATEMENT</div>
+              <div style="font-size: 11px; font-weight: 700; color: #0284c7; margin-top: 2px;">Filter Period: ${dateLabel}</div>
+            </div>
+            <div style="text-align: right; font-size: 10px; color: #475569; font-weight: 600;">
+              <div>Generated On: <strong>${new Date().toLocaleString('en-GB')}</strong></div>
+              <div>Generated By: <strong>${currentUser?.FullName || currentUser?.LoginName || 'Authorized Officer'}</strong></div>
+            </div>
           </div>
 
+          <!-- SUMMARY FINANCIAL CARDS -->
           <div class="summary-grid">
-            <div class="card">
-              <div style="font-size: 10px; font-weight: bold; color: #166534;">TOTAL CASH COLLECTIONS (INFLOW)</div>
-              <div class="card-val" style="color: #15803d;">PKR ${cashBookMetrics.totalInflow.toLocaleString()}</div>
+            <div class="summary-card">
+              <div class="card-label" style="color: #15803d;">TOTAL CASH COLLECTIONS (INFLOW)</div>
+              <div class="card-val" style="color: #15803d;">Rs. ${cashBookMetrics.totalInflow.toLocaleString()}</div>
             </div>
-            <div class="card">
-              <div style="font-size: 10px; font-weight: bold; color: #9f1239;">TOTAL EXPENSES & OUTFLOWS</div>
-              <div class="card-val" style="color: #be123c;">PKR ${cashBookMetrics.totalOutflow.toLocaleString()}</div>
+            <div class="summary-card">
+              <div class="card-label" style="color: #be123c;">TOTAL EXPENSES & OUTFLOWS</div>
+              <div class="card-val" style="color: #be123c;">Rs. ${cashBookMetrics.totalOutflow.toLocaleString()}</div>
             </div>
-            <div class="card" style="background: #faf5ff; border-color: #c084fc;">
-              <div style="font-size: 10px; font-weight: bold; color: #581c87;">NET OPERATING PROFIT / CASH BALANCE</div>
-              <div class="card-val" style="color: ${cashBookMetrics.netBalance >= 0 ? '#15803d' : '#be123c'};">PKR ${cashBookMetrics.netBalance.toLocaleString()}</div>
+            <div class="summary-card" style="background: #f0fdf4; border-color: #86efac;">
+              <div class="card-label" style="color: #166534;">NET OPERATING BALANCE</div>
+              <div class="card-val" style="color: ${cashBookMetrics.netBalance >= 0 ? '#15803d' : '#be123c'};">Rs. ${cashBookMetrics.netBalance.toLocaleString()}</div>
             </div>
           </div>
 
+          <!-- TRANSACTIONS LEDGER TABLE -->
           <table>
             <thead>
               <tr>
-                <th style="width: 30px; text-align: center;">#</th>
-                <th style="width: 80px;">Date</th>
-                <th style="width: 90px;">Ref #</th>
+                <th style="width: 25px; text-align: center;">#</th>
+                <th style="width: 85px;">Date</th>
+                <th style="width: 95px;">Ref / Vch #</th>
                 <th>Particulars / Description</th>
                 <th style="width: 140px;">Category</th>
-                <th style="width: 60px; text-align: center;">Type</th>
-                <th style="width: 110px; text-align: right;">Amount</th>
+                <th style="width: 65px; text-align: center;">Type</th>
+                <th style="width: 110px; text-align: right;">Amount (PKR)</th>
               </tr>
             </thead>
             <tbody>
               ${rowsHtml}
             </tbody>
+            <tfoot>
+              <tr style="background: #f1f5f9; font-weight: bold; border-top: 2px solid #0f172a; font-size: 11px;">
+                <td colspan="6" style="padding: 8px 6px; text-align: right; font-weight: 900; text-transform: uppercase;">Net Operating Ledger Balance:</td>
+                <td style="padding: 8px 6px; text-align: right; font-family: monospace; font-size: 12px; font-weight: 900; color: ${cashBookMetrics.netBalance >= 0 ? '#15803d' : '#be123c'};">
+                  Rs. ${cashBookMetrics.netBalance.toLocaleString()}
+                </td>
+              </tr>
+            </tfoot>
           </table>
 
-          <div style="margin-top: 30px; border-top: 1px solid #94a3b8; padding-top: 10px; display: flex; justify-content: space-between; font-size: 10px; color: #64748b;">
-            <div>Official Cash Ledger Report • Punjab Homeopathic Clinic</div>
-            <div style="text-align: center;">
-              <div style="height: 30px; border-bottom: 1px solid #0284c7; width: 140px; margin-bottom: 4px;"></div>
-              Authorized Doctor / Accounts Signature
+          <!-- LETTERHEAD FOOTER & SIGNATURES -->
+          <div class="footer-sign">
+            <div>
+              <div style="font-weight: 800; color: #0f172a;">Computer Generated Official Ledger Statement</div>
+              <div>${cName} • Finance & Accounts Dept</div>
+            </div>
+            <div style="display: flex; gap: 30px;">
+              <div class="sign-box">
+                <div class="sign-line"></div>
+                <div style="font-weight: 700; font-size: 10px;">Prepared By (Accountant)</div>
+              </div>
+              <div class="sign-box">
+                <div class="sign-line"></div>
+                <div style="font-weight: 800; font-size: 10px; color: #0f172a;">Authorized Doctor / Manager</div>
+              </div>
             </div>
           </div>
         </body>
@@ -734,7 +783,7 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
 
     printWin.document.close();
     printWin.focus();
-    setTimeout(() => printWin.print(), 500);
+    setTimeout(() => printWin.print(), 400);
   };
 
   // Modals visibility state
@@ -843,6 +892,31 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
     PaymentMethod: 'Bank'
   });
 
+  const DEFAULT_EXPENSE_CATEGORIES = useMemo(() => [
+    'Utilities',
+    'Rent',
+    'Maintenance',
+    'Refreshment',
+    'Marketing',
+    'Supplies',
+    'Salaries',
+    'Other'
+  ], []);
+
+  const [customExpenseCategories, setCustomExpenseCategories] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('phc_custom_expense_categories');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [showAddCategoryInput, setShowAddCategoryInput] = useState<boolean>(false);
+  const [newCategoryName, setNewCategoryName] = useState<string>('');
+  const [editingCategoryName, setEditingCategoryName] = useState<string | null>(null);
+  const [editCategoryNewValue, setEditCategoryNewValue] = useState<string>('');
+
   const [expenseForm, setExpenseForm] = useState<Partial<ErpExpense>>({
     Category: 'Utilities',
     Description: '',
@@ -851,6 +925,80 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
     PaymentMethod: 'Cash',
     ReceiptRef: ''
   });
+
+  const allExpenseCategories = useMemo(() => {
+    const existingFromDb = (expenses || []).map(e => e.Category).filter(Boolean);
+    const combined = [...DEFAULT_EXPENSE_CATEGORIES, ...customExpenseCategories, ...existingFromDb];
+    return Array.from(new Set(combined));
+  }, [DEFAULT_EXPENSE_CATEGORIES, customExpenseCategories, expenses]);
+
+  const handleSaveNewCategory = () => {
+    const trimmed = newCategoryName.trim();
+    if (!trimmed) return;
+
+    if (!allExpenseCategories.some(c => c.toLowerCase() === trimmed.toLowerCase())) {
+      const updated = [...customExpenseCategories, trimmed];
+      setCustomExpenseCategories(updated);
+      try {
+        localStorage.setItem('phc_custom_expense_categories', JSON.stringify(updated));
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    setExpenseForm(prev => ({ ...prev, Category: trimmed }));
+    setShowAddCategoryInput(false);
+    setNewCategoryName('');
+  };
+
+  const handleStartEditCategory = (cat: string) => {
+    setEditingCategoryName(cat);
+    setEditCategoryNewValue(cat);
+    setShowAddCategoryInput(false);
+  };
+
+  const handleSaveEditedCategory = () => {
+    if (!editingCategoryName) return;
+    const trimmed = editCategoryNewValue.trim();
+    if (!trimmed) return;
+
+    if (trimmed !== editingCategoryName) {
+      let updatedCustoms = [...customExpenseCategories];
+      if (updatedCustoms.includes(editingCategoryName)) {
+        updatedCustoms = updatedCustoms.map(c => c === editingCategoryName ? trimmed : c);
+      } else {
+        updatedCustoms.push(trimmed);
+      }
+      setCustomExpenseCategories(updatedCustoms);
+      try {
+        localStorage.setItem('phc_custom_expense_categories', JSON.stringify(updatedCustoms));
+      } catch (e) {
+        console.error(e);
+      }
+
+      if (expenseForm.Category === editingCategoryName) {
+        setExpenseForm(prev => ({ ...prev, Category: trimmed }));
+      }
+    }
+
+    setEditingCategoryName(null);
+    setEditCategoryNewValue('');
+  };
+
+  const handleDeleteCategory = (catToDelete: string) => {
+    const updatedCustoms = customExpenseCategories.filter(c => c !== catToDelete);
+    setCustomExpenseCategories(updatedCustoms);
+    try {
+      localStorage.setItem('phc_custom_expense_categories', JSON.stringify(updatedCustoms));
+    } catch (e) {
+      console.error(e);
+    }
+
+    if (expenseForm.Category === catToDelete) {
+      const remaining = allExpenseCategories.filter(c => c !== catToDelete);
+      setExpenseForm(prev => ({ ...prev, Category: remaining[0] || 'Utilities' }));
+    }
+  };
 
   const [assetForm, setAssetForm] = useState<Partial<ErpAsset>>({
     AssetName: '',
@@ -1231,7 +1379,35 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
     setTimeout(() => setSyncMessage(null), 3000);
   };
 
-  // HANDLERS FOR GOODS RECEIVED NOTE (GRN)
+  // HANDLERS FOR GOODS RECEIVED NOTE (GRN) & PARTIAL BATCH RECEIVING
+  const getPoItemsReceiptInfo = (po: ErpPurchaseOrder) => {
+    const approvedGrns = grns.filter(g => g.POID === po.POID && g.Status === 'Approved');
+    return po.Items.map(i => {
+      const ordered = Number(i.Qty) || 0;
+      let alreadyReceived = 0;
+      approvedGrns.forEach(g => {
+        if (Array.isArray(g.Items)) {
+          const matched = g.Items.find(gi => gi.ItemID === i.ItemID || gi.ItemName === i.ItemName);
+          if (matched) {
+            alreadyReceived += Number(matched.ReceivedQty) || 0;
+          }
+        }
+      });
+      const pending = Math.max(0, ordered - alreadyReceived);
+      return {
+        ItemID: i.ItemID,
+        ItemName: i.ItemName,
+        OrderedQty: ordered,
+        AlreadyReceivedQty: alreadyReceived,
+        PendingQty: pending,
+        ReceivedQty: pending, // Default proposal is remaining pending items
+        UnitPrice: i.UnitPrice,
+        LineTotal: pending * i.UnitPrice,
+        BatchNo: i.BatchNo || `B-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`
+      };
+    });
+  };
+
   const handleOpenGrnForPo = (po?: ErpPurchaseOrder) => {
     if (po) {
       setGrnForm({
@@ -1242,21 +1418,13 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
         ReceivedDate: new Date().toISOString().split('T')[0],
         ChallanNo: `DC-${Math.floor(10000 + Math.random() * 90000)}`,
         SupplierInvoiceNo: `INV-${Math.floor(10000 + Math.random() * 90000)}`,
-        Remarks: `Goods received against PO ${po.POID}`,
-        Items: po.Items.map(i => ({
-          ItemID: i.ItemID,
-          ItemName: i.ItemName,
-          OrderedQty: i.Qty,
-          ReceivedQty: i.Qty,
-          UnitPrice: i.UnitPrice,
-          LineTotal: i.LineTotal,
-          BatchNo: i.BatchNo || `B-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`
-        }))
+        Remarks: `Stock inward receiving against PO ${po.POID}`,
+        Items: getPoItemsReceiptInfo(po)
       });
     } else {
-      const firstPo = purchaseOrders.find(p => p.Status !== 'Received') || purchaseOrders[0];
-      if (firstPo) {
-        handleOpenGrnForPo(firstPo);
+      const firstOpenPo = purchaseOrders.find(p => p.Status !== 'Received') || purchaseOrders[0];
+      if (firstOpenPo) {
+        handleOpenGrnForPo(firstOpenPo);
         return;
       } else {
         setGrnForm({
@@ -1283,15 +1451,7 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
         POID: foundPo.POID,
         VendorID: foundPo.VendorID,
         VendorName: foundPo.VendorName,
-        Items: foundPo.Items.map(i => ({
-          ItemID: i.ItemID,
-          ItemName: i.ItemName,
-          OrderedQty: i.Qty,
-          ReceivedQty: i.Qty,
-          UnitPrice: i.UnitPrice,
-          LineTotal: i.LineTotal,
-          BatchNo: i.BatchNo || `B-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`
-        }))
+        Items: getPoItemsReceiptInfo(foundPo)
       }));
     }
   };
@@ -1302,9 +1462,9 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
     if (!grnForm.POID) return alert('Please select a valid Purchase Order ID.');
     if (grnForm.Items.length === 0) return alert('No items in GRN to receive.');
 
-    // Prevent duplicate GRN submission for the same Purchase Order
-    if (grns.some(g => g.POID === grnForm.POID && g.Status === 'Approved')) {
-      return alert('A Goods Received Note (GRN) for this Purchase Order has already been approved! Duplicate entry prevented.');
+    const totalReceivingQty = grnForm.Items.reduce((sum, i) => sum + (Number(i.ReceivedQty) || 0), 0);
+    if (totalReceivingQty <= 0) {
+      return alert('Please enter receiving quantity greater than 0 for at least one item.');
     }
 
     setIsSubmitting(true);
@@ -1325,8 +1485,43 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
       });
       const data = await res.json();
       if (data.success) {
-        // Refresh or update local state collections
-        setPurchaseOrders(prev => prev.map(p => p.POID === grnForm.POID ? { ...p, Status: 'Received' } : p));
+        // Compute updated PO status locally
+        const targetPo = purchaseOrders.find(p => p.POID === grnForm.POID);
+        let calculatedPoStatus: 'Received' | 'Partially Received' | 'Approved' = 'Received';
+
+        if (targetPo) {
+          const approvedGrns = grns.filter(g => g.POID === grnForm.POID && g.Status === 'Approved');
+          let isFullyReceived = true;
+          let isPartiallyReceived = false;
+
+          targetPo.Items.forEach(poItem => {
+            const ordered = Number(poItem.Qty) || 0;
+            let cumulativeReceived = 0;
+            
+            approvedGrns.forEach(g => {
+              if (Array.isArray(g.Items)) {
+                const matched = g.Items.find(gi => gi.ItemID === poItem.ItemID || gi.ItemName === poItem.ItemName);
+                if (matched) cumulativeReceived += Number(matched.ReceivedQty) || 0;
+              }
+            });
+
+            const currentGrnItem = grnForm.Items.find(gi => gi.ItemID === poItem.ItemID || gi.ItemName === poItem.ItemName);
+            if (currentGrnItem) {
+              cumulativeReceived += Number(currentGrnItem.ReceivedQty) || 0;
+            }
+
+            if (cumulativeReceived < ordered) {
+              isFullyReceived = false;
+            }
+            if (cumulativeReceived > 0) {
+              isPartiallyReceived = true;
+            }
+          });
+
+          calculatedPoStatus = isFullyReceived ? 'Received' : (isPartiallyReceived ? 'Partially Received' : 'Approved');
+        }
+
+        setPurchaseOrders(prev => prev.map(p => p.POID === grnForm.POID ? { ...p, Status: calculatedPoStatus } : p));
         
         const newGrnRecord: ErpGrn = {
           GRNID: payload.GRNID,
@@ -1344,6 +1539,8 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
             ItemID: i.ItemID,
             ItemName: i.ItemName,
             OrderedQty: i.OrderedQty,
+            AlreadyReceivedQty: i.AlreadyReceivedQty,
+            PendingQty: i.PendingQty,
             ReceivedQty: i.ReceivedQty,
             UnitPrice: i.UnitPrice,
             LineTotal: i.ReceivedQty * i.UnitPrice
@@ -1365,7 +1562,7 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
         }
 
         setShowGrnModal(false);
-        setSyncMessage('GRN saved successfully!');
+        setSyncMessage(`GRN ${payload.GRNID} approved! Stock updated for PO ${payload.POID} (${calculatedPoStatus === 'Received' ? 'Fully Received' : 'Partially Received'}).`);
         setTimeout(() => setSyncMessage(null), 3000);
         window.dispatchEvent(new CustomEvent('phc_db_updated'));
       } else {
@@ -1398,17 +1595,25 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
   };
 
   const handlePrintGrn = (grn: ErpGrn) => {
-    const printWin = window.open('', '_blank', 'width=800,height=900');
+    const printWin = window.open('', '_blank', 'width=900,height=900');
     if (!printWin) return alert('Popup blocked. Allow popups to print Goods Received Note.');
 
+    const cName = clinicSettings?.ClinicName || 'PUNJAB HOMEOPATHIC CLINIC & PHARMACY WAREHOUSE';
+    const cTag = clinicSettings?.ClinicLogoText || 'HEALING NATURALLY. RESTORING BALANCE.';
+    const cDoc = clinicSettings?.DoctorName || 'Dr. Ejaz Ahmad, D.H.M.S (Pak)';
+    const cDocSub = clinicSettings?.DoctorSignatureText || 'Reg No: 48776 | Homeopathic Medical Specialist';
+    const cAddr = clinicSettings?.ClinicAddress || 'Main Boulevard, Lahore';
+    const cPhone = clinicSettings?.PhoneMobile || '+92 300 1234567';
+    const logoSrc = clinicSettings?.ClinicLogoImage || '/nhc_logo.svg';
+
     const itemsRows = grn.Items.map((item, idx) => `
-      <tr>
-        <td style="text-align: center; border: 1px solid #ccc; padding: 6px;">${idx + 1}</td>
-        <td style="border: 1px solid #ccc; padding: 6px;">${item.ItemID}</td>
-        <td style="border: 1px solid #ccc; padding: 6px; font-weight: bold;">${item.ItemName}</td>
-        <td style="text-align: center; border: 1px solid #ccc; padding: 6px; font-family: monospace; font-weight: bold; color: #b45309;">${item.BatchNo || 'N/A'}</td>
-        <td style="text-align: center; border: 1px solid #ccc; padding: 6px;">${item.OrderedQty}</td>
-        <td style="text-align: center; border: 1px solid #ccc; padding: 6px; font-weight: bold; color: #15803d;">${item.ReceivedQty}</td>
+      <tr style="border-bottom: 1px solid #e2e8f0; font-size: 11px;">
+        <td style="text-align: center; padding: 7px 6px; font-weight: bold; font-family: monospace; color: #64748b;">${idx + 1}</td>
+        <td style="padding: 7px 6px; font-family: monospace; font-weight: bold; color: #475569;">${item.ItemID}</td>
+        <td style="padding: 7px 6px; font-weight: bold; color: #0f172a;">${item.ItemName}</td>
+        <td style="text-align: center; padding: 7px 6px; font-family: monospace; font-weight: bold; color: #b45309; background: #fffbeb;">${item.BatchNo || 'N/A'}</td>
+        <td style="text-align: center; padding: 7px 6px; font-weight: bold; color: #475569;">${item.OrderedQty}</td>
+        <td style="text-align: center; padding: 7px 6px; font-weight: 800; color: #15803d; background: #f0fdf4;">${item.ReceivedQty}</td>
       </tr>
     `).join('');
 
@@ -1418,56 +1623,103 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
         <head>
           <title>Goods Received Note ${grn.GRNID}</title>
           <style>
-            body { font-family: Arial, sans-serif; padding: 20px; font-size: 12px; color: #111; }
-            .header { text-align: center; border-bottom: 2px solid #16a34a; padding-bottom: 10px; margin-bottom: 20px; }
-            .title { font-size: 20px; font-weight: bold; color: #15803d; text-transform: uppercase; }
-            .meta { display: flex; justify-content: space-between; margin-bottom: 20px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-            th { background: #f0fdf4; border: 1px solid #bbf7d0; padding: 8px; font-size: 11px; }
-            .footer { margin-top: 50px; display: flex; justify-content: space-between; font-weight: bold; }
+            @page { size: A4 portrait; margin: 12mm 15mm; }
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #0f172a; margin: 0; padding: 0; background: #fff; line-height: 1.4; }
+            .letterhead-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px double #0f172a; padding-bottom: 12px; margin-bottom: 14px; }
+            .clinic-brand { flex: 1; text-align: center; padding: 0 10px; }
+            .clinic-title { font-size: 20px; font-weight: 900; color: #15803d; letter-spacing: -0.5px; text-transform: uppercase; font-family: Georgia, serif; }
+            .clinic-tagline { font-size: 10px; font-weight: 800; color: #166534; letter-spacing: 1px; margin-top: 2px; text-transform: uppercase; }
+            .doc-details { font-size: 11px; font-weight: 800; color: #1e293b; margin-top: 4px; }
+            .contact-line { font-size: 10px; color: #475569; font-weight: 600; margin-top: 2px; }
+            .report-banner { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+            .report-title { font-size: 14px; font-weight: 900; color: #166534; text-transform: uppercase; letter-spacing: 0.5px; }
+            .meta-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 16px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; font-size: 11px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+            th { background: #166534; color: #ffffff; font-size: 9.5px; text-transform: uppercase; padding: 8px 6px; text-align: left; font-weight: 800; letter-spacing: 0.5px; }
+            .footer-sign { margin-top: 40px; padding-top: 15px; border-top: 1px solid #cbd5e1; display: flex; justify-content: space-between; align-items: flex-end; font-size: 10px; color: #475569; page-break-inside: avoid; }
+            .sign-box { text-align: center; width: 170px; }
+            .sign-line { border-bottom: 1.5px dashed #64748b; height: 35px; margin-bottom: 6px; }
           </style>
         </head>
         <body>
-          <div class="header">
-            <div class="title">GOODS RECEIVED NOTE (GRN)</div>
-            <div>PUNJAB HOMEOPATHIC CLINIC & PHARMACY WAREHOUSE</div>
+          <!-- OFFICIAL A4 LETTERHEAD HEADER -->
+          <div class="letterhead-header">
+            <img src="${logoSrc}" style="width: 70px; height: 70px; object-fit: contain;" alt="Logo" />
+            <div class="clinic-brand">
+              <div class="clinic-title">${cName}</div>
+              <div class="clinic-tagline">${cTag}</div>
+              <div class="doc-details">${cDoc} <span style="font-weight: 400; color: #64748b;">(${cDocSub})</span></div>
+              <div class="contact-line">📍 ${cAddr} &nbsp;|&nbsp; 📞 ${cPhone}</div>
+            </div>
+            <div style="width: 70px; text-align: right;">
+              <span style="font-size: 9px; font-weight: 900; background: #166534; color: #fff; padding: 3px 6px; border-radius: 4px;">STOCK INWARD</span>
+            </div>
           </div>
-          <div class="meta">
+
+          <!-- BANNER -->
+          <div class="report-banner">
             <div>
-              <strong>GRN Number:</strong> ${grn.GRNID}<br/>
-              <strong>PO Ref Number:</strong> ${grn.POID}<br/>
-              <strong>Received Date:</strong> ${grn.ReceivedDate}<br/>
-              <strong>Delivery Challan No:</strong> ${grn.ChallanNo || 'N/A'}
+              <div class="report-title">GOODS RECEIVED NOTE (GRN)</div>
+              <div style="font-size: 11px; font-weight: 700; color: #15803d; margin-top: 2px;">Official Stock Replenishment & Verification Document</div>
+            </div>
+            <div style="text-align: right; font-size: 10px; color: #166534; font-weight: 800; bg-white; padding: 4px 8px; border-radius: 6px; border: 1px solid #86efac;">
+              STATUS: STOCK RECEIVED & APPROVED
+            </div>
+          </div>
+
+          <!-- META DETAILS -->
+          <div class="meta-grid">
+            <div>
+              <div style="margin-bottom: 3px;"><strong>GRN Number:</strong> <span style="font-family: monospace; font-weight: bold; color: #15803d; font-size: 12px;">${grn.GRNID}</span></div>
+              <div style="margin-bottom: 3px;"><strong>PO Ref Number:</strong> <span style="font-family: monospace; font-weight: bold; color: #4338ca;">${grn.POID}</span></div>
+              <div style="margin-bottom: 3px;"><strong>Received Date:</strong> ${grn.ReceivedDate}</div>
+              <div><strong>Delivery Challan No:</strong> ${grn.ChallanNo || 'N/A'}</div>
             </div>
             <div style="text-align: right;">
-              <strong>Supplier / Vendor:</strong> ${grn.VendorName}<br/>
-              <strong>Vendor ID:</strong> ${grn.VendorID}<br/>
-              <strong>Supplier Invoice:</strong> ${grn.SupplierInvoiceNo || 'N/A'}<br/>
-              <strong>Status:</strong> <span style="color: green; font-weight: bold;">STOCK RECEIVED & APPROVED</span>
+              <div style="margin-bottom: 3px;"><strong>Supplier / Vendor:</strong> <span style="font-weight: 800;">${grn.VendorName}</span></div>
+              <div style="margin-bottom: 3px;"><strong>Vendor ID:</strong> ${grn.VendorID || 'N/A'}</div>
+              <div style="margin-bottom: 3px;"><strong>Supplier Invoice #:</strong> <span style="font-family: monospace; font-weight: bold; color: #0284c7;">${grn.SupplierInvoiceNo || 'N/A'}</span></div>
+              <div><strong>Received By:</strong> ${grn.CreatedBy || 'Warehouse Receiver'}</div>
             </div>
           </div>
+
+          <!-- ITEMS TABLE -->
           <table>
             <thead>
               <tr>
-                <th>#</th>
-                <th>Item Code</th>
-                <th>Description / Medicine Name</th>
-                <th>Batch No.</th>
-                <th>Ordered Qty</th>
-                <th>Received Qty (Added to Stock)</th>
+                <th style="width: 25px; text-align: center;">#</th>
+                <th style="width: 90px;">Item Code</th>
+                <th>Medicine Description</th>
+                <th style="width: 100px; text-align: center;">Batch No.</th>
+                <th style="width: 80px; text-align: center;">Ordered Qty</th>
+                <th style="width: 95px; text-align: center;">Received Qty</th>
               </tr>
             </thead>
             <tbody>
               ${itemsRows}
             </tbody>
           </table>
-          <div style="margin-top: 20px;">
-            <strong>Remarks / Verification Note:</strong> ${grn.Remarks || 'All received medicines verified for physical condition & quantity.'}
+
+          <div style="margin-top: 14px; padding: 8px 12px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 11px;">
+            <strong>Remarks / Physical Inspection Note:</strong> ${grn.Remarks || 'All received medicines verified for physical condition, batch integrity & quantity.'}
           </div>
-          <div class="footer">
-            <div>Warehouse Receiver Sign: _________________</div>
-            <div>Quality Inspector Sign: _________________</div>
+
+          <!-- FOOTER SIGNATURES -->
+          <div class="footer-sign">
+            <div class="sign-box">
+              <div class="sign-line"></div>
+              <div style="font-weight: 700;">Warehouse Receiver Sign</div>
+            </div>
+            <div class="sign-box">
+              <div class="sign-line"></div>
+              <div style="font-weight: 700;">Quality Inspector Sign</div>
+            </div>
+            <div class="sign-box">
+              <div class="sign-line"></div>
+              <div style="font-weight: 800; color: #0f172a;">Store Manager / Doctor</div>
+            </div>
           </div>
+
           <script>
             window.onload = function() { window.print(); }
           </script>
@@ -1479,13 +1731,36 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
 
   // HANDLERS FOR TRANSACTIONS & VENDOR BILL PAYMENTS
   const handlePayVendor = (vendor: ErpVendor) => {
+    // Find recent GRN invoice numbers for this vendor
+    const vendorGrns = grns.filter(g => 
+      (g.VendorID && g.VendorID === vendor.VendorID) || 
+      (g.VendorName && g.VendorName.toLowerCase() === vendor.VendorName.toLowerCase())
+    );
+
+    let suggestedInv = '';
+    if (vendorGrns.length > 0) {
+      const latest = vendorGrns.find(g => g.SupplierInvoiceNo) || vendorGrns[0];
+      suggestedInv = latest.SupplierInvoiceNo || latest.ChallanNo || latest.GRNID || '';
+    }
+
+    const userInvNo = prompt(
+      `Enter Vendor Invoice Number / Supplier Bill No for ${vendor.VendorName}:`,
+      suggestedInv
+    );
+
+    if (userInvNo === null) return; // User cancelled prompt
+
+    const invNo = userInvNo.trim();
+
     setTxnForm({
       Type: 'VendorPayment',
       Category: 'Supplier Sales Invoice Payment',
-      Description: `Payment towards outstanding bill for Vendor ${vendor.VendorName} (${vendor.VendorID})`,
+      Description: invNo 
+        ? `Payment against Vendor Invoice #${invNo} for ${vendor.VendorName}`
+        : `Payment towards outstanding bill for Vendor ${vendor.VendorName}`,
       Amount: vendor.Balance > 0 ? vendor.Balance : 0,
       PaymentMethod: 'Bank',
-      ReferenceNo: `PAY-${Date.now().toString().slice(-4)}`,
+      ReferenceNo: invNo,
       Date: new Date().toISOString().split('T')[0],
       VendorID: vendor.VendorID,
       VendorName: vendor.VendorName
@@ -1497,6 +1772,12 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
     e.preventDefault();
     if (isSubmitting) return;
     if (!txnForm.Amount || !txnForm.Category) return alert('Category and Amount are required.');
+
+    if (txnForm.Type === 'VendorPayment') {
+      if (!txnForm.ReferenceNo || txnForm.ReferenceNo.trim() === '') {
+        return alert('Vendor Invoice Number is required to process vendor bill payment.');
+      }
+    }
 
     setIsSubmitting(true);
     try {
@@ -1806,6 +2087,14 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
     const printWin = window.open('', '_blank', 'width=950,height=900');
     if (!printWin) return alert('Popup blocked. Allow popups to print Purchase Order.');
 
+    const cName = clinicSettings?.ClinicName || 'PUNJAB HOMEOPATHIC CLINIC & PHARMACY WAREHOUSE';
+    const cTag = clinicSettings?.ClinicLogoText || 'HEALING NATURALLY. RESTORING BALANCE.';
+    const cDoc = clinicSettings?.DoctorName || 'Dr. Ejaz Ahmad, D.H.M.S (Pak)';
+    const cDocSub = clinicSettings?.DoctorSignatureText || 'Reg No: 48776 | Homeopathic Medical Specialist';
+    const cAddr = clinicSettings?.ClinicAddress || 'Main Boulevard, Lahore';
+    const cPhone = clinicSettings?.PhoneMobile || '+92 300 1234567';
+    const logoSrc = clinicSettings?.ClinicLogoImage || '/nhc_logo.svg';
+
     const totalItems = po.Items.length;
     const colSize = Math.max(1, Math.ceil(totalItems / 3));
 
@@ -1817,7 +2106,7 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
       if (!items || items.length === 0) return `<div style="flex: 1;"></div>`;
 
       const rowsHtml = items.map((item, idx) => `
-        <tr>
+        <tr style="border-bottom: 1px solid #e2e8f0;">
           <td style="text-align: center; border: 1px solid #cbd5e1; padding: 5px; font-weight: bold; color: #475569; width: 26px;">${startIdx + idx + 1}</td>
           <td style="border: 1px solid #cbd5e1; padding: 5px; font-weight: bold; color: #0f172a;">
             ${item.ItemName}
@@ -1831,10 +2120,10 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
         <div style="flex: 1; min-width: 0;">
           <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
             <thead>
-              <tr style="background: #e2e8f0; color: #1e293b;">
-                <th style="border: 1px solid #cbd5e1; padding: 6px; text-align: center; width: 26px;">#</th>
-                <th style="border: 1px solid #cbd5e1; padding: 6px; text-align: left;">Medicine Name</th>
-                <th style="border: 1px solid #cbd5e1; padding: 6px; text-align: center; width: 60px;">Req Qty</th>
+              <tr style="background: #0f172a; color: #ffffff;">
+                <th style="border: 1px solid #334155; padding: 6px; text-align: center; width: 26px; font-size: 9px; text-transform: uppercase;">#</th>
+                <th style="border: 1px solid #334155; padding: 6px; text-align: left; font-size: 9px; text-transform: uppercase;">Medicine Name</th>
+                <th style="border: 1px solid #334155; padding: 6px; text-align: center; width: 60px; font-size: 9px; text-transform: uppercase;">Req Qty</th>
               </tr>
             </thead>
             <tbody>
@@ -1855,31 +2144,60 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
         <head>
           <title>Purchase Order ${po.POID}</title>
           <style>
-            @page { size: A4 portrait; margin: 10mm; }
-            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 12px; font-size: 11px; color: #0f172a; margin: 0; }
-            .header { text-align: center; border-bottom: 2px solid #0284c7; padding-bottom: 8px; margin-bottom: 12px; }
-            .title { font-size: 18px; font-weight: 800; color: #0369a1; text-transform: uppercase; letter-spacing: 0.5px; }
-            .subtitle { font-size: 11px; color: #64748b; font-weight: 600; margin-top: 2px; }
-            .meta { display: flex; justify-content: space-between; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; font-size: 11px; }
+            @page { size: A4 portrait; margin: 12mm 15mm; }
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #0f172a; margin: 0; padding: 0; background: #fff; line-height: 1.4; }
+            .letterhead-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px double #0f172a; padding-bottom: 12px; margin-bottom: 14px; }
+            .clinic-brand { flex: 1; text-align: center; padding: 0 10px; }
+            .clinic-title { font-size: 20px; font-weight: 900; color: #0369a1; letter-spacing: -0.5px; text-transform: uppercase; font-family: Georgia, serif; }
+            .clinic-tagline { font-size: 10px; font-weight: 800; color: #0284c7; letter-spacing: 1px; margin-top: 2px; text-transform: uppercase; }
+            .doc-details { font-size: 11px; font-weight: 800; color: #1e293b; margin-top: 4px; }
+            .contact-line { font-size: 10px; color: #475569; font-weight: 600; margin-top: 2px; }
+            .report-banner { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+            .report-title { font-size: 14px; font-weight: 900; color: #0369a1; text-transform: uppercase; letter-spacing: 0.5px; }
+            .meta-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 16px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; font-size: 11px; }
             .grid-container { display: flex; gap: 10px; align-items: flex-start; width: 100%; }
-            .footer { margin-top: 30px; display: flex; justify-content: space-between; font-weight: bold; font-size: 11px; border-top: 1px dashed #cbd5e1; padding-top: 12px; }
+            .footer-sign { margin-top: 40px; padding-top: 15px; border-top: 1px solid #cbd5e1; display: flex; justify-content: space-between; align-items: flex-end; font-size: 10px; color: #475569; page-break-inside: avoid; }
+            .sign-box { text-align: center; width: 170px; }
+            .sign-line { border-bottom: 1.5px dashed #64748b; height: 35px; margin-bottom: 6px; }
           </style>
         </head>
         <body>
-          <div class="header">
-            <div class="title">OFFICIAL PURCHASE ORDER</div>
-            <div class="subtitle">PUNJAB HOMEOPATHIC CLINIC & PHARMACY WAREHOUSE</div>
+          <!-- OFFICIAL A4 LETTERHEAD HEADER -->
+          <div class="letterhead-header">
+            <img src="${logoSrc}" style="width: 70px; height: 70px; object-fit: contain;" alt="Logo" />
+            <div class="clinic-brand">
+              <div class="clinic-title">${cName}</div>
+              <div class="clinic-tagline">${cTag}</div>
+              <div class="doc-details">${cDoc} <span style="font-weight: 400; color: #64748b;">(${cDocSub})</span></div>
+              <div class="contact-line">📍 ${cAddr} &nbsp;|&nbsp; 📞 ${cPhone}</div>
+            </div>
+            <div style="width: 70px; text-align: right;">
+              <span style="font-size: 9px; font-weight: 900; background: #0369a1; color: #fff; padding: 3px 6px; border-radius: 4px;">PURCHASE</span>
+            </div>
           </div>
-          <div class="meta">
+
+          <!-- BANNER -->
+          <div class="report-banner">
             <div>
-              <strong>PO Ref Number:</strong> <span style="color: #0369a1; font-family: monospace; font-size: 12px;">${po.POID}</span><br/>
-              <strong>Order Date:</strong> ${po.OrderDate}<br/>
-              <strong>Expected Delivery:</strong> ${po.ExpectedDeliveryDate || 'Immediate'}
+              <div class="report-title">OFFICIAL PURCHASE ORDER (PO)</div>
+              <div style="font-size: 11px; font-weight: 700; color: #0284c7; margin-top: 2px;">Medicine Stock Replenishment Order</div>
+            </div>
+            <div style="text-align: right; font-size: 10px; color: #0369a1; font-weight: 800; bg-white; padding: 4px 8px; border-radius: 6px; border: 1px solid #7dd3fc;">
+              STATUS: ${po.Status ? po.Status.toUpperCase() : 'PENDING'}
+            </div>
+          </div>
+
+          <!-- META DETAILS -->
+          <div class="meta-grid">
+            <div>
+              <div style="margin-bottom: 3px;"><strong>PO Ref Number:</strong> <span style="color: #0369a1; font-family: monospace; font-size: 12px; font-weight: bold;">${po.POID}</span></div>
+              <div style="margin-bottom: 3px;"><strong>Order Date:</strong> ${po.OrderDate}</div>
+              <div><strong>Expected Delivery:</strong> ${po.ExpectedDeliveryDate || 'Immediate'}</div>
             </div>
             <div style="text-align: right;">
-              <strong>Supplier / Vendor:</strong> ${po.VendorName}<br/>
-              <strong>Vendor Code:</strong> ${po.VendorID}<br/>
-              <strong>Total Line Items:</strong> ${po.Items.length} Medicines
+              <div style="margin-bottom: 3px;"><strong>Supplier / Vendor:</strong> <span style="font-weight: 800;">${po.VendorName}</span></div>
+              <div style="margin-bottom: 3px;"><strong>Vendor Code:</strong> ${po.VendorID || 'N/A'}</div>
+              <div><strong>Total Line Items:</strong> <span style="font-weight: bold; color: #0284c7;">${po.Items.length} Medicines</span></div>
             </div>
           </div>
 
@@ -1889,12 +2207,22 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
             ${col3Html}
           </div>
 
-          ${po.Notes ? `<div style="margin-top: 12px; padding: 6px 10px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 4px; font-size: 11px;"><strong>Special Notes:</strong> ${po.Notes}</div>` : ''}
+          ${po.Notes ? `<div style="margin-top: 14px; padding: 8px 12px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; font-size: 11px;"><strong>Special Notes / Vendor Instructions:</strong> ${po.Notes}</div>` : ''}
 
-          <div class="footer">
-            <div>Prepared By: Store Manager</div>
-            <div>Verified By: Quality Auditor</div>
-            <div>Approved By: Managing Director</div>
+          <!-- FOOTER SIGNATURES -->
+          <div class="footer-sign">
+            <div class="sign-box">
+              <div class="sign-line"></div>
+              <div style="font-weight: 700;">Store Manager</div>
+            </div>
+            <div class="sign-box">
+              <div class="sign-line"></div>
+              <div style="font-weight: 700;">Quality Auditor</div>
+            </div>
+            <div class="sign-box">
+              <div class="sign-line"></div>
+              <div style="font-weight: 800; color: #0f172a;">Managing Director / Doctor</div>
+            </div>
           </div>
         </body>
       </html>
@@ -2946,9 +3274,13 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
                     <td className="p-3 text-right font-bold text-slate-900">Rs. {po.TotalAmount.toLocaleString()}</td>
                     <td className="p-3 text-center">
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                        po.Status === 'Received' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-blue-100 text-blue-800'
+                        po.Status === 'Received'
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                          : po.Status === 'Partially Received'
+                          ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                          : 'bg-blue-100 text-blue-800'
                       }`}>
-                        {po.Status === 'Received' ? '✓ Received' : po.Status}
+                        {po.Status === 'Received' ? '✓ Fully Received' : po.Status === 'Partially Received' ? '⚡ Partially Received' : po.Status}
                       </span>
                     </td>
                     <td className="p-3 text-center space-x-1.5 whitespace-nowrap">
@@ -2956,10 +3288,10 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
                         <button
                           onClick={() => handleOpenGrnForPo(po)}
                           className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-[11px] font-bold transition inline-flex items-center space-x-1 cursor-pointer"
-                          title="Enter PO Number in GRN to receive stock"
+                          title="Process GRN stock inward for this PO"
                         >
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>Receive Stock (GRN)</span>
+                          <span>{po.Status === 'Partially Received' ? 'Receive Next Batch' : 'Receive Stock (GRN)'}</span>
                         </button>
                       ) : (
                         <span className="text-[11px] font-extrabold text-emerald-600 px-2 py-1 bg-emerald-50 rounded-lg">
@@ -3358,6 +3690,7 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
           patientVisits={patientVisits}
           posSales={posSales}
           currentUser={currentUser}
+          clinicSettings={clinicSettings}
         />
       )}
 
@@ -3917,7 +4250,7 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
                     <option value="">-- Choose Purchase Order --</option>
                     {purchaseOrders.map((p, idx) => (
                       <option key={idx} value={p.POID}>
-                        {p.POID} ({p.VendorName}) - {p.Status === 'Received' ? '✓ Received' : 'Pending'}
+                        {p.POID} ({p.VendorName}) - {p.Status === 'Received' ? '✓ Fully Received' : p.Status === 'Partially Received' ? '⚡ Partially Received' : 'Pending Order'}
                       </option>
                     ))}
                   </select>
@@ -3977,14 +4310,14 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
                 </div>
               </div>
 
-              {/* RECEIVED MEDICINES TABLE */}
+              {/* RECEIVED MEDICINES TABLE WITH PARTIAL DELIVERY COLUMNS */}
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <label className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                    PO Order Items to Receive ({grnForm.Items.length} Line Items)
+                    PO Order Items & Partial Batch Receiving ({grnForm.Items.length} Line Items)
                   </label>
                   <span className="text-[11px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                    Received Quantities will be added directly to Medicine Inventory Stock
+                    Partial receiving supported: Items received now will update inventory instantly
                   </span>
                 </div>
 
@@ -3994,23 +4327,28 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
                       <tr className="bg-slate-100 text-slate-600 font-bold border-b border-slate-200">
                         <th className="p-2.5">Item ID</th>
                         <th className="p-2.5">Medicine Description</th>
-                        <th className="p-2.5 text-center w-28">Batch No.</th>
-                        <th className="p-2.5 text-center w-24">Ordered Qty</th>
-                        <th className="p-2.5 text-center w-28">Received Qty</th>
-                        <th className="p-2.5 text-right w-24">Unit Price</th>
-                        <th className="p-2.5 text-right w-28">Subtotal</th>
+                        <th className="p-2.5 text-center w-24">Batch No.</th>
+                        <th className="p-2.5 text-center w-20">Ordered</th>
+                        <th className="p-2.5 text-center w-20">Prev. Recv</th>
+                        <th className="p-2.5 text-center w-20">Pending</th>
+                        <th className="p-2.5 text-center w-24">Now Receiving</th>
+                        <th className="p-2.5 text-right w-20">Unit Price</th>
+                        <th className="p-2.5 text-right w-24">Subtotal</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {grnForm.Items.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="p-6 text-center text-slate-400 font-medium">
+                          <td colSpan={9} className="p-6 text-center text-slate-400 font-medium">
                             Please select a Purchase Order from above to fetch the ordered medicines!
                           </td>
                         </tr>
                       ) : (
                         grnForm.Items.map((item, idx) => {
+                          const prevReceived = item.AlreadyReceivedQty || 0;
+                          const pending = item.PendingQty ?? Math.max(0, item.OrderedQty - prevReceived);
                           const subtotal = (Number(item.ReceivedQty) || 0) * (Number(item.UnitPrice) || 0);
+
                           return (
                             <tr key={idx} className="hover:bg-slate-50">
                               <td className="p-2.5 font-mono text-slate-500 font-bold">{item.ItemID}</td>
@@ -4028,14 +4366,17 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
                                       return { ...prev, Items: updated };
                                     });
                                   }}
-                                  className="w-24 p-1 border border-amber-200 rounded-lg text-xs text-center font-mono font-bold bg-amber-50 text-amber-900 focus:outline-hidden"
+                                  className="w-22 p-1 border border-amber-200 rounded-lg text-xs text-center font-mono font-bold bg-amber-50 text-amber-900 focus:outline-hidden"
                                 />
                               </td>
                               <td className="p-2.5 text-center font-bold text-slate-600">{item.OrderedQty}</td>
+                              <td className="p-2.5 text-center font-bold text-indigo-600 bg-indigo-50/50">{prevReceived}</td>
+                              <td className="p-2.5 text-center font-bold text-amber-700 bg-amber-50/50">{pending}</td>
                               <td className="p-2.5 text-center">
                                 <input
                                   type="number"
                                   min="0"
+                                  max={pending > 0 ? pending * 2 : 9999}
                                   value={item.ReceivedQty}
                                   onChange={e => {
                                     const val = Number(e.target.value);
@@ -4136,28 +4477,84 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
               </div>
 
               {txnForm.Type === 'VendorPayment' && (
-                <div>
-                  <label className="text-xs font-bold text-slate-700">Select Vendor / Supplier</label>
-                  <select
-                    value={txnForm.VendorName}
-                    onChange={e => {
-                      const v = vendors.find(item => item.VendorName === e.target.value);
-                      setTxnForm({
-                        ...txnForm,
-                        VendorName: e.target.value,
-                        VendorID: v?.VendorID || '',
-                        Amount: v?.Balance || txnForm.Amount || 0
-                      });
-                    }}
-                    className="w-full mt-1 p-2 border rounded-xl text-xs bg-amber-50 font-bold text-amber-900 border-amber-200"
-                  >
-                    <option value="">-- Choose Vendor / Supplier --</option>
-                    {vendors.map((v, idx) => (
-                      <option key={idx} value={v.VendorName}>
-                        {v.VendorName} (Outstanding: Rs. {v.Balance.toLocaleString()})
-                      </option>
-                    ))}
-                  </select>
+                <div className="space-y-3 bg-amber-50/70 p-3 rounded-xl border border-amber-200/80">
+                  <div>
+                    <label className="text-xs font-bold text-amber-900 block mb-1">Select Vendor / Supplier</label>
+                    <select
+                      value={txnForm.VendorName}
+                      onChange={e => {
+                        const v = vendors.find(item => item.VendorName === e.target.value);
+                        setTxnForm({
+                          ...txnForm,
+                          VendorName: e.target.value,
+                          VendorID: v?.VendorID || '',
+                          Amount: v?.Balance || txnForm.Amount || 0
+                        });
+                      }}
+                      className="w-full p-2 border rounded-xl text-xs bg-white font-bold text-slate-800 border-amber-300"
+                    >
+                      <option value="">-- Choose Vendor / Supplier --</option>
+                      {vendors.map((v, idx) => (
+                        <option key={idx} value={v.VendorName}>
+                          {v.VendorName} (Outstanding: Rs. {v.Balance.toLocaleString()})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-amber-900 block mb-1">
+                      Vendor Invoice Number / Bill No <span className="text-rose-600">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={txnForm.ReferenceNo || ''}
+                      onChange={e => setTxnForm({ 
+                        ...txnForm, 
+                        ReferenceNo: e.target.value,
+                        Description: e.target.value ? `Payment against Vendor Invoice #${e.target.value} for ${txnForm.VendorName || 'Vendor'}` : txnForm.Description
+                      })}
+                      placeholder="e.g. INV-90821 or GRN-4321"
+                      className="w-full p-2 border rounded-xl text-xs bg-white font-mono font-bold text-indigo-900 border-amber-300 focus:outline-hidden focus:ring-2 focus:ring-amber-500"
+                    />
+
+                    {(() => {
+                      const matchingGrns = grns.filter(g => 
+                        (txnForm.VendorID && g.VendorID === txnForm.VendorID) ||
+                        (txnForm.VendorName && g.VendorName === txnForm.VendorName)
+                      );
+                      if (matchingGrns.length === 0) return null;
+
+                      return (
+                        <div className="mt-2">
+                          <span className="text-[10px] font-bold text-amber-800 block mb-1">
+                            Available GRNs/Invoices for this Vendor:
+                          </span>
+                          <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                            {matchingGrns.map((g, gIdx) => {
+                              const invLabel = g.SupplierInvoiceNo || g.ChallanNo || g.GRNID;
+                              return (
+                                <button
+                                  type="button"
+                                  key={gIdx}
+                                  onClick={() => setTxnForm({
+                                    ...txnForm,
+                                    ReferenceNo: invLabel,
+                                    Amount: g.TotalAmount || txnForm.Amount || 0,
+                                    Description: `Payment against Vendor Invoice #${invLabel} (${g.GRNID})`
+                                  })}
+                                  className="text-[10px] px-2 py-1 bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg font-mono font-bold transition cursor-pointer"
+                                >
+                                  #{invLabel} (Rs. {(g.TotalAmount || 0).toLocaleString()})
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
               )}
 
@@ -4396,23 +4793,196 @@ export default function ErpDesk({ currentUser, rights }: ErpDeskProps) {
       {showExpenseModal && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
-            <h3 className="font-bold text-slate-900 text-base">Record Operational Expense</h3>
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-slate-900 text-base">Record Operational Expense</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowExpenseModal(false);
+                  setShowAddCategoryInput(false);
+                  setNewCategoryName('');
+                }}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
             <form onSubmit={handleAddExpense} className="space-y-3">
-              <div>
-                <label className="text-xs font-bold text-slate-600">Category</label>
-                <select
-                  value={expenseForm.Category}
-                  onChange={e => setExpenseForm({ ...expenseForm, Category: e.target.value as any })}
-                  className="w-full mt-1 p-2 border rounded-xl text-xs bg-white font-bold"
-                >
-                  <option value="Utilities">Utilities (Electricity / Water)</option>
-                  <option value="Rent">Premises Rent</option>
-                  <option value="Maintenance">Maintenance & Repairs</option>
-                  <option value="Refreshment">Tea & Refreshment</option>
-                  <option value="Marketing">Marketing & Banners</option>
-                  <option value="Supplies">Store Stationary & Supplies</option>
-                  <option value="Other">Other Miscellaneous</option>
-                </select>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700">Categories (Grid View)</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddCategoryInput(!showAddCategoryInput);
+                      setEditingCategoryName(null);
+                      setNewCategoryName('');
+                    }}
+                    className="text-[11px] font-extrabold text-indigo-600 hover:text-indigo-800 flex items-center space-x-1 cursor-pointer bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded-lg border border-indigo-200 transition"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>Add Category</span>
+                  </button>
+                </div>
+
+                {/* Inline New Category Creation Input */}
+                {showAddCategoryInput && (
+                  <div className="p-2.5 bg-indigo-50/90 border border-indigo-200 rounded-xl space-y-2 animate-fadeIn">
+                    <label className="text-[10px] font-extrabold text-indigo-900 uppercase tracking-wide block">
+                      New Category Name
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="text"
+                        value={newCategoryName}
+                        onChange={(e) => setNewCategoryName(e.target.value)}
+                        placeholder="e.g. Generator Fuel, Internet"
+                        className="flex-1 p-2 text-xs border border-indigo-300 rounded-lg bg-white font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleSaveNewCategory();
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSaveNewCategory}
+                        className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg transition cursor-pointer shadow-2xs whitespace-nowrap"
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowAddCategoryInput(false);
+                          setNewCategoryName('');
+                        }}
+                        className="px-2.5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs rounded-lg transition cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Inline Edit Category Input */}
+                {editingCategoryName && (
+                  <div className="p-2.5 bg-amber-50/90 border border-amber-300 rounded-xl space-y-2 animate-fadeIn">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-extrabold text-amber-900 uppercase tracking-wide block">
+                        Edit Category: <span className="underline">{editingCategoryName}</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setEditingCategoryName(null)}
+                        className="text-slate-400 hover:text-slate-600 p-0.5"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="text"
+                        value={editCategoryNewValue}
+                        onChange={(e) => setEditCategoryNewValue(e.target.value)}
+                        className="flex-1 p-2 text-xs border border-amber-300 rounded-lg bg-white font-medium focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleSaveEditedCategory();
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSaveEditedCategory}
+                        className="px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-lg transition cursor-pointer shadow-2xs whitespace-nowrap"
+                      >
+                        Update
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Grid View of Categories */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-40 overflow-y-auto p-1.5 bg-slate-50 border border-slate-200 rounded-xl">
+                  {allExpenseCategories.map((cat) => {
+                    const isSelected = expenseForm.Category === cat;
+
+                    return (
+                      <div
+                        key={cat}
+                        onClick={() => setExpenseForm(prev => ({ ...prev, Category: cat }))}
+                        className={`group p-2 rounded-lg border text-[11px] font-bold transition cursor-pointer flex items-center justify-between gap-1 select-none ${
+                          isSelected
+                            ? 'bg-indigo-600 text-white border-indigo-700 shadow-2xs'
+                            : 'bg-white text-slate-800 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/60'
+                        }`}
+                      >
+                        <span className="truncate flex-1">{cat}</span>
+
+                        <div className="flex items-center space-x-0.5 shrink-0">
+                          {isSelected && (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-white stroke-[2.5]" />
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleStartEditCategory(cat);
+                            }}
+                            title={`Edit ${cat}`}
+                            className={`p-0.5 rounded transition cursor-pointer ${
+                              isSelected
+                                ? 'hover:bg-white/20 text-white/90 hover:text-white'
+                                : 'hover:bg-slate-200 text-slate-400 hover:text-slate-700'
+                            }`}
+                          >
+                            <Edit className="w-3 h-3" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (confirm(`Delete category "${cat}"?`)) {
+                                handleDeleteCategory(cat);
+                              }
+                            }}
+                            title={`Delete ${cat}`}
+                            className={`p-0.5 rounded transition cursor-pointer ${
+                              isSelected
+                                ? 'hover:bg-rose-500/80 text-white/90 hover:text-white'
+                                : 'hover:bg-rose-100 text-slate-400 hover:text-rose-600'
+                            }`}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="pt-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">
+                    Selected Category: <strong className="text-indigo-700">{expenseForm.Category}</strong>
+                  </label>
+                  <select
+                    value={expenseForm.Category}
+                    onChange={e => setExpenseForm({ ...expenseForm, Category: e.target.value })}
+                    className="w-full mt-0.5 p-1.5 border rounded-lg text-xs bg-white font-bold focus:ring-2 focus:ring-indigo-500 text-slate-700"
+                  >
+                    {allExpenseCategories.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <div>
