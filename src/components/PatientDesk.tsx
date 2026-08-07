@@ -614,17 +614,13 @@ export default function PatientDesk({
     if (patId) {
       const todayStr = new Date().toISOString().split('T')[0];
       const matchedAppt = (appointments || []).find(a => a.PatientID === patId && a.AppointmentDate === todayStr);
-      if (matchedAppt?.FeeCharged !== undefined && matchedAppt.FeeCharged !== null) {
+      if (matchedAppt?.FeeCharged !== undefined && matchedAppt.FeeCharged !== null && matchedAppt.FeeCharged > 0) {
         initialOpdFee = String(matchedAppt.FeeCharged);
-      } else if (clinicSettings?.OPDFee) {
-        initialOpdFee = String(clinicSettings.OPDFee);
       } else {
-        initialOpdFee = '1500';
+        initialOpdFee = '';
       }
-    } else if (clinicSettings?.OPDFee) {
-      initialOpdFee = String(clinicSettings.OPDFee);
     } else {
-      initialOpdFee = '1500';
+      initialOpdFee = '';
     }
     setPvOpdFeePkr(initialOpdFee);
     setPvSaveError('');
@@ -770,6 +766,7 @@ export default function PatientDesk({
 
   // States for Token Issue for NEW Patient
   const [isOpdTokenModalOpen, setIsOpdTokenModalOpen] = useState<boolean>(false);
+  const [isSubmittingToken, setIsSubmittingToken] = useState<boolean>(false);
   const [opdTokenModalPatient, setOpdTokenModalPatient] = useState<Patient | null>(null);
   const [tokenIssueMode, setTokenIssueMode] = useState<'existing' | 'new_patient'>('existing');
   const [newPatName, setNewPatName] = useState('');
@@ -859,7 +856,7 @@ export default function PatientDesk({
       patientId: app.PatientID,
       shiftName: app.Shift === 1 ? 'MORNING SHIFT (08:30 - 12:30)' : 'EVENING SHIFT (17:00 - 21:00)',
       date: app.AppointmentDate || new Date().toISOString().split('T')[0],
-      fee: app.FeeCharged !== undefined ? Number(app.FeeCharged) : (clinicSettings?.OPDFee || 1500),
+      fee: app.FeeCharged !== undefined ? Number(app.FeeCharged) : 0,
       appId: app.AppointmentID,
       patientType: getPatientType(app.PatientID),
       remarks: app.Remarks || 'Appointment Booking Receipt'
@@ -959,43 +956,49 @@ export default function PatientDesk({
 
   const handleIssueTokenForNewPatient = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingToken) return;
     if (!newPatName.trim()) {
       setAppError('Patient Name is required for registering new patient.');
       return;
     }
 
-    const newPatId = generatePatientId(patients);
-    
-    const newPatient: Patient = {
-      PatientID: newPatId,
-      PatientName: newPatName.trim(),
-      Father_husband: 'N/A (Quick Register)',
-      AgeYears: 0,
-      Sex: 'Male',
-      MaritalStatus: 'Single',
-      Occupation: 'N/A',
-      Address: 'Address Pending (Quick Registration)',
-      CityID: 1, // Lahore
-      Country: 'Pakistan',
-      PhoneMobile: newPatPhone.trim() || '03000000000',
-      RegistrationDate: new Date().toISOString()
-    };
+    setIsSubmittingToken(true);
+    try {
+      const newPatId = generatePatientId(patients);
+      
+      const newPatient: Patient = {
+        PatientID: newPatId,
+        PatientName: newPatName.trim(),
+        Father_husband: 'N/A (Quick Register)',
+        AgeYears: 0,
+        Sex: 'Male',
+        MaritalStatus: 'Single',
+        Occupation: 'N/A',
+        Address: 'Address Pending (Quick Registration)',
+        CityID: 1, // Lahore
+        Country: 'Pakistan',
+        PhoneMobile: newPatPhone.trim() || '03000000000',
+        RegistrationDate: new Date().toISOString()
+      };
 
-    if (onAddPatient) {
-      onAddPatient(newPatient);
+      if (onAddPatient) {
+        onAddPatient(newPatient);
+      }
+
+      setSelectedPatientId(newPatId);
+      setOpdTokenModalPatient(newPatient);
+      setTokenIssueMode('existing');
+      setExistingFee('');
+      setNewPatName('');
+      setNewPatPhone('');
+      setNewPatFee('');
+      setNewPatRemarks('');
+      setAppError('');
+      setAppSuccess(`New Patient ${newPatient.PatientName} (${newPatId}) registered! Ready to issue token.`);
+      setTimeout(() => setAppSuccess(''), 5000);
+    } finally {
+      setIsSubmittingToken(false);
     }
-
-    setSelectedPatientId(newPatId);
-    setOpdTokenModalPatient(newPatient);
-    setTokenIssueMode('existing');
-    setExistingFee('');
-    setNewPatName('');
-    setNewPatPhone('');
-    setNewPatFee('');
-    setNewPatRemarks('');
-    setAppError('');
-    setAppSuccess(`New Patient ${newPatient.PatientName} (${newPatId}) registered! Ready to issue token.`);
-    setTimeout(() => setAppSuccess(''), 5000);
   };
 
   const handlePrintPreviousVisitPrescription = (group: any) => {
@@ -4595,6 +4598,7 @@ export default function PatientDesk({
   // Appointment Booking & Token Issuance Handler
   const handleBookAppointment = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingToken) return;
     if (!canAdd) {
       setAppError('Unauthorized: Your role does not permit booking appointments.');
       return;
@@ -4612,157 +4616,176 @@ export default function PatientDesk({
 
     const realTodayStr = new Date().toISOString().split('T')[0];
 
-    // Check if an appointment was ALREADY pre-booked for this patient on the selected appDate
-    const existingPreBookedApp = appointments.find(
-      (a) => a.PatientID === selectedPatientId && a.AppointmentDate === appDate && a.Status !== 3
+    // Check if a token was ALREADY issued for this patient today (prevent duplicate token generation)
+    const existingActiveTodayToken = tokens.find(
+      (t) => t.PatientID === selectedPatientId && (t.Date === appDate || (!t.Date && appDate === realTodayStr)) && t.Status !== 3
     );
 
-    const feeVal = existingFee !== '' && !isNaN(Number(existingFee))
-      ? Number(existingFee)
-      : 0;
+    if (existingActiveTodayToken && appDate === realTodayStr) {
+      const confirmIssue = window.confirm(
+        `[DUPLICATE TOKEN WARNING]\n\nToken #${existingActiveTodayToken.TokenNo} has ALREADY been issued for ${patient.PatientName} (${patient.PatientID}) today (${appDate}).\n\nAre you sure you want to issue ANOTHER token for this patient?`
+      );
+      if (!confirmIssue) {
+        return;
+      }
+    }
 
-    let activeAppId = '';
+    setIsSubmittingToken(true);
+    try {
+      // Check if an appointment was ALREADY pre-booked for this patient on the selected appDate
+      const existingPreBookedApp = appointments.find(
+        (a) => a.PatientID === selectedPatientId && a.AppointmentDate === appDate && a.Status !== 3
+      );
 
-    // CASE 1: Future Advance Appointment Booking (appDate > today)
-    if (appDate !== realTodayStr) {
-      if (!existingPreBookedApp) {
+      const feeVal = existingFee !== '' && !isNaN(Number(existingFee))
+        ? Number(existingFee)
+        : 0;
+
+      let activeAppId = '';
+
+      // CASE 1: Future Advance Appointment Booking (appDate > today)
+      if (appDate !== realTodayStr) {
+        if (!existingPreBookedApp) {
+          let nextAppNum = appointments.length + 1;
+          let newAppId = `APP-${String(nextAppNum).padStart(3, '0')}`;
+          while (appointments.some((a) => a.AppointmentID === newAppId)) {
+            nextAppNum++;
+            newAppId = `APP-${String(nextAppNum).padStart(3, '0')}`;
+          }
+          const newApp: Appointment = {
+            AppointmentID: newAppId,
+            PatientID: selectedPatientId,
+            AppointmentDate: appDate,
+            Shift: shift,
+            Status: 1, // New
+            Remarks: remarks || 'Advance Appointment Booking',
+            FeeCharged: feeVal
+          };
+          onAddAppointment(newApp);
+          activeAppId = newAppId;
+        } else {
+          activeAppId = existingPreBookedApp.AppointmentID;
+        }
+
+        setAppError('');
+        setFutureBookingModal({
+          isOpen: true,
+          patientName: patient.PatientName,
+          patientId: patient.PatientID,
+          phoneMobile: patient.PhoneMobile,
+          date: appDate,
+          shift: shift
+        });
+        setAppSuccess(`Advance appointment booked for ${patient.PatientName} on ${appDate}. Appointment Fee PKR ${existingPreBookedApp ? existingPreBookedApp.FeeCharged : feeVal} recorded/paid. Token will be issued when patient arrives on appointment date.`);
+        setSelectedPatientId('');
+        setRemarks('');
+        setIsOpdTokenModalOpen(false);
+        setOpdTokenModalPatient(null);
+        setTimeout(() => setAppSuccess(''), 6000);
+        return;
+      }
+
+      // CASE 2 & 3: Token Issuance on Appointment Date (appDate === realTodayStr)
+      let tokenFeeToCharge = feeVal;
+      let finalRemarks = remarks || 'Routine OPD check';
+      let isPrepaidAppointment = false;
+
+      if (existingPreBookedApp) {
+        // Patient already booked and paid for this appointment in advance!
+        activeAppId = existingPreBookedApp.AppointmentID;
+        tokenFeeToCharge = 0; // PKR 0 today because fee was ALREADY paid at booking time
+        isPrepaidAppointment = true;
+        finalRemarks = remarks ? `${remarks} (Pre-booked - Fee Paid)` : `Pre-booked Appointment - Fee PKR ${existingPreBookedApp.FeeCharged || 0} Paid on Booking`;
+      } else {
+        // Direct Walk-In Today: Create appointment record with today's fee
         let nextAppNum = appointments.length + 1;
         let newAppId = `APP-${String(nextAppNum).padStart(3, '0')}`;
         while (appointments.some((a) => a.AppointmentID === newAppId)) {
           nextAppNum++;
           newAppId = `APP-${String(nextAppNum).padStart(3, '0')}`;
         }
+        activeAppId = newAppId;
         const newApp: Appointment = {
           AppointmentID: newAppId,
           PatientID: selectedPatientId,
           AppointmentDate: appDate,
           Shift: shift,
           Status: 1, // New
-          Remarks: remarks || 'Advance Appointment Booking',
-          FeeCharged: feeVal
+          Remarks: finalRemarks,
+          FeeCharged: tokenFeeToCharge
         };
         onAddAppointment(newApp);
-        activeAppId = newAppId;
+      }
+
+      // Auto generate sequential daily token for this date across all shifts
+      const todayStr = new Date().toISOString().split('T')[0];
+      const dailyTokens = tokens.filter((t) => t.Date === appDate || (!t.Date && appDate === todayStr));
+      const maxTokenNo = dailyTokens.reduce((max, t) => Math.max(max, t.TokenNo || 0), 0);
+      const nextTokenNo = maxTokenNo + 1;
+
+      const newToken: Token = {
+        TokenNo: nextTokenNo,
+        PatientID: selectedPatientId,
+        Shift: shift,
+        Status: 1, // New / Waiting
+        Date: appDate
+      };
+
+      onAddToken(newToken);
+
+      // Automated SMS Sending engine
+      if (smsSettings && smsSettings.Enabled) {
+        const prevVisitsCount = appointments.filter((a) => a.PatientID === selectedPatientId).length;
+        const isRepeat = prevVisitsCount > 0;
+        const template = isRepeat ? smsSettings.RepeatTemplate : smsSettings.BookingTemplate;
+        
+        const parsedMessage = template
+          .replace(/{PATIENT}/g, patient.PatientName)
+          .replace(/{TOKEN}/g, String(nextTokenNo))
+          .replace(/{SHIFT}/g, shift === 1 ? 'Morning' : 'Evening')
+          .replace(/{DATE}/g, appDate)
+          .replace(/{APPID}/g, activeAppId);
+
+        setSmsSentToast({
+          recipient: patient.PhoneMobile,
+          message: parsedMessage,
+          provider: smsSettings.Provider
+        });
+
+        console.log(`[AUTOMATED SMS DISPATCH] Sent to: ${patient.PhoneMobile} via provider [${smsSettings.Provider.toUpperCase()}] message: "${parsedMessage}"`);
+      }
+
+      // Load thermal ticket printing data and open popup
+      setThermalPrintData({
+        tokenNo: nextTokenNo,
+        patientName: patient.PatientName,
+        patientId: patient.PatientID,
+        shiftName: shift === 1 ? 'MORNING (08:30 - 12:30)' : 'EVENING (17:00 - 21:00)',
+        date: appDate,
+        fee: tokenFeeToCharge,
+        feeNote: isPrepaidAppointment ? `PREPAID (Fee PKR ${existingPreBookedApp?.FeeCharged || 0} Paid on Booking)` : undefined,
+        appId: activeAppId,
+        patientType: getPatientType(patient.PatientID),
+        remarks: finalRemarks
+      });
+      setThermalPrintOpen(true);
+
+      if (isPrepaidAppointment) {
+        setAppSuccess(`Pre-Booked Appointment Token No: ${nextTokenNo} allocated for ${shift === 1 ? 'Morning' : 'Evening'} shift. Fee: PKR 0 (Prepaid - PKR ${existingPreBookedApp?.FeeCharged || 0} paid on booking).`);
       } else {
-        activeAppId = existingPreBookedApp.AppointmentID;
+        setAppSuccess(`Appointment booked & Token No: ${nextTokenNo} allocated for ${shift === 1 ? 'Morning' : 'Evening'} shift. Fee: PKR ${tokenFeeToCharge} charged.`);
       }
 
       setAppError('');
-      setFutureBookingModal({
-        isOpen: true,
-        patientName: patient.PatientName,
-        patientId: patient.PatientID,
-        phoneMobile: patient.PhoneMobile,
-        date: appDate,
-        shift: shift
-      });
-      setAppSuccess(`Advance appointment booked for ${patient.PatientName} on ${appDate}. Appointment Fee PKR ${existingPreBookedApp ? existingPreBookedApp.FeeCharged : feeVal} recorded/paid. Token will be issued when patient arrives on appointment date.`);
       setSelectedPatientId('');
       setRemarks('');
       setIsOpdTokenModalOpen(false);
       setOpdTokenModalPatient(null);
+
       setTimeout(() => setAppSuccess(''), 6000);
-      return;
+    } finally {
+      setIsSubmittingToken(false);
     }
-
-    // CASE 2 & 3: Token Issuance on Appointment Date (appDate === realTodayStr)
-    let tokenFeeToCharge = feeVal;
-    let finalRemarks = remarks || 'Routine OPD check';
-    let isPrepaidAppointment = false;
-
-    if (existingPreBookedApp) {
-      // Patient already booked and paid for this appointment in advance!
-      activeAppId = existingPreBookedApp.AppointmentID;
-      tokenFeeToCharge = 0; // PKR 0 today because fee was ALREADY paid at booking time
-      isPrepaidAppointment = true;
-      finalRemarks = remarks ? `${remarks} (Pre-booked - Fee Paid)` : `Pre-booked Appointment - Fee PKR ${existingPreBookedApp.FeeCharged || 1500} Paid on Booking`;
-    } else {
-      // Direct Walk-In Today: Create appointment record with today's fee
-      let nextAppNum = appointments.length + 1;
-      let newAppId = `APP-${String(nextAppNum).padStart(3, '0')}`;
-      while (appointments.some((a) => a.AppointmentID === newAppId)) {
-        nextAppNum++;
-        newAppId = `APP-${String(nextAppNum).padStart(3, '0')}`;
-      }
-      activeAppId = newAppId;
-      const newApp: Appointment = {
-        AppointmentID: newAppId,
-        PatientID: selectedPatientId,
-        AppointmentDate: appDate,
-        Shift: shift,
-        Status: 1, // New
-        Remarks: finalRemarks,
-        FeeCharged: tokenFeeToCharge
-      };
-      onAddAppointment(newApp);
-    }
-
-    // Auto generate sequential daily token for this date across all shifts (unique per day to prevent duplicate token # per shift)
-    const todayStr = new Date().toISOString().split('T')[0];
-    const dailyTokens = tokens.filter((t) => t.Date === appDate || (!t.Date && appDate === todayStr));
-    const maxTokenNo = dailyTokens.reduce((max, t) => Math.max(max, t.TokenNo || 0), 0);
-    const nextTokenNo = maxTokenNo + 1;
-
-    const newToken: Token = {
-      TokenNo: nextTokenNo,
-      PatientID: selectedPatientId,
-      Shift: shift,
-      Status: 1, // New / Waiting
-      Date: appDate
-    };
-
-    onAddToken(newToken);
-
-    // Automated SMS Sending engine
-    if (smsSettings && smsSettings.Enabled) {
-      const prevVisitsCount = appointments.filter((a) => a.PatientID === selectedPatientId).length;
-      const isRepeat = prevVisitsCount > 0;
-      const template = isRepeat ? smsSettings.RepeatTemplate : smsSettings.BookingTemplate;
-      
-      const parsedMessage = template
-        .replace(/{PATIENT}/g, patient.PatientName)
-        .replace(/{TOKEN}/g, String(nextTokenNo))
-        .replace(/{SHIFT}/g, shift === 1 ? 'Morning' : 'Evening')
-        .replace(/{DATE}/g, appDate)
-        .replace(/{APPID}/g, activeAppId);
-
-      setSmsSentToast({
-        recipient: patient.PhoneMobile,
-        message: parsedMessage,
-        provider: smsSettings.Provider
-      });
-
-      console.log(`[AUTOMATED SMS DISPATCH] Sent to: ${patient.PhoneMobile} via provider [${smsSettings.Provider.toUpperCase()}] message: "${parsedMessage}"`);
-    }
-
-    // Load thermal ticket printing data and open popup
-    setThermalPrintData({
-      tokenNo: nextTokenNo,
-      patientName: patient.PatientName,
-      patientId: patient.PatientID,
-      shiftName: shift === 1 ? 'MORNING (08:30 - 12:30)' : 'EVENING (17:00 - 21:00)',
-      date: appDate,
-      fee: tokenFeeToCharge,
-      feeNote: isPrepaidAppointment ? `PREPAID (Fee PKR ${existingPreBookedApp?.FeeCharged || 1500} Paid on Booking)` : undefined,
-      appId: activeAppId,
-      patientType: getPatientType(patient.PatientID),
-      remarks: finalRemarks
-    });
-    setThermalPrintOpen(true);
-
-    if (isPrepaidAppointment) {
-      setAppSuccess(`Pre-Booked Appointment Token No: ${nextTokenNo} allocated for ${shift === 1 ? 'Morning' : 'Evening'} shift. Fee: PKR 0 (Prepaid - PKR ${existingPreBookedApp?.FeeCharged || 1500} paid on booking).`);
-    } else {
-      setAppSuccess(`Appointment booked & Token No: ${nextTokenNo} allocated for ${shift === 1 ? 'Morning' : 'Evening'} shift. Fee: PKR ${tokenFeeToCharge} charged.`);
-    }
-
-    setAppError('');
-    setSelectedPatientId('');
-    setRemarks('');
-    setIsOpdTokenModalOpen(false);
-    setOpdTokenModalPatient(null);
-
-    setTimeout(() => setAppSuccess(''), 6000);
   };
 
   // Advanced Token queue handlers
@@ -4813,9 +4836,15 @@ export default function PatientDesk({
 
   const handleCancelQueue = (tok: Token) => {
     if (!canDeleteToken && !canCallServeToken) {
-      alert('Access Control Security: You do not have permission to delete / cancel queue tokens. Administrator rights required.');
+      alert('Access Control Security: You do not have permission to delete queue tokens. Administrator rights required.');
       return;
     }
+
+    const patName = getPatientName(tok.PatientID);
+    const confirmDelete = window.confirm(
+      `[DELETE TOKEN CONFIRMATION]\n\nAre you sure you want to DELETE Token #${tok.TokenNo} for ${patName} (${tok.PatientID})?\n\nIf this token was issued by mistake, deleting it will remove it from the active waiting queue.`
+    );
+    if (!confirmDelete) return;
 
     if (onDeleteToken) {
       onDeleteToken(tok.TokenNo, tok.Shift);
@@ -4826,9 +4855,12 @@ export default function PatientDesk({
     const app = appointments.find(
       (a) => a.PatientID === tok.PatientID && a.AppointmentDate === tok.Date && a.Shift === tok.Shift && (a.Status === 1 || a.Status === 2)
     );
-    if (app) {
+    if (app && onUpdateAppointmentStatus) {
       onUpdateAppointmentStatus(app.AppointmentID, 3); // Canceled
     }
+
+    setAppSuccess(`Token #${tok.TokenNo} for ${patName} deleted successfully.`);
+    setTimeout(() => setAppSuccess(''), 5000);
   };
 
   // Find Patient Details helper
@@ -8630,7 +8662,7 @@ export default function PatientDesk({
                           const isSelected = selectedAppId === app.AppointmentID;
                           const patientNameStr = pat?.PatientName || app.PatientID;
                           const mobileStr = pat?.PhoneMobile || 'N/A';
-                          const feeVal = app.FeeCharged || 1500;
+                          const feeVal = app.FeeCharged !== undefined && app.FeeCharged !== null ? app.FeeCharged : 0;
 
                           return (
                             <tr
@@ -9074,7 +9106,7 @@ export default function PatientDesk({
                     <label className="block text-xxs font-bold text-slate-600 uppercase">Appointment Fees (PKR)</label>
                     <input
                       type="number"
-                      placeholder="PKR"
+                      placeholder="Enter fee (leave empty for PKR 0)"
                       value={formFeeCharged}
                       onChange={(e) => setFormFeeCharged(e.target.value)}
                       className="mt-1 w-full text-xs border border-slate-300 rounded-lg p-2.5 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-mono font-bold text-emerald-800 text-sm"
@@ -9177,7 +9209,7 @@ export default function PatientDesk({
                     <label className="block text-xxs font-bold text-slate-600 uppercase">Appointment Fees (PKR)</label>
                     <input
                       type="number"
-                      placeholder="PKR"
+                      placeholder="Enter fee (leave empty for PKR 0)"
                       value={formFeeCharged}
                       onChange={(e) => setFormFeeCharged(e.target.value)}
                       className="mt-1 w-full text-xs border border-slate-300 rounded-lg p-2.5 focus:ring-1 focus:ring-blue-500 focus:outline-none font-mono font-bold text-emerald-800 text-sm"
@@ -9340,7 +9372,7 @@ export default function PatientDesk({
                                   patientId: tok.PatientID,
                                   shiftName: 'MORNING SHIFT (08:30 - 12:30)',
                                   date: tok.Date,
-                                  fee: matchedApp?.FeeCharged !== undefined ? matchedApp.FeeCharged : (clinicSettings?.OPDFee || 1500),
+                                  fee: matchedApp?.FeeCharged !== undefined && matchedApp?.FeeCharged !== null ? matchedApp.FeeCharged : 0,
                                   appId: matchedApp?.AppointmentID || 'N/A',
                                   patientType: getPatientType(tok.PatientID)
                                 });
@@ -9359,11 +9391,13 @@ export default function PatientDesk({
                               <span>Call Patient</span>
                             </button>
                             <button
+                              type="button"
                               onClick={() => handleCancelQueue(tok)}
-                              className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-600 text-xxs font-bold rounded flex items-center transition"
+                              className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-800 text-xxs font-bold rounded flex items-center transition border border-rose-200 cursor-pointer shadow-2xs"
+                              title="Delete token if issued by mistake"
                             >
-                              <Ban className="w-3 h-3 mr-1" />
-                              <span>Cancel</span>
+                              <Trash2 className="w-3 h-3 mr-1" />
+                              <span>Delete Token</span>
                             </button>
                           </div>
                         </div>
@@ -9429,7 +9463,7 @@ export default function PatientDesk({
                                   patientId: tok.PatientID,
                                   shiftName: 'EVENING SHIFT (17:00 - 21:00)',
                                   date: tok.Date,
-                                  fee: matchedApp?.FeeCharged !== undefined ? matchedApp.FeeCharged : (clinicSettings?.OPDFee || 1500),
+                                  fee: matchedApp?.FeeCharged !== undefined && matchedApp?.FeeCharged !== null ? matchedApp.FeeCharged : 0,
                                   appId: matchedApp?.AppointmentID || 'N/A',
                                   patientType: getPatientType(tok.PatientID)
                                 });
@@ -9448,11 +9482,13 @@ export default function PatientDesk({
                               <span>Call Patient</span>
                             </button>
                             <button
+                              type="button"
                               onClick={() => handleCancelQueue(tok)}
-                              className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-600 text-xxs font-bold rounded flex items-center transition"
+                              className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-800 text-xxs font-bold rounded flex items-center transition border border-rose-200 cursor-pointer shadow-2xs"
+                              title="Delete token if issued by mistake"
                             >
-                              <Ban className="w-3 h-3 mr-1" />
-                              <span>Cancel</span>
+                              <Trash2 className="w-3 h-3 mr-1" />
+                              <span>Delete Token</span>
                             </button>
                           </div>
                         </div>
@@ -9532,7 +9568,7 @@ export default function PatientDesk({
                                   patientId: tok.PatientID,
                                   shiftName: tok.Shift === 1 ? 'MORNING SHIFT (08:00 - 14:00)' : 'EVENING SHIFT (14:00 - 20:00)',
                                   date: tok.Date,
-                                  fee: matchedApp?.FeeCharged !== undefined ? matchedApp.FeeCharged : (clinicSettings?.OPDFee || 1500),
+                                  fee: matchedApp?.FeeCharged !== undefined && matchedApp?.FeeCharged !== null ? matchedApp.FeeCharged : 0,
                                   appId: matchedApp?.AppointmentID || 'N/A',
                                   patientType: getPatientType(tok.PatientID)
                                 });
@@ -9550,6 +9586,15 @@ export default function PatientDesk({
                             >
                               <Volume2 className="w-3 h-3 mr-1" />
                               <span>Repeat Voice</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleCancelQueue(tok)}
+                              className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-800 text-xxs font-bold rounded flex items-center transition border border-rose-200 cursor-pointer"
+                              title="Delete token if issued by mistake"
+                            >
+                              <Trash2 className="w-3 h-3 mr-1" />
+                              <span>Delete</span>
                             </button>
                           </div>
                         </div>
@@ -12112,7 +12157,7 @@ export default function PatientDesk({
                             </p>
                             <div className="bg-white/90 p-2 rounded-lg border border-emerald-200 text-xs flex justify-between items-center">
                               <span className="font-semibold text-slate-700">Fee Paid on Booking:</span>
-                              <span className="font-mono font-black text-emerald-800">PKR {Number(activePreBookedApp.FeeCharged || 1500).toLocaleString()}</span>
+                              <span className="font-mono font-black text-emerald-800">PKR {Number(activePreBookedApp.FeeCharged || 0).toLocaleString()}</span>
                             </div>
                             <div className="bg-emerald-100/90 px-2.5 py-1.5 rounded-md text-[11px] font-bold text-emerald-950 flex justify-between items-center">
                               <span>Fee Charged Today for Token:</span>
@@ -12127,7 +12172,7 @@ export default function PatientDesk({
                           <label className="block text-xxs font-bold text-slate-500 uppercase">Appointment / OPD Fee Charged (PKR)</label>
                           <input
                             type="text"
-                            placeholder="e.g. 1500"
+                            placeholder="Enter fee in PKR (leave empty for PKR 0)"
                             value={existingFee}
                             onChange={(e) => setExistingFee(e.target.value)}
                             className="mt-1 w-full text-xs border border-slate-300 font-mono font-bold text-slate-800 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
@@ -12147,9 +12192,11 @@ export default function PatientDesk({
                         <div className="pt-2">
                           <button
                             type="submit"
-                            disabled={!selectedPatientId || !canAdd || (isFuture ? !canBookAppointment : !canIssueToken)}
+                            disabled={isSubmittingToken || !selectedPatientId || !canAdd || (isFuture ? !canBookAppointment : !canIssueToken)}
                             className={`w-full py-3 disabled:opacity-50 text-white text-xs font-extrabold rounded-xl shadow-md transition flex items-center justify-center space-x-2 cursor-pointer ${
-                              (!canIssueToken && !isFuture) || (!canBookAppointment && isFuture)
+                              isSubmittingToken
+                                ? 'bg-emerald-800 cursor-wait'
+                                : (!canIssueToken && !isFuture) || (!canBookAppointment && isFuture)
                                 ? 'bg-slate-400 cursor-not-allowed'
                                 : activePreBookedApp
                                 ? 'bg-emerald-700 hover:bg-emerald-800'
@@ -12158,16 +12205,25 @@ export default function PatientDesk({
                                 : 'bg-emerald-600 hover:bg-emerald-700'
                             }`}
                           >
-                            <Ticket className="w-4 h-4" />
-                            <span>
-                              {(!canIssueToken && !isFuture) || (!canBookAppointment && isFuture)
-                                ? 'Access Restricted - Permission Denied'
-                                : activePreBookedApp
-                                ? 'Issue Token (PKR 0 - Prepaid) & Print Slip'
-                                : isFuture
-                                ? 'Book Future Appointment & Record Fee'
-                                : 'Issue OPD Token & Print Slip'}
-                            </span>
+                            {isSubmittingToken ? (
+                              <div className="flex items-center space-x-2">
+                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                <span>Processing Token...</span>
+                              </div>
+                            ) : (
+                              <>
+                                <Ticket className="w-4 h-4" />
+                                <span>
+                                  {(!canIssueToken && !isFuture) || (!canBookAppointment && isFuture)
+                                    ? 'Access Restricted - Permission Denied'
+                                    : activePreBookedApp
+                                    ? 'Issue Token (PKR 0 - Prepaid) & Print Slip'
+                                    : isFuture
+                                    ? 'Book Future Appointment & Record Fee'
+                                    : 'Issue OPD Token & Print Slip'}
+                                </span>
+                              </>
+                            )}
                           </button>
                         </div>
                       );

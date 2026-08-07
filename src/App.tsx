@@ -86,7 +86,6 @@ const MENU_ITEMS = [
   { id: 'nhc_history', label: 'Patient Record', icon: DatabaseBackup, restricted: false },
   { id: 'patients', label: 'Patients', icon: Users, restricted: true },
   { id: 'pharmacy', label: 'Store & Dispensary', icon: ShoppingCart, restricted: true },
-  { id: 'accounts', label: 'Double-Entry Accounting', icon: BookOpen, restricted: true },
   { id: 'uploads', label: 'Uploading', icon: UploadCloud, restricted: true },
   { id: 'reports', label: 'Financials', icon: BarChart3, restricted: true },
   { id: 'query_handler', label: 'Query Handler Console', icon: Code, restricted: true },
@@ -98,7 +97,6 @@ const Dashboard = lazy(() => import('./components/Dashboard'));
 const ErpDesk = lazy(() => import('./components/ErpDesk'));
 const PatientDesk = lazy(() => import('./components/PatientDesk'));
 const PharmacyPOS = lazy(() => import('./components/PharmacyPOS'));
-const AccountingDesk = lazy(() => import('./components/AccountingDesk'));
 const UploadingDesk = lazy(() => import('./components/UploadingDesk'));
 const SettingsDesk = lazy(() => import('./components/SettingsDesk'));
 const ReportingDesk = lazy(() => import('./components/ReportingDesk'));
@@ -112,7 +110,6 @@ import {
   DashboardSkeleton,
   PatientDeskSkeleton,
   PharmacyPOSSkeleton,
-  AccountingDeskSkeleton,
   UploadingDeskSkeleton,
   ReportingDeskSkeleton,
   SettingsDeskSkeleton,
@@ -463,7 +460,7 @@ export default function App() {
       if (currentUser.Role === 'Pharmacist') {
         setActiveTab('pharmacy');
       } else if (currentUser.Role === 'Accountant') {
-        setActiveTab('accounts');
+        setActiveTab('reports');
       } else {
         setActiveTab('patients');
       }
@@ -570,7 +567,7 @@ export default function App() {
           PatientID: newToken.PatientID,
           AppointmentDate: tokenDate,
           Shift: newToken.Shift,
-          FeeCharged: 1500,
+          FeeCharged: (newToken as any).FeeCharged !== undefined ? Number((newToken as any).FeeCharged) : 0,
           Remarks: 'Future Appointment Booking (Token Process Cancelled)',
           Status: 1
         };
@@ -2040,7 +2037,7 @@ export default function App() {
     } else if (user.Role === 'Pharmacist') {
       setActiveTab('pharmacy');
     } else if (user.Role === 'Accountant') {
-      setActiveTab('accounts');
+      setActiveTab('reports');
     } else if (user.Role === 'Receptionist') {
       setActiveTab('patients');
     } else {
@@ -2165,7 +2162,7 @@ export default function App() {
                         const isAccountant = selected.Role === 'Accountant';
                         const canAccessReports = isAdmin || isAccountant;
                         
-                        const fallbackDesk = selected.Role === 'Pharmacist' ? 'pharmacy' : selected.Role === 'Accountant' ? 'accounts' : 'patients';
+                        const fallbackDesk = selected.Role === 'Pharmacist' ? 'pharmacy' : selected.Role === 'Accountant' ? 'reports' : 'patients';
                         if (activeTab === 'dashboard' && !isAdmin) {
                           handleTabChange(fallbackDesk);
                         } else if (activeTab === 'settings' && !isAdmin) {
@@ -2174,14 +2171,6 @@ export default function App() {
                           handleTabChange(fallbackDesk);
                         } else if (activeTab === 'reports' && !canAccessReports) {
                           handleTabChange(fallbackDesk);
-                        } else if (selected.Role === 'Doctor' && activeTab === 'accounts') {
-                          handleTabChange('patients');
-                        } else if (selected.Role === 'Pharmacist' && activeTab === 'accounts') {
-                          handleTabChange('pharmacy');
-                        } else if (selected.Role === 'Accountant' && activeTab === 'patients') {
-                          handleTabChange('accounts');
-                        } else if (selected.Role === 'Receptionist' && activeTab === 'accounts') {
-                          handleTabChange('patients');
                         }
                       }
                     }}
@@ -2594,31 +2583,6 @@ export default function App() {
             </Suspense>
           )}
 
-          {activeTab === 'accounts' && currentUserRights.find(r => r.MenuID === 'accounts')?.Status && (
-            <Suspense fallback={<AccountingDeskSkeleton />}>
-              <AccountingDesk
-                flAccounts={flAccounts}
-                slAccounts={slAccounts}
-                tlAccounts={tlAccounts}
-                onUpdateAccountBalance={handleUpdateAccountBalance}
-                vouchers={vouchers}
-                voucherDetails={voucherDetails}
-                onAddVoucher={handleAddVoucher}
-                acLedger={acLedger}
-                userRights={currentUserRights}
-                onAddAccount={handleAddAccount}
-                onDeleteAccount={handleDeleteAccount}
-                items={items}
-                grns={grns}
-                grnDetails={grnDetails}
-                invoices={invoices}
-                invoiceDetails={invoiceDetails}
-                currentUser={currentUser}
-                onUnauthorized={triggerGlobalUnauthorized}
-              />
-            </Suspense>
-          )}
-
           {activeTab === 'uploads' && isAccessible('uploads') && (
             <Suspense fallback={<UploadingDeskSkeleton />}>
               <UploadingDesk
@@ -2636,23 +2600,25 @@ export default function App() {
           )}
 
           {activeTab === 'reports' && isAccessible('reports') && (
-            <Suspense fallback={<ReportingDeskSkeleton />}>
-              <ReportingDesk
-                invoices={invoices}
-                invoiceDetails={invoiceDetails}
-                salesReturns={salesReturns}
-                acLedger={acLedger}
-                tlAccounts={tlAccounts}
-                patients={patients}
-                appointments={appointments}
-                visits={visits}
-                visitMedicines={visitMedicines}
-                items={items}
-                currentUser={currentUser}
-                clinicSettings={clinicSettings}
-                onUnauthorized={triggerGlobalUnauthorized}
-              />
-            </Suspense>
+            <div className="flex-1 overflow-y-auto h-full">
+              <Suspense fallback={<ReportingDeskSkeleton />}>
+                <ReportingDesk
+                  invoices={invoices}
+                  invoiceDetails={invoiceDetails}
+                  salesReturns={salesReturns}
+                  acLedger={acLedger}
+                  tlAccounts={tlAccounts}
+                  patients={patients}
+                  appointments={appointments}
+                  visits={visits}
+                  visitMedicines={visitMedicines}
+                  items={items}
+                  currentUser={currentUser}
+                  clinicSettings={clinicSettings}
+                  onUnauthorized={triggerGlobalUnauthorized}
+                />
+              </Suspense>
+            </div>
           )}
 
           {activeTab === 'settings' && isAccessible('settings') && (

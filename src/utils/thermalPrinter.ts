@@ -417,7 +417,7 @@ export function generateOPDThermalTokenHtml(
         <div style="display: flex; justify-content: space-between; align-items: center; background: #f1f5f9; padding: 4px 6px; border: 1px solid #000; border-radius: 2px;">
           <span style="font-weight: 900; text-transform: uppercase; font-size: 9px;">OPD / APP FEE:</span>
           <strong style="font-family: monospace; font-size: 11px;">
-            ${data.fee === 0 ? 'PKR 0 (PREPAID)' : `PKR ${(data.fee !== undefined && data.fee !== null ? data.fee : (clinicSettings?.OPDFee || 1500)).toLocaleString()}`}
+            ${data.fee === 0 ? 'PKR 0' : `PKR ${(data.fee !== undefined && data.fee !== null ? data.fee : 0).toLocaleString()}`}
           </strong>
         </div>
         ${data.remarks ? `

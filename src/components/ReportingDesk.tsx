@@ -854,7 +854,7 @@ export default function ReportingDesk({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="p-6 md:p-8 space-y-6 overflow-y-auto flex-1 h-full bg-slate-50 text-slate-800" id="reporting-desk-root">
       {/* HEADER BAR */}
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-2xl p-6 shadow-md border border-slate-800">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">

@@ -2133,7 +2133,6 @@ export default function SettingsDesk({
                 { key: 'canViewPatientDesk', label: 'Patient Intake & OPD Queue', icon: Users, desc: 'Token booking, patient registration' },
                 { key: 'canViewEMRDesk', label: 'EMR & Clinical Desk', icon: Briefcase, desc: 'Clinical consultations, prescriptions' },
                 { key: 'canViewPharmacyPOS', label: 'Pharmacy POS & Medicine Inventory', icon: Building, desc: 'Medicine sales counter & GRN stock' },
-                { key: 'canViewAccountingDesk', label: 'Double-Entry Accounting Desk', icon: FileText, desc: 'Chart of accounts & Journal Vouchers' },
                 { key: 'canViewReportingDesk', label: 'Financial & Executive Reports', icon: Printer, desc: 'Ledgers, Income statement, Trial balance' },
                 { key: 'canViewUploadingDesk', label: 'CSV Imports & Uploads Desk', icon: Upload, desc: 'Bulk medicine & patient data imports' },
                 { key: 'canViewSettingsDesk', label: 'System Setup & Settings Desk', icon: Settings, desc: 'Clinic setup, SMS & access control' },

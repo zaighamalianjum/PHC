@@ -325,60 +325,6 @@ export const PharmacyPOSSkeleton: React.FC = () => {
   );
 };
 
-export const AccountingDeskSkeleton: React.FC = () => {
-  return (
-    <div className="p-6 space-y-6 animate-pulse max-w-7xl mx-auto w-full">
-      {/* Header & Chart of Accounts Summary */}
-      <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-600">
-              <BookOpen className="w-5 h-5" />
-            </div>
-            <div className="space-y-1">
-              <div className="h-5 w-56 bg-slate-200 rounded" />
-              <div className="h-3 w-80 bg-slate-100 rounded" />
-            </div>
-          </div>
-          <div className="h-9 w-36 bg-slate-200 rounded-xl" />
-        </div>
-        <div className="flex items-center space-x-2 border-t border-slate-100 pt-3">
-          {[1, 2, 3, 4].map((t) => (
-            <div key={`acc-tab-${t}`} className="h-8 w-28 bg-slate-100 rounded-lg shrink-0" />
-          ))}
-        </div>
-      </div>
-
-      {/* Account Ledgers / Vouchers Table */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-          <div className="h-10 w-72 bg-slate-100 rounded-xl" />
-          <div className="flex space-x-2">
-            <div className="h-9 w-24 bg-slate-200 rounded-lg" />
-            <div className="h-9 w-28 bg-indigo-100 rounded-lg" />
-          </div>
-        </div>
-        <div className="space-y-2">
-          <div className="h-9 bg-slate-100 rounded-lg w-full" />
-          {[1, 2, 3, 4, 5, 6].map((row) => (
-            <div key={`acc-row-${row}`} className="h-12 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between px-4">
-              <div className="flex items-center space-x-4">
-                <div className="h-3.5 w-16 bg-slate-200 rounded font-mono" />
-                <div className="h-3.5 w-40 bg-slate-200 rounded" />
-                <div className="h-3 w-20 bg-slate-100 rounded" />
-              </div>
-              <div className="flex items-center space-x-6">
-                <div className="h-3.5 w-20 bg-slate-200 rounded" />
-                <div className="h-3.5 w-20 bg-slate-200 rounded" />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-};
-
 export const UploadingDeskSkeleton: React.FC = () => {
   return (
     <div className="p-6 space-y-6 animate-pulse max-w-7xl mx-auto w-full">

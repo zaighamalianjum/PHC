@@ -324,17 +324,6 @@ export default function Dashboard({
                 </span>
               </div>
             </div>
-
-            <div className="flex items-center space-x-3 bg-white/5 backdrop-blur-md p-3.5 rounded-2xl border border-white/10 shrink-0">
-              <div className="p-3 bg-indigo-500/20 text-indigo-300 rounded-xl border border-indigo-500/30">
-                <Building2 className="w-6 h-6" />
-              </div>
-              <div>
-                <p className="text-xxs font-bold text-slate-400 uppercase tracking-wider">Total Operational Assets</p>
-                <p className="text-lg font-bold text-white font-mono">Rs. {totalCashAndBank.toLocaleString()}</p>
-                <p className="text-[10px] text-slate-400">Cash Desks + Bank Current A/C</p>
-              </div>
-            </div>
           </div>
 
           {/* Quick Metrics Split Pill Row */}
@@ -832,66 +821,6 @@ export default function Dashboard({
           </div>
         </div>
 
-      </div>
-
-      {/* General Ledger Cash Desk Balances */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden" id="dashboard-cashbox">
-        <div className="p-5 border-b border-slate-150 flex flex-col sm:flex-row sm:items-center sm:justify-between bg-slate-50/50 gap-3">
-          <div className="flex items-center space-x-2">
-            <DollarSign className="w-5 h-5 text-blue-600 shrink-0" />
-            <h4 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider">General Ledger Account Balances (Mapped Cash Desks)</h4>
-          </div>
-          <span className="text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-150 px-3 py-1 rounded-full flex items-center space-x-1 w-fit">
-            <TrendingUp className="w-3.5 h-3.5" />
-            <span>Total Operational Liquid Assets: Rs. {totalCashAndBank.toLocaleString()}</span>
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-0 divide-y md:divide-y-0 md:divide-x divide-slate-100">
-          <div className="p-5 flex flex-col justify-between hover:bg-slate-50/30 transition duration-150">
-            <div>
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Clinic Cash Desk</span>
-              <p className="text-xxs text-slate-400 font-mono mt-0.5">Account ID: {config.ClinicCIH_}</p>
-            </div>
-            <div className="mt-4">
-              <span className="text-lg font-bold text-slate-800 font-mono">Rs. {clinicCash.toLocaleString()}</span>
-              <p className="text-xxs text-slate-400 mt-0.5">ClinicCIH_ Mapping</p>
-            </div>
-          </div>
-
-          <div className="p-5 flex flex-col justify-between hover:bg-slate-50/30 transition duration-150">
-            <div>
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Pharmacy Cash Desk</span>
-              <p className="text-xxs text-slate-400 font-mono mt-0.5">Account ID: {config.StoreCIH_}</p>
-            </div>
-            <div className="mt-4">
-              <span className="text-lg font-bold text-slate-800 font-mono">Rs. {storeCash.toLocaleString()}</span>
-              <p className="text-xxs text-slate-400 mt-0.5">StoreCIH_ Mapping</p>
-            </div>
-          </div>
-
-          <div className="p-5 flex flex-col justify-between hover:bg-slate-50/30 transition duration-150">
-            <div>
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">OPD Ticket Desk</span>
-              <p className="text-xxs text-slate-400 font-mono mt-0.5">Account ID: {config.AppCIH_}</p>
-            </div>
-            <div className="mt-4">
-              <span className="text-lg font-bold text-slate-800 font-mono">Rs. {appCash.toLocaleString()}</span>
-              <p className="text-xxs text-slate-400 mt-0.5">AppCIH_ Mapping</p>
-            </div>
-          </div>
-
-          <div className="p-5 flex flex-col justify-between hover:bg-slate-50/30 transition duration-150">
-            <div>
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Main Bank Current A/C</span>
-              <p className="text-xxs text-slate-400 font-mono mt-0.5">Account ID: 101004</p>
-            </div>
-            <div className="mt-4">
-              <span className="text-lg font-bold text-slate-800 font-mono">Rs. {bankBal.toLocaleString()}</span>
-              <p className="text-xxs text-slate-400 mt-0.5">Clearing settlement account</p>
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* Grid: Low Stock Alert vs Recent Journal Entries */}
