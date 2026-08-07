@@ -9,6 +9,7 @@ import { MongoClient, ObjectId } from 'mongodb';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import XLSX from 'xlsx';
 
@@ -29,6 +30,50 @@ class InMemoryDB {
   constructor() {
     this.collections = {};
     this.indexes = {}; // name -> { by_id: Map, by_composite: Map }
+    this.dbFilePath = path.join(__dirname, 'data', 'db_store.json');
+    this.loadFromDisk();
+  }
+
+  loadFromDisk() {
+    try {
+      if (fs.existsSync(this.dbFilePath)) {
+        const raw = fs.readFileSync(this.dbFilePath, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          this.collections = parsed;
+          console.log(`💾 InMemoryDB: Restored ${Object.keys(parsed).length} collections from disk (${this.dbFilePath}).`);
+          // Warm up indexes
+          for (const [colName, store] of Object.entries(this.collections)) {
+            if (!Array.isArray(store)) continue;
+            this.indexes[colName] = {
+              by_id: new Map(),
+              by_composite: new Map()
+            };
+            store.forEach(doc => {
+              if (doc && doc._id) this.indexes[colName].by_id.set(doc._id, doc);
+              if (colName === 'nhc_patient_history' && doc) {
+                const key = `${doc.PatientID || ''}_${doc.VisitDate || ''}_${doc.MedicineDetail || ''}`;
+                this.indexes[colName].by_composite.set(key, doc);
+              }
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load DB store from disk:', e.message);
+    }
+  }
+
+  saveToDisk() {
+    try {
+      const dataDir = path.dirname(this.dbFilePath);
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+      }
+      fs.writeFileSync(this.dbFilePath, JSON.stringify(this.collections, null, 2), 'utf8');
+    } catch (e) {
+      console.error('Failed to save DB store to disk:', e.message);
+    }
   }
   
   listCollections() {
@@ -40,6 +85,7 @@ class InMemoryDB {
   createCollection(name) {
     if (!this.collections[name]) {
       this.collections[name] = [];
+      this.saveToDisk();
     }
     return this.collection(name);
   }
@@ -59,8 +105,8 @@ class InMemoryDB {
       };
       // Warm up indexes if store already has items
       store.forEach(doc => {
-        if (doc._id) this.indexes[name].by_id.set(doc._id, doc);
-        if (name === 'nhc_patient_history') {
+        if (doc && doc._id) this.indexes[name].by_id.set(doc._id, doc);
+        if (name === 'nhc_patient_history' && doc) {
           const key = `${doc.PatientID || ''}_${doc.VisitDate || ''}_${doc.MedicineDetail || ''}`;
           this.indexes[name].by_composite.set(key, doc);
         }
@@ -184,6 +230,7 @@ class InMemoryDB {
           const key = `${copy.PatientID || ''}_${copy.VisitDate || ''}_${copy.MedicineDetail || ''}`;
           indexes.by_composite.set(key, copy);
         }
+        self.saveToDisk();
         return { insertedId: copy._id, acknowledged: true };
       },
       
@@ -200,6 +247,7 @@ class InMemoryDB {
           }
           insertedIds[idx] = copy._id;
         });
+        self.saveToDisk();
         return { insertedCount: docs.length, insertedIds, acknowledged: true };
       },
       
@@ -238,6 +286,7 @@ class InMemoryDB {
           }
           upsertedId = newDoc._id;
         }
+        self.saveToDisk();
         return { matchedCount, modifiedCount, upsertedId, acknowledged: true };
       },
       
@@ -249,6 +298,7 @@ class InMemoryDB {
             modifiedCount++;
           }
         });
+        self.saveToDisk();
         return { matchedCount: modifiedCount, modifiedCount, acknowledged: true };
       },
       
@@ -265,6 +315,7 @@ class InMemoryDB {
           store.splice(idx, 1);
           deletedCount = 1;
         }
+        self.saveToDisk();
         return { deletedCount, acknowledged: true };
       },
       
@@ -289,6 +340,7 @@ class InMemoryDB {
             }
           }
         }
+        self.saveToDisk();
         return { deletedCount, acknowledged: true };
       },
       
@@ -320,6 +372,7 @@ class InMemoryDB {
             insertedCount++;
           }
         }
+        self.saveToDisk();
         return { insertedCount, modifiedCount, upsertedCount, acknowledged: true };
       }
     };
@@ -630,13 +683,6 @@ async function runAutoSeeder() {
         RepeatTemplate: 'Dear {name}, follow-up is scheduled.'
       });
     }
-
-    // 10. Clear dummy entries for Appointments, Tokens, Patient Intake & Queue (Visits & Visit Medicines)
-    await db.collection('appointments').deleteMany({});
-    await db.collection('tokens').deleteMany({});
-    await db.collection('visits').deleteMany({});
-    await db.collection('visit_medicines').deleteMany({});
-    console.log('🧹 Cleared all dummy entries in Patient Intake & Queue, Appointments, and Tokens.');
 
     // 12. NHC Patient History Seed
     if ((await db.collection('nhc_patient_history').countDocuments()) === 0) {

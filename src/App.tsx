@@ -281,18 +281,33 @@ export default function App() {
   });
 
 
-  // Master Database States
-  const [patients, setPatients] = useState<Patient[]>(INITIAL_PATIENTS);
-  const [appointments, setAppointments] = useState<Appointment[]>(INITIAL_APPOINTMENTS);
-  const [tokens, setTokens] = useState<Token[]>(INITIAL_TOKENS);
-  const [items, setItems] = useState<Item[]>(INITIAL_ITEMS);
-  const [suppliers, setSuppliers] = useState<Supplier[]>(INITIAL_SUPPLIERS);
-  const [labTests, setLabTests] = useState<LabTest[]>(INITIAL_LAB_TESTS);
-  const [visits, setVisits] = useState<Visit[]>([]);
-  const [visitMedicines, setVisitMedicines] = useState<VisitMedicine[]>([]);
-  const [medicalCertificates, setMedicalCertificates] = useState<MedicalCertificate[]>([]);
-  const [sbpCertificates, setSbpCertificates] = useState<MedicalCertificateSBP[]>([]);
-  const [nhcPatients, setNhcPatients] = useState<NhcPatientHistory[]>([]);
+  // Safe helper to load local state from localStorage fallback
+  const getStoredState = <T,>(key: string, defaultVal: T): T => {
+    try {
+      const cached = localStorage.getItem(key);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) {
+          return parsed.length > 0 ? parsed : defaultVal;
+        }
+        if (parsed && typeof parsed === 'object') return parsed;
+      }
+    } catch (e) {}
+    return defaultVal;
+  };
+
+  // Master Database States (backed by both MongoDB/API and localStorage persistent fallbacks)
+  const [patients, setPatients] = useState<Patient[]>(() => getStoredState('cms_patients', INITIAL_PATIENTS));
+  const [appointments, setAppointments] = useState<Appointment[]>(() => getStoredState('cms_appointments', INITIAL_APPOINTMENTS));
+  const [tokens, setTokens] = useState<Token[]>(() => getStoredState('cms_tokens', INITIAL_TOKENS));
+  const [items, setItems] = useState<Item[]>(() => getStoredState('cms_items', INITIAL_ITEMS));
+  const [suppliers, setSuppliers] = useState<Supplier[]>(() => getStoredState('cms_suppliers', INITIAL_SUPPLIERS));
+  const [labTests, setLabTests] = useState<LabTest[]>(() => getStoredState('cms_lab_tests', INITIAL_LAB_TESTS));
+  const [visits, setVisits] = useState<Visit[]>(() => getStoredState('cms_visits', []));
+  const [visitMedicines, setVisitMedicines] = useState<VisitMedicine[]>(() => getStoredState('cms_visit_medicines', []));
+  const [medicalCertificates, setMedicalCertificates] = useState<MedicalCertificate[]>(() => getStoredState('cms_med_certs', []));
+  const [sbpCertificates, setSbpCertificates] = useState<MedicalCertificateSBP[]>(() => getStoredState('cms_sbp_certs', []));
+  const [nhcPatients, setNhcPatients] = useState<NhcPatientHistory[]>(() => getStoredState('cms_nhc_patients', []));
   const [smartLocatorMedicines, setSmartLocatorMedicines] = useState<SmartLocatorMedicine[]>(() => {
     const cached = localStorage.getItem('cms_smart_locator_medicines');
     if (cached) {
@@ -309,23 +324,40 @@ export default function App() {
     ];
   });
 
-  useEffect(() => {
-    localStorage.setItem('cms_smart_locator_medicines', JSON.stringify(smartLocatorMedicines));
-  }, [smartLocatorMedicines]);
-  const [invoices, setInvoices] = useState<InvoiceHeader[]>([]);
-  const [invoiceDetails, setInvoiceDetails] = useState<InvoiceDetail[]>([]);
-  const [salesReturns, setSalesReturns] = useState<SRInvHeader[]>([]);
-  const [grns, setGrns] = useState<InvVchHeader[]>([]);
-  const [grnDetails, setGrnDetails] = useState<InvVchDetail[]>([]);
-  const [invLedger, setInvLedger] = useState<InvLedger[]>([]);
-  const [tlAccounts, setTlAccounts] = useState<TLAccount[]>(INITIAL_TL_ACCOUNTS);
-  const [flAccounts, setFlAccounts] = useState<FLAccount[]>(INITIAL_FL_ACCOUNTS);
-  const [slAccounts, setSlAccounts] = useState<SLAccount[]>(INITIAL_SL_ACCOUNTS);
-  const [vouchers, setVouchers] = useState<VchHeader[]>([]);
-  const [voucherDetails, setVoucherDetails] = useState<VchDetail[]>([]);
-  const [acLedger, setAcLedger] = useState<ACLedger[]>([]);
+  const [invoices, setInvoices] = useState<InvoiceHeader[]>(() => getStoredState('cms_invoices', []));
+  const [invoiceDetails, setInvoiceDetails] = useState<InvoiceDetail[]>(() => getStoredState('cms_invoice_details', []));
+  const [salesReturns, setSalesReturns] = useState<SRInvHeader[]>(() => getStoredState('cms_sales_returns', []));
+  const [grns, setGrns] = useState<InvVchHeader[]>(() => getStoredState('cms_grns', []));
+  const [grnDetails, setGrnDetails] = useState<InvVchDetail[]>(() => getStoredState('cms_grn_details', []));
+  const [invLedger, setInvLedger] = useState<InvLedger[]>(() => getStoredState('cms_inv_ledger', []));
+  const [tlAccounts, setTlAccounts] = useState<TLAccount[]>(() => getStoredState('cms_tl_accounts', INITIAL_TL_ACCOUNTS));
+  const [flAccounts, setFlAccounts] = useState<FLAccount[]>(() => getStoredState('cms_fl_accounts', INITIAL_FL_ACCOUNTS));
+  const [slAccounts, setSlAccounts] = useState<SLAccount[]>(() => getStoredState('cms_sl_accounts', INITIAL_SL_ACCOUNTS));
+  const [vouchers, setVouchers] = useState<VchHeader[]>(() => getStoredState('cms_vouchers', []));
+  const [voucherDetails, setVoucherDetails] = useState<VchDetail[]>(() => getStoredState('cms_voucher_details', []));
+  const [acLedger, setAcLedger] = useState<ACLedger[]>(() => getStoredState('cms_ac_ledger', []));
 
-  // Save states to local storage on mutation is removed to prevent browser memory usage as requested.
+  // Automatic Persistent LocalStorage Backups
+  useEffect(() => { localStorage.setItem('cms_patients', JSON.stringify(patients)); }, [patients]);
+  useEffect(() => { localStorage.setItem('cms_appointments', JSON.stringify(appointments)); }, [appointments]);
+  useEffect(() => { localStorage.setItem('cms_tokens', JSON.stringify(tokens)); }, [tokens]);
+  useEffect(() => { localStorage.setItem('cms_items', JSON.stringify(items)); }, [items]);
+  useEffect(() => { localStorage.setItem('cms_suppliers', JSON.stringify(suppliers)); }, [suppliers]);
+  useEffect(() => { localStorage.setItem('cms_lab_tests', JSON.stringify(labTests)); }, [labTests]);
+  useEffect(() => { localStorage.setItem('cms_visits', JSON.stringify(visits)); }, [visits]);
+  useEffect(() => { localStorage.setItem('cms_visit_medicines', JSON.stringify(visitMedicines)); }, [visitMedicines]);
+  useEffect(() => { localStorage.setItem('cms_med_certs', JSON.stringify(medicalCertificates)); }, [medicalCertificates]);
+  useEffect(() => { localStorage.setItem('cms_sbp_certs', JSON.stringify(sbpCertificates)); }, [sbpCertificates]);
+  useEffect(() => { localStorage.setItem('cms_nhc_patients', JSON.stringify(nhcPatients)); }, [nhcPatients]);
+  useEffect(() => { localStorage.setItem('cms_smart_locator_medicines', JSON.stringify(smartLocatorMedicines)); }, [smartLocatorMedicines]);
+  useEffect(() => { localStorage.setItem('cms_invoices', JSON.stringify(invoices)); }, [invoices]);
+  useEffect(() => { localStorage.setItem('cms_invoice_details', JSON.stringify(invoiceDetails)); }, [invoiceDetails]);
+  useEffect(() => { localStorage.setItem('cms_sales_returns', JSON.stringify(salesReturns)); }, [salesReturns]);
+  useEffect(() => { localStorage.setItem('cms_grns', JSON.stringify(grns)); }, [grns]);
+  useEffect(() => { localStorage.setItem('cms_grn_details', JSON.stringify(grnDetails)); }, [grnDetails]);
+  useEffect(() => { localStorage.setItem('cms_vouchers', JSON.stringify(vouchers)); }, [vouchers]);
+  useEffect(() => { localStorage.setItem('cms_voucher_details', JSON.stringify(voucherDetails)); }, [voucherDetails]);
+  useEffect(() => { localStorage.setItem('cms_ac_ledger', JSON.stringify(acLedger)); }, [acLedger]);
 
   useEffect(() => {
     // Auto-sync general ledger postings to MongoDB
