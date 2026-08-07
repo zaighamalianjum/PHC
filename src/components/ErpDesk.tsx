@@ -32,7 +32,9 @@ import {
   Wallet,
   ArrowUpRight,
   ArrowDownRight,
-  BarChart3
+  BarChart3,
+  RotateCcw,
+  XCircle
 } from 'lucide-react';
 import ItemQRScannerModal from './ItemQRScannerModal';
 import ItemQRGeneratorModal from './ItemQRGeneratorModal';
@@ -1471,22 +1473,41 @@ export default function ErpDesk({ currentUser, rights, clinicSettings }: ErpDesk
     }
   };
 
+  const handleRemoveGrnItem = (index: number) => {
+    setGrnForm(prev => ({
+      ...prev,
+      Items: prev.Items.filter((_, idx) => idx !== index)
+    }));
+  };
+
+  const handleResetGrnItems = () => {
+    const foundPo = purchaseOrders.find(p => p.POID === grnForm.POID);
+    if (foundPo) {
+      setGrnForm(prev => ({
+        ...prev,
+        Items: getPoItemsReceiptInfo(foundPo)
+      }));
+    }
+  };
+
   const handleApproveGrn = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
     if (!grnForm.POID) return alert('Please select a valid Purchase Order ID.');
-    if (grnForm.Items.length === 0) return alert('No items in GRN to receive.');
+    if (grnForm.Items.length === 0) return alert('No items remaining in GRN to receive.');
 
-    const totalReceivingQty = grnForm.Items.reduce((sum, i) => sum + (Number(i.ReceivedQty) || 0), 0);
-    if (totalReceivingQty <= 0) {
-      return alert('Please enter receiving quantity greater than 0 for at least one item.');
+    // Only include items with ReceivedQty > 0
+    const receivingItems = grnForm.Items.filter(i => (Number(i.ReceivedQty) || 0) > 0);
+    if (receivingItems.length === 0) {
+      return alert('Please enter receiving quantity greater than 0 for at least one medicine item in this batch.');
     }
 
     setIsSubmitting(true);
-    const totalAmount = grnForm.Items.reduce((sum, i) => sum + (Number(i.ReceivedQty) * Number(i.UnitPrice)), 0);
+    const totalAmount = receivingItems.reduce((sum, i) => sum + (Number(i.ReceivedQty) * Number(i.UnitPrice)), 0);
 
     const payload = {
       ...grnForm,
+      Items: receivingItems,
       TotalAmount: totalAmount,
       CreatedBy: currentUser?.FullName || 'Store Manager'
     };
@@ -1520,7 +1541,7 @@ export default function ErpDesk({ currentUser, rights, clinicSettings }: ErpDesk
               }
             });
 
-            const currentGrnItem = grnForm.Items.find(gi => gi.ItemID === poItem.ItemID || gi.ItemName === poItem.ItemName);
+            const currentGrnItem = receivingItems.find(gi => gi.ItemID === poItem.ItemID || gi.ItemName === poItem.ItemName);
             if (currentGrnItem) {
               cumulativeReceived += Number(currentGrnItem.ReceivedQty) || 0;
             }
@@ -1613,12 +1634,8 @@ export default function ErpDesk({ currentUser, rights, clinicSettings }: ErpDesk
     const printWin = window.open('', '_blank', 'width=900,height=900');
     if (!printWin) return alert('Popup blocked. Allow popups to print Goods Received Note.');
 
-    const cName = clinicSettings?.ClinicName || 'PUNJAB HOMEOPATHIC CLINIC & PHARMACY WAREHOUSE';
+    const cName = clinicSettings?.ClinicName || 'PUNJAB HOMEOPATHIC CLINIC & PHARMACY';
     const cTag = clinicSettings?.ClinicLogoText || 'HEALING NATURALLY. RESTORING BALANCE.';
-    const cDoc = clinicSettings?.DoctorName || 'Dr. Ejaz Ahmad, D.H.M.S (Pak)';
-    const cDocSub = clinicSettings?.DoctorSignatureText || 'Reg No: 48776 | Homeopathic Medical Specialist';
-    const cAddr = clinicSettings?.ClinicAddress || 'Main Boulevard, Lahore';
-    const cPhone = clinicSettings?.PhoneMobile || '+92 300 1234567';
     const logoSrc = clinicSettings?.ClinicLogoImage || '/nhc_logo.svg';
 
     const itemsRows = grn.Items.map((item, idx) => `
@@ -1636,77 +1653,321 @@ export default function ErpDesk({ currentUser, rights, clinicSettings }: ErpDesk
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Goods Received Note ${grn.GRNID}</title>
+          <title>Goods Received Note ${grn.GRNID} - Punjab Homeopathic Clinic</title>
           <style>
-            @page { size: A4 portrait; margin: 12mm 15mm; }
-            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #0f172a; margin: 0; padding: 0; background: #fff; line-height: 1.4; }
-            .letterhead-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px double #0f172a; padding-bottom: 12px; margin-bottom: 14px; }
-            .clinic-brand { flex: 1; text-align: center; padding: 0 10px; }
-            .clinic-title { font-size: 20px; font-weight: 900; color: #15803d; letter-spacing: -0.5px; text-transform: uppercase; font-family: Georgia, serif; }
-            .clinic-tagline { font-size: 10px; font-weight: 800; color: #166534; letter-spacing: 1px; margin-top: 2px; text-transform: uppercase; }
-            .doc-details { font-size: 11px; font-weight: 800; color: #1e293b; margin-top: 4px; }
-            .contact-line { font-size: 10px; color: #475569; font-weight: 600; margin-top: 2px; }
-            .report-banner { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
-            .report-title { font-size: 14px; font-weight: 900; color: #166534; text-transform: uppercase; letter-spacing: 0.5px; }
-            .meta-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 16px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; font-size: 11px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 6px; }
-            th { background: #166534; color: #ffffff; font-size: 9.5px; text-transform: uppercase; padding: 8px 6px; text-align: left; font-weight: 800; letter-spacing: 0.5px; }
-            .footer-sign { margin-top: 40px; padding-top: 15px; border-top: 1px solid #cbd5e1; display: flex; justify-content: space-between; align-items: flex-end; font-size: 10px; color: #475569; page-break-inside: avoid; }
-            .sign-box { text-align: center; width: 170px; }
-            .sign-line { border-bottom: 1.5px dashed #64748b; height: 35px; margin-bottom: 6px; }
+            @page {
+              size: A4 portrait;
+              margin: 10mm 12mm 12mm 12mm;
+            }
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+              color: #0f172a;
+              margin: 0;
+              padding: 0;
+              font-size: 11.5px;
+              line-height: 1.4;
+              background: #ffffff;
+            }
+            * { box-sizing: border-box; }
+
+            .letterhead-header {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              border-bottom: 3px double #064e3b;
+              padding-bottom: 10px;
+              margin-bottom: 12px;
+              gap: 12px;
+            }
+            .logo-col {
+              width: 80px;
+              height: 80px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              flex-shrink: 0;
+            }
+            .logo-img {
+              max-width: 100%;
+              max-height: 100%;
+              object-fit: contain;
+            }
+            .clinic-info {
+              text-align: center;
+              flex: 1;
+            }
+            .clinic-name {
+              font-family: Georgia, "Times New Roman", serif;
+              font-size: 24px;
+              font-weight: 900;
+              color: #881337;
+              text-transform: uppercase;
+              margin: 0;
+              letter-spacing: -0.5px;
+              line-height: 1.1;
+            }
+            .clinic-tagline {
+              font-size: 10px;
+              font-weight: 800;
+              color: #be123c;
+              letter-spacing: 1.5px;
+              text-transform: uppercase;
+              margin-top: 2px;
+            }
+            .clinic-reg {
+              font-size: 11px;
+              font-weight: 700;
+              color: #1e293b;
+              margin-top: 4px;
+            }
+            .clinic-timings {
+              font-size: 10px;
+              font-weight: 800;
+              color: #064e3b;
+              text-transform: uppercase;
+              margin-top: 3px;
+            }
+
+            .report-banner {
+              background: #0f172a;
+              color: #ffffff;
+              padding: 8px 14px;
+              border-radius: 6px;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              margin-bottom: 10px;
+            }
+            .report-banner-title {
+              font-size: 12.5px;
+              font-weight: 900;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              color: #f8fafc;
+            }
+            .report-banner-ref {
+              font-size: 10px;
+              font-family: monospace;
+              color: #cbd5e1;
+              font-weight: 700;
+            }
+
+            .meta-grid {
+              background: #f8fafc;
+              border: 1.5px solid #cbd5e1;
+              border-radius: 8px;
+              padding: 10px 14px;
+              margin-bottom: 14px;
+              display: grid;
+              grid-template-columns: 1fr 1fr 1fr;
+              gap: 8px;
+              font-size: 11px;
+            }
+            .meta-item {
+              display: flex;
+              flex-direction: column;
+            }
+            .meta-label {
+              font-size: 9px;
+              font-weight: 800;
+              color: #64748b;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .meta-value {
+              font-size: 11px;
+              font-weight: 700;
+              color: #0f172a;
+              margin-top: 1px;
+            }
+
+            .report-table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 8px;
+              font-size: 11px;
+            }
+            .report-table th {
+              background: #1e293b;
+              color: #ffffff;
+              font-weight: 800;
+              text-align: left;
+              padding: 7px 10px;
+              font-size: 10.5px;
+              text-transform: uppercase;
+              letter-spacing: 0.3px;
+              border: 1px solid #1e293b;
+            }
+            .report-table td {
+              border: 1px solid #e2e8f0;
+              padding: 7px 10px;
+              color: #0f172a;
+            }
+
+            .signature-section {
+              margin-top: 35px;
+              padding-top: 15px;
+              border-top: 2px solid #cbd5e1;
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-end;
+              page-break-inside: avoid;
+            }
+            .sig-box {
+              text-align: center;
+              width: 220px;
+            }
+            .sig-line-text {
+              border-bottom: 1.5px dashed #475569;
+              height: 38px;
+              margin-bottom: 6px;
+              display: flex;
+              align-items: flex-end;
+              justify-content: center;
+              font-size: 11px;
+              font-weight: 700;
+              color: #334155;
+              padding-bottom: 2px;
+            }
+            .sig-line-manager {
+              border-bottom: 2.5px solid #0f172a;
+              height: 38px;
+              margin-bottom: 6px;
+              display: flex;
+              align-items: flex-end;
+              justify-content: center;
+              font-size: 13px;
+              font-weight: 900;
+              color: #0f172a;
+              font-family: Georgia, 'Times New Roman', serif;
+              padding-bottom: 2px;
+            }
+            .sig-title-primary {
+              font-size: 11px;
+              font-weight: 900;
+              color: #881337;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .sig-title-sub {
+              font-size: 10px;
+              font-weight: 800;
+              color: #0f172a;
+              text-transform: uppercase;
+            }
+            .sig-title-dept {
+              font-size: 9px;
+              font-weight: 700;
+              color: #047857;
+            }
+
+            .stamp-box {
+              text-align: center;
+              width: 130px;
+              height: 65px;
+              border: 2px dashed #94a3b8;
+              border-radius: 8px;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              color: #64748b;
+              font-size: 8px;
+              font-weight: 800;
+              text-transform: uppercase;
+              background: #fafafa;
+            }
+
+            .official-footer {
+              margin-top: 15px;
+              border-top: 1px solid #e2e8f0;
+              padding-top: 8px;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              font-size: 9px;
+              color: #64748b;
+              font-weight: 600;
+            }
           </style>
         </head>
         <body>
-          <!-- OFFICIAL A4 LETTERHEAD HEADER -->
+          <!-- A4 Official Letterhead Header -->
           <div class="letterhead-header">
-            <img src="${logoSrc}" style="width: 70px; height: 70px; object-fit: contain;" alt="Logo" />
-            <div class="clinic-brand">
-              <div class="clinic-title">${cName}</div>
+            <div class="logo-col">
+              <img src="${logoSrc}" alt="PHC Logo" class="logo-img" />
+            </div>
+            <div class="clinic-info">
+              <h1 class="clinic-name">${cName}</h1>
               <div class="clinic-tagline">${cTag}</div>
-              <div class="doc-details">${cDoc} <span style="font-weight: 400; color: #64748b;">(${cDocSub})</span></div>
-              <div class="contact-line">📍 ${cAddr} &nbsp;|&nbsp; 📞 ${cPhone}</div>
+              <div class="clinic-reg">
+                <span>PHC Reg. # <u style="text-decoration: underline;">R-___________</u></span>
+                &nbsp;|&nbsp;
+                <span>PHC License #: ___________________</span>
+              </div>
+              <div class="clinic-timings">
+                Clinic Timings: Morning 8:30 AM to 12:00 PM &nbsp;|&nbsp; Evening 4:30 PM to 9:00 PM
+              </div>
             </div>
-            <div style="width: 70px; text-align: right;">
-              <span style="font-size: 9px; font-weight: 900; background: #166534; color: #fff; padding: 3px 6px; border-radius: 4px;">STOCK INWARD</span>
+            <div class="logo-col" style="visibility: hidden;">
+              <img src="${logoSrc}" alt="PHC Logo" class="logo-img" />
             </div>
           </div>
 
-          <!-- BANNER -->
+          <!-- Official Report Banner & Meta Details -->
           <div class="report-banner">
-            <div>
-              <div class="report-title">GOODS RECEIVED NOTE (GRN)</div>
-              <div style="font-size: 11px; font-weight: 700; color: #15803d; margin-top: 2px;">Official Stock Replenishment & Verification Document</div>
-            </div>
-            <div style="text-align: right; font-size: 10px; color: #166534; font-weight: 800; bg-white; padding: 4px 8px; border-radius: 6px; border: 1px solid #86efac;">
-              STATUS: STOCK RECEIVED & APPROVED
-            </div>
+            <span class="report-banner-title">GOODS RECEIVED NOTE (GRN) - OFFICIAL INWARD AUDIT</span>
+            <span class="report-banner-ref">REF: PHC-GRN-${grn.GRNID}</span>
           </div>
 
-          <!-- META DETAILS -->
           <div class="meta-grid">
-            <div>
-              <div style="margin-bottom: 3px;"><strong>GRN Number:</strong> <span style="font-family: monospace; font-weight: bold; color: #15803d; font-size: 12px;">${grn.GRNID}</span></div>
-              <div style="margin-bottom: 3px;"><strong>PO Ref Number:</strong> <span style="font-family: monospace; font-weight: bold; color: #4338ca;">${grn.POID}</span></div>
-              <div style="margin-bottom: 3px;"><strong>Received Date:</strong> ${grn.ReceivedDate}</div>
-              <div><strong>Delivery Challan No:</strong> ${grn.ChallanNo || 'N/A'}</div>
+            <div class="meta-item">
+              <span class="meta-label">GRN Ref Number</span>
+              <span class="meta-value" style="color: #047857;">${grn.GRNID}</span>
             </div>
-            <div style="text-align: right;">
-              <div style="margin-bottom: 3px;"><strong>Supplier / Vendor:</strong> <span style="font-weight: 800;">${grn.VendorName}</span></div>
-              <div style="margin-bottom: 3px;"><strong>Vendor ID:</strong> ${grn.VendorID || 'N/A'}</div>
-              <div style="margin-bottom: 3px;"><strong>Supplier Invoice #:</strong> <span style="font-family: monospace; font-weight: bold; color: #0284c7;">${grn.SupplierInvoiceNo || 'N/A'}</span></div>
-              <div><strong>Received By:</strong> ${grn.CreatedBy || 'Warehouse Receiver'}</div>
+            <div class="meta-item">
+              <span class="meta-label">Purchase Order Ref</span>
+              <span class="meta-value" style="color: #4338ca;">${grn.POID}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Goods Received Date</span>
+              <span class="meta-value">${grn.ReceivedDate}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Supplier / Vendor</span>
+              <span class="meta-value" style="color: #0f172a;">${grn.VendorName} (${grn.VendorID || 'N/A'})</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Supplier Bill / Invoice #</span>
+              <span class="meta-value" style="color: #0369a1;">${grn.SupplierInvoiceNo || 'N/A'}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Delivery Challan No</span>
+              <span class="meta-value">${grn.ChallanNo || 'N/A'}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Store Receiver</span>
+              <span class="meta-value">${grn.CreatedBy || 'Warehouse Officer'}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Audit Prepared By</span>
+              <span class="meta-value">${currentUser?.FullName || 'Staff Accountant'}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Responsible Manager</span>
+              <span class="meta-value" style="color: #881337;">Mr. Zaigham Ali Anjum</span>
             </div>
           </div>
 
-          <!-- ITEMS TABLE -->
-          <table>
+          <!-- Items Table -->
+          <table class="report-table">
             <thead>
               <tr>
-                <th style="width: 25px; text-align: center;">#</th>
-                <th style="width: 90px;">Item Code</th>
-                <th>Medicine Description</th>
-                <th style="width: 100px; text-align: center;">Batch No.</th>
-                <th style="width: 80px; text-align: center;">Ordered Qty</th>
+                <th style="width: 30px; text-align: center;">#</th>
+                <th style="width: 100px;">Item Code</th>
+                <th>Medicine Description & Category</th>
+                <th style="width: 110px; text-align: center;">Batch No.</th>
+                <th style="width: 85px; text-align: center;">Ordered Qty</th>
                 <th style="width: 95px; text-align: center;">Received Qty</th>
               </tr>
             </thead>
@@ -1715,24 +1976,39 @@ export default function ErpDesk({ currentUser, rights, clinicSettings }: ErpDesk
             </tbody>
           </table>
 
-          <div style="margin-top: 14px; padding: 8px 12px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 11px;">
+          <div style="margin-top: 12px; padding: 10px 12px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 11px;">
             <strong>Remarks / Physical Inspection Note:</strong> ${grn.Remarks || 'All received medicines verified for physical condition, batch integrity & quantity.'}
           </div>
 
-          <!-- FOOTER SIGNATURES -->
-          <div class="footer-sign">
-            <div class="sign-box">
-              <div class="sign-line"></div>
-              <div style="font-weight: 700;">Warehouse Receiver Sign</div>
+          <!-- Executive Signatures & Stamps Block -->
+          <div class="signature-section">
+            <div class="sig-box">
+              <div class="sig-line-text">
+                ${grn.CreatedBy || currentUser?.FullName || 'Accountant / Audit Officer'}
+              </div>
+              <div class="sig-title-primary" style="color: #0f172a;">PREPARED BY</div>
+              <div class="sig-title-sub" style="font-size: 9px; color: #475569;">Warehouse & GRN Receiving Desk</div>
             </div>
-            <div class="sign-box">
-              <div class="sign-line"></div>
-              <div style="font-weight: 700;">Quality Inspector Sign</div>
+
+            <div class="stamp-box">
+              <span>PHC OFFICIAL STAMP</span>
+              <span style="font-size: 7px; color: #94a3b8; margin-top: 2px;">[ SEAL & STAMP ]</span>
             </div>
-            <div class="sign-box">
-              <div class="sign-line"></div>
-              <div style="font-weight: 800; color: #0f172a;">Store Manager / Doctor</div>
+
+            <div class="sig-box" style="width: 250px;">
+              <div class="sig-line-manager">
+                Zaigham Ali Anjum
+              </div>
+              <div class="sig-title-primary">MR. ZAIGHAM ALI ANJUM</div>
+              <div class="sig-title-sub">Manager Operations & Administrative Head</div>
+              <div class="sig-title-dept">Punjab Homeopathic Clinic & Pharmacy</div>
             </div>
+          </div>
+
+          <!-- Official Footer -->
+          <div class="official-footer">
+            <span>Punjab Homeopathic Clinic & Pharmacy • Goods Received Note (GRN) Stock Audit • Confidential Document</span>
+            <span>Generated Date: ${new Date().toLocaleString('en-GB')}</span>
           </div>
 
           <script>
@@ -2143,12 +2419,8 @@ export default function ErpDesk({ currentUser, rights, clinicSettings }: ErpDesk
     const printWin = window.open('', '_blank', 'width=950,height=900');
     if (!printWin) return alert('Popup blocked. Allow popups to print Purchase Order.');
 
-    const cName = clinicSettings?.ClinicName || 'PUNJAB HOMEOPATHIC CLINIC & PHARMACY WAREHOUSE';
+    const cName = clinicSettings?.ClinicName || 'PUNJAB HOMEOPATHIC CLINIC & PHARMACY';
     const cTag = clinicSettings?.ClinicLogoText || 'HEALING NATURALLY. RESTORING BALANCE.';
-    const cDoc = clinicSettings?.DoctorName || 'Dr. Ejaz Ahmad, D.H.M.S (Pak)';
-    const cDocSub = clinicSettings?.DoctorSignatureText || 'Reg No: 48776 | Homeopathic Medical Specialist';
-    const cAddr = clinicSettings?.ClinicAddress || 'Main Boulevard, Lahore';
-    const cPhone = clinicSettings?.PhoneMobile || '+92 300 1234567';
     const logoSrc = clinicSettings?.ClinicLogoImage || '/nhc_logo.svg';
 
     const totalItems = po.Items.length;
@@ -2176,7 +2448,7 @@ export default function ErpDesk({ currentUser, rights, clinicSettings }: ErpDesk
         <div style="flex: 1; min-width: 0;">
           <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
             <thead>
-              <tr style="background: #0f172a; color: #ffffff;">
+              <tr style="background: #1e293b; color: #ffffff;">
                 <th style="border: 1px solid #334155; padding: 6px; text-align: center; width: 26px; font-size: 9px; text-transform: uppercase;">#</th>
                 <th style="border: 1px solid #334155; padding: 6px; text-align: left; font-size: 9px; text-transform: uppercase;">Medicine Name</th>
                 <th style="border: 1px solid #334155; padding: 6px; text-align: center; width: 60px; font-size: 9px; text-transform: uppercase;">Req Qty</th>
@@ -2198,62 +2470,293 @@ export default function ErpDesk({ currentUser, rights, clinicSettings }: ErpDesk
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Purchase Order ${po.POID}</title>
+          <title>Purchase Order ${po.POID} - Punjab Homeopathic Clinic</title>
           <style>
-            @page { size: A4 portrait; margin: 12mm 15mm; }
-            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #0f172a; margin: 0; padding: 0; background: #fff; line-height: 1.4; }
-            .letterhead-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px double #0f172a; padding-bottom: 12px; margin-bottom: 14px; }
-            .clinic-brand { flex: 1; text-align: center; padding: 0 10px; }
-            .clinic-title { font-size: 20px; font-weight: 900; color: #0369a1; letter-spacing: -0.5px; text-transform: uppercase; font-family: Georgia, serif; }
-            .clinic-tagline { font-size: 10px; font-weight: 800; color: #0284c7; letter-spacing: 1px; margin-top: 2px; text-transform: uppercase; }
-            .doc-details { font-size: 11px; font-weight: 800; color: #1e293b; margin-top: 4px; }
-            .contact-line { font-size: 10px; color: #475569; font-weight: 600; margin-top: 2px; }
-            .report-banner { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
-            .report-title { font-size: 14px; font-weight: 900; color: #0369a1; text-transform: uppercase; letter-spacing: 0.5px; }
-            .meta-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 16px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; font-size: 11px; }
-            .grid-container { display: flex; gap: 10px; align-items: flex-start; width: 100%; }
-            .footer-sign { margin-top: 40px; padding-top: 15px; border-top: 1px solid #cbd5e1; display: flex; justify-content: space-between; align-items: flex-end; font-size: 10px; color: #475569; page-break-inside: avoid; }
-            .sign-box { text-align: center; width: 170px; }
-            .sign-line { border-bottom: 1.5px dashed #64748b; height: 35px; margin-bottom: 6px; }
+            @page {
+              size: A4 portrait;
+              margin: 10mm 12mm 12mm 12mm;
+            }
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+              color: #0f172a;
+              margin: 0;
+              padding: 0;
+              font-size: 11.5px;
+              line-height: 1.4;
+              background: #ffffff;
+            }
+            * { box-sizing: border-box; }
+
+            .letterhead-header {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              border-bottom: 3px double #064e3b;
+              padding-bottom: 10px;
+              margin-bottom: 12px;
+              gap: 12px;
+            }
+            .logo-col {
+              width: 80px;
+              height: 80px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              flex-shrink: 0;
+            }
+            .logo-img {
+              max-width: 100%;
+              max-height: 100%;
+              object-fit: contain;
+            }
+            .clinic-info {
+              text-align: center;
+              flex: 1;
+            }
+            .clinic-name {
+              font-family: Georgia, "Times New Roman", serif;
+              font-size: 24px;
+              font-weight: 900;
+              color: #881337;
+              text-transform: uppercase;
+              margin: 0;
+              letter-spacing: -0.5px;
+              line-height: 1.1;
+            }
+            .clinic-tagline {
+              font-size: 10px;
+              font-weight: 800;
+              color: #be123c;
+              letter-spacing: 1.5px;
+              text-transform: uppercase;
+              margin-top: 2px;
+            }
+            .clinic-reg {
+              font-size: 11px;
+              font-weight: 700;
+              color: #1e293b;
+              margin-top: 4px;
+            }
+            .clinic-timings {
+              font-size: 10px;
+              font-weight: 800;
+              color: #064e3b;
+              text-transform: uppercase;
+              margin-top: 3px;
+            }
+
+            .report-banner {
+              background: #0f172a;
+              color: #ffffff;
+              padding: 8px 14px;
+              border-radius: 6px;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              margin-bottom: 10px;
+            }
+            .report-banner-title {
+              font-size: 12.5px;
+              font-weight: 900;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              color: #f8fafc;
+            }
+            .report-banner-ref {
+              font-size: 10px;
+              font-family: monospace;
+              color: #cbd5e1;
+              font-weight: 700;
+            }
+
+            .meta-grid {
+              background: #f8fafc;
+              border: 1.5px solid #cbd5e1;
+              border-radius: 8px;
+              padding: 10px 14px;
+              margin-bottom: 14px;
+              display: grid;
+              grid-template-columns: 1fr 1fr 1fr;
+              gap: 8px;
+              font-size: 11px;
+            }
+            .meta-item {
+              display: flex;
+              flex-direction: column;
+            }
+            .meta-label {
+              font-size: 9px;
+              font-weight: 800;
+              color: #64748b;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .meta-value {
+              font-size: 11px;
+              font-weight: 700;
+              color: #0f172a;
+              margin-top: 1px;
+            }
+
+            .grid-container {
+              display: flex;
+              gap: 10px;
+              align-items: flex-start;
+              width: 100%;
+            }
+
+            .signature-section {
+              margin-top: 35px;
+              padding-top: 15px;
+              border-top: 2px solid #cbd5e1;
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-end;
+              page-break-inside: avoid;
+            }
+            .sig-box {
+              text-align: center;
+              width: 220px;
+            }
+            .sig-line-text {
+              border-bottom: 1.5px dashed #475569;
+              height: 38px;
+              margin-bottom: 6px;
+              display: flex;
+              align-items: flex-end;
+              justify-content: center;
+              font-size: 11px;
+              font-weight: 700;
+              color: #334155;
+              padding-bottom: 2px;
+            }
+            .sig-line-manager {
+              border-bottom: 2.5px solid #0f172a;
+              height: 38px;
+              margin-bottom: 6px;
+              display: flex;
+              align-items: flex-end;
+              justify-content: center;
+              font-size: 13px;
+              font-weight: 900;
+              color: #0f172a;
+              font-family: Georgia, 'Times New Roman', serif;
+              padding-bottom: 2px;
+            }
+            .sig-title-primary {
+              font-size: 11px;
+              font-weight: 900;
+              color: #881337;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .sig-title-sub {
+              font-size: 10px;
+              font-weight: 800;
+              color: #0f172a;
+              text-transform: uppercase;
+            }
+            .sig-title-dept {
+              font-size: 9px;
+              font-weight: 700;
+              color: #047857;
+            }
+
+            .stamp-box {
+              text-align: center;
+              width: 130px;
+              height: 65px;
+              border: 2px dashed #94a3b8;
+              border-radius: 8px;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              color: #64748b;
+              font-size: 8px;
+              font-weight: 800;
+              text-transform: uppercase;
+              background: #fafafa;
+            }
+
+            .official-footer {
+              margin-top: 15px;
+              border-top: 1px solid #e2e8f0;
+              padding-top: 8px;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              font-size: 9px;
+              color: #64748b;
+              font-weight: 600;
+            }
           </style>
         </head>
         <body>
-          <!-- OFFICIAL A4 LETTERHEAD HEADER -->
+          <!-- A4 Official Letterhead Header -->
           <div class="letterhead-header">
-            <img src="${logoSrc}" style="width: 70px; height: 70px; object-fit: contain;" alt="Logo" />
-            <div class="clinic-brand">
-              <div class="clinic-title">${cName}</div>
+            <div class="logo-col">
+              <img src="${logoSrc}" alt="PHC Logo" class="logo-img" />
+            </div>
+            <div class="clinic-info">
+              <h1 class="clinic-name">${cName}</h1>
               <div class="clinic-tagline">${cTag}</div>
-              <div class="doc-details">${cDoc} <span style="font-weight: 400; color: #64748b;">(${cDocSub})</span></div>
-              <div class="contact-line">📍 ${cAddr} &nbsp;|&nbsp; 📞 ${cPhone}</div>
+              <div class="clinic-reg">
+                <span>PHC Reg. # <u style="text-decoration: underline;">R-___________</u></span>
+                &nbsp;|&nbsp;
+                <span>PHC License #: ___________________</span>
+              </div>
+              <div class="clinic-timings">
+                Clinic Timings: Morning 8:30 AM to 12:00 PM &nbsp;|&nbsp; Evening 4:30 PM to 9:00 PM
+              </div>
             </div>
-            <div style="width: 70px; text-align: right;">
-              <span style="font-size: 9px; font-weight: 900; background: #0369a1; color: #fff; padding: 3px 6px; border-radius: 4px;">PURCHASE</span>
+            <div class="logo-col" style="visibility: hidden;">
+              <img src="${logoSrc}" alt="PHC Logo" class="logo-img" />
             </div>
           </div>
 
-          <!-- BANNER -->
+          <!-- Official Report Banner & Meta Details -->
           <div class="report-banner">
-            <div>
-              <div class="report-title">OFFICIAL PURCHASE ORDER (PO)</div>
-              <div style="font-size: 11px; font-weight: 700; color: #0284c7; margin-top: 2px;">Medicine Stock Replenishment Order</div>
-            </div>
-            <div style="text-align: right; font-size: 10px; color: #0369a1; font-weight: 800; bg-white; padding: 4px 8px; border-radius: 6px; border: 1px solid #7dd3fc;">
-              STATUS: ${po.Status ? po.Status.toUpperCase() : 'PENDING'}
-            </div>
+            <span class="report-banner-title">OFFICIAL PURCHASE ORDER (PO) - STOCK REQUISITION</span>
+            <span class="report-banner-ref">REF: PHC-PO-${po.POID}</span>
           </div>
 
-          <!-- META DETAILS -->
           <div class="meta-grid">
-            <div>
-              <div style="margin-bottom: 3px;"><strong>PO Ref Number:</strong> <span style="color: #0369a1; font-family: monospace; font-size: 12px; font-weight: bold;">${po.POID}</span></div>
-              <div style="margin-bottom: 3px;"><strong>Order Date:</strong> ${po.OrderDate}</div>
-              <div><strong>Expected Delivery:</strong> ${po.ExpectedDeliveryDate || 'Immediate'}</div>
+            <div class="meta-item">
+              <span class="meta-label">PO Ref Number</span>
+              <span class="meta-value" style="color: #4338ca;">${po.POID}</span>
             </div>
-            <div style="text-align: right;">
-              <div style="margin-bottom: 3px;"><strong>Supplier / Vendor:</strong> <span style="font-weight: 800;">${po.VendorName}</span></div>
-              <div style="margin-bottom: 3px;"><strong>Vendor Code:</strong> ${po.VendorID || 'N/A'}</div>
-              <div><strong>Total Line Items:</strong> <span style="font-weight: bold; color: #0284c7;">${po.Items.length} Medicines</span></div>
+            <div class="meta-item">
+              <span class="meta-label">Order Date</span>
+              <span class="meta-value">${po.OrderDate}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Expected Delivery</span>
+              <span class="meta-value">${po.ExpectedDeliveryDate || 'Immediate'}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Supplier / Vendor</span>
+              <span class="meta-value" style="color: #0f172a;">${po.VendorName} (${po.VendorID || 'N/A'})</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">PO Status</span>
+              <span class="meta-value" style="color: #047857;">${po.Status ? po.Status.toUpperCase() : 'APPROVED'}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Total Line Items</span>
+              <span class="meta-value" style="color: #881337;">${po.Items.length} Medicines</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Total Order Est Amount</span>
+              <span class="meta-value">Rs. ${(po.TotalAmount || 0).toLocaleString()}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Audit Prepared By</span>
+              <span class="meta-value">${currentUser?.FullName || 'Staff Accountant'}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Responsible Manager</span>
+              <span class="meta-value" style="color: #881337;">Mr. Zaigham Ali Anjum</span>
             </div>
           </div>
 
@@ -2263,23 +2766,42 @@ export default function ErpDesk({ currentUser, rights, clinicSettings }: ErpDesk
             ${col3Html}
           </div>
 
-          ${po.Notes ? `<div style="margin-top: 14px; padding: 8px 12px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; font-size: 11px;"><strong>Special Notes / Vendor Instructions:</strong> ${po.Notes}</div>` : ''}
+          ${po.Notes ? `<div style="margin-top: 12px; padding: 10px 12px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; font-size: 11px;"><strong>Special Instructions / Vendor Notes:</strong> ${po.Notes}</div>` : ''}
 
-          <!-- FOOTER SIGNATURES -->
-          <div class="footer-sign">
-            <div class="sign-box">
-              <div class="sign-line"></div>
-              <div style="font-weight: 700;">Store Manager</div>
+          <!-- Executive Signatures & Stamps Block -->
+          <div class="signature-section">
+            <div class="sig-box">
+              <div class="sig-line-text">
+                ${currentUser?.FullName || 'Accountant / Audit Officer'}
+              </div>
+              <div class="sig-title-primary" style="color: #0f172a;">PREPARED BY</div>
+              <div class="sig-title-sub" style="font-size: 9px; color: #475569;">Procurement & Inventory Desk</div>
             </div>
-            <div class="sign-box">
-              <div class="sign-line"></div>
-              <div style="font-weight: 700;">Quality Auditor</div>
+
+            <div class="stamp-box">
+              <span>PHC OFFICIAL STAMP</span>
+              <span style="font-size: 7px; color: #94a3b8; margin-top: 2px;">[ SEAL & STAMP ]</span>
             </div>
-            <div class="sign-box">
-              <div class="sign-line"></div>
-              <div style="font-weight: 800; color: #0f172a;">Managing Director / Doctor</div>
+
+            <div class="sig-box" style="width: 250px;">
+              <div class="sig-line-manager">
+                Zaigham Ali Anjum
+              </div>
+              <div class="sig-title-primary">MR. ZAIGHAM ALI ANJUM</div>
+              <div class="sig-title-sub">Manager Operations & Administrative Head</div>
+              <div class="sig-title-dept">Punjab Homeopathic Clinic & Pharmacy</div>
             </div>
           </div>
+
+          <!-- Official Footer -->
+          <div class="official-footer">
+            <span>Punjab Homeopathic Clinic & Pharmacy • Official Purchase Order (PO) • Confidential Document</span>
+            <span>Generated Date: ${new Date().toLocaleString('en-GB')}</span>
+          </div>
+
+          <script>
+            window.onload = function() { window.print(); }
+          </script>
         </body>
       </html>
     `);
@@ -4395,9 +4917,28 @@ export default function ErpDesk({ currentUser, rights, clinicSettings }: ErpDesk
                   <label className="text-xs font-bold text-slate-800 uppercase tracking-wider">
                     PO Order Items & Partial Batch Receiving ({grnForm.Items.length} Line Items)
                   </label>
-                  <span className="text-[11px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                    Partial receiving supported: Items received now will update inventory instantly
-                  </span>
+                  <div className="flex items-center space-x-2">
+                    {(() => {
+                      const selectedPo = purchaseOrders.find(p => p.POID === grnForm.POID);
+                      const fullCount = selectedPo ? selectedPo.Items.length : 0;
+                      if (fullCount > grnForm.Items.length) {
+                        return (
+                          <button
+                            type="button"
+                            onClick={handleResetGrnItems}
+                            className="text-[11px] text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded-md font-bold border border-indigo-200 transition flex items-center space-x-1 cursor-pointer"
+                          >
+                            <RotateCcw className="w-3 h-3" />
+                            <span>Restore Excluded Items ({fullCount - grnForm.Items.length} excluded)</span>
+                          </button>
+                        );
+                      }
+                      return null;
+                    })()}
+                    <span className="text-[11px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                      Partial receiving supported: Excluded items remain pending in PO for next batch
+                    </span>
+                  </div>
                 </div>
 
                 <div className="border border-slate-200 rounded-xl overflow-hidden">
@@ -4413,13 +4954,25 @@ export default function ErpDesk({ currentUser, rights, clinicSettings }: ErpDesk
                         <th className="p-2.5 text-center w-24">Now Receiving</th>
                         <th className="p-2.5 text-right w-20">Unit Price</th>
                         <th className="p-2.5 text-right w-24">Subtotal</th>
+                        <th className="p-2.5 text-center w-20">Exclude</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {grnForm.Items.length === 0 ? (
                         <tr>
-                          <td colSpan={9} className="p-6 text-center text-slate-400 font-medium">
-                            Please select a Purchase Order from above to fetch the ordered medicines!
+                          <td colSpan={10} className="p-6 text-center text-slate-400 font-medium">
+                            No items in current GRN batch. {grnForm.POID ? 'All items were excluded from this delivery.' : 'Please select a Purchase Order from above!'}
+                            {grnForm.POID && (
+                              <div className="mt-2">
+                                <button
+                                  type="button"
+                                  onClick={handleResetGrnItems}
+                                  className="text-xs text-indigo-600 underline font-bold"
+                                >
+                                  Click here to restore all PO items
+                                </button>
+                              </div>
+                            )}
                           </td>
                         </tr>
                       ) : (
@@ -4470,6 +5023,17 @@ export default function ErpDesk({ currentUser, rights, clinicSettings }: ErpDesk
                               </td>
                               <td className="p-2.5 text-right font-semibold text-slate-700">Rs. {item.UnitPrice}</td>
                               <td className="p-2.5 text-right font-bold text-slate-900">Rs. {subtotal.toLocaleString()}</td>
+                              <td className="p-2.5 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveGrnItem(idx)}
+                                  title="Exclude medicine item from this GRN batch (will remain pending in PO for next batch)"
+                                  className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-md text-[11px] font-bold transition inline-flex items-center space-x-1 cursor-pointer"
+                                >
+                                  <XCircle className="w-3.5 h-3.5 text-amber-600" />
+                                  <span>Exclude</span>
+                                </button>
+                              </td>
                             </tr>
                           );
                         })
@@ -5371,26 +5935,33 @@ export default function ErpDesk({ currentUser, rights, clinicSettings }: ErpDesk
 
               {/* AUDIT & SIGNATURES BLOCK FOR A4 LETTERHEAD */}
               <div className="pt-8 mt-6 border-t border-slate-300 grid grid-cols-4 gap-4 text-center text-[10px] font-bold text-slate-700 print:pt-12">
-                <div className="space-y-8">
-                  <div className="border-b border-slate-400 pb-1 h-8 flex items-end justify-center font-mono text-[9px] text-slate-500">
+                <div className="space-y-1">
+                  <div className="border-b border-slate-400 pb-1 h-8 flex items-end justify-center font-mono text-[9px] text-slate-600">
                     {currentUser?.FullName || 'Accountant'}
                   </div>
-                  <p className="uppercase tracking-wider">PREPARED BY (ACCOUNTANT)</p>
+                  <p className="uppercase tracking-wider font-extrabold text-[9px]">PREPARED BY (ACCOUNTANT)</p>
+                  <p className="text-[8px] text-slate-500 font-medium">Accounts & Audit Desk</p>
                 </div>
 
-                <div className="space-y-8">
+                <div className="space-y-1">
                   <div className="border-b border-slate-400 pb-1 h-8"></div>
-                  <p className="uppercase tracking-wider">CHECKED BY (AUDITOR)</p>
+                  <p className="uppercase tracking-wider font-extrabold text-[9px]">CHECKED BY (AUDITOR)</p>
+                  <p className="text-[8px] text-slate-500 font-medium">Internal Audit Wing</p>
                 </div>
 
-                <div className="space-y-8">
+                <div className="space-y-1">
                   <div className="border-b border-slate-400 pb-1 h-8"></div>
-                  <p className="uppercase tracking-wider">VENDOR STAMP & SIGN</p>
+                  <p className="uppercase tracking-wider font-extrabold text-[9px]">VENDOR STAMP & SIGN</p>
+                  <p className="text-[8px] text-slate-500 font-medium">Authorized Distributor Seal</p>
                 </div>
 
-                <div className="space-y-8">
-                  <div className="border-b border-slate-400 pb-1 h-8"></div>
-                  <p className="uppercase tracking-wider">AUTHORIZED ADMINISTRATOR</p>
+                <div className="space-y-1">
+                  <div className="border-b-2 border-slate-900 pb-1 h-8 flex items-end justify-center font-black text-xs text-slate-900 font-serif">
+                    Zaigham Ali Anjum
+                  </div>
+                  <p className="uppercase tracking-wider font-extrabold text-[10px] text-rose-900">MR. ZAIGHAM ALI ANJUM</p>
+                  <p className="text-[9px] text-slate-800 font-bold">Manager Operations & Administrative Head</p>
+                  <p className="text-[8px] text-emerald-800 font-bold">Punjab Homeopathic Clinic & Pharmacy</p>
                 </div>
               </div>
 
