@@ -763,21 +763,40 @@ export default function ErpDesk({ currentUser, rights, clinicSettings }: ErpDesk
           </table>
 
           <!-- LETTERHEAD FOOTER & SIGNATURES -->
-          <div class="footer-sign">
+          <div style="margin-top: 35px; padding-top: 15px; border-top: 2px solid #cbd5e1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; text-align: center; page-break-inside: avoid;">
             <div>
-              <div style="font-weight: 800; color: #0f172a;">Computer Generated Official Ledger Statement</div>
-              <div>${cName} • Finance & Accounts Dept</div>
-            </div>
-            <div style="display: flex; gap: 30px;">
-              <div class="sign-box">
-                <div class="sign-line"></div>
-                <div style="font-weight: 700; font-size: 10px;">Prepared By (Accountant)</div>
+              <div style="border-bottom: 1.5px dashed #64748b; height: 35px; margin-bottom: 6px; display: flex; align-items: flex-end; justify-content: center; font-size: 10px; font-weight: 700; color: #334155;">
+                ${currentUser?.FullName || 'Accountant'}
               </div>
-              <div class="sign-box">
-                <div class="sign-line"></div>
-                <div style="font-weight: 800; font-size: 10px; color: #0f172a;">Authorized Doctor / Manager</div>
-              </div>
+              <div style="font-weight: 800; font-size: 9.5px; uppercase; color: #0f172a;">PREPARED BY</div>
+              <div style="font-size: 8.5px; color: #64748b;">Accounts & Audit Desk</div>
             </div>
+
+            <div>
+              <div style="border-bottom: 1.5px dashed #64748b; height: 35px; margin-bottom: 6px;"></div>
+              <div style="font-weight: 800; font-size: 9.5px; uppercase; color: #0f172a;">CHECKED BY</div>
+              <div style="font-size: 8.5px; color: #64748b;">Internal Audit Wing</div>
+            </div>
+
+            <div>
+              <div style="border-bottom: 1.5px dashed #64748b; height: 35px; margin-bottom: 6px;"></div>
+              <div style="font-weight: 800; font-size: 9.5px; uppercase; color: #0f172a;">VERIFIED BY</div>
+              <div style="font-size: 8.5px; color: #64748b;">Finance Desk</div>
+            </div>
+
+            <div>
+              <div style="border-bottom: 2.5px solid #0f172a; height: 35px; margin-bottom: 6px; display: flex; align-items: flex-end; justify-content: center; font-size: 13px; font-weight: 900; color: #0f172a; font-family: Georgia, serif;">
+                Zaigham Ali Anjum
+              </div>
+              <div style="font-weight: 900; font-size: 10px; color: #881337; text-transform: uppercase;">MR. ZAIGHAM ALI ANJUM</div>
+              <div style="font-weight: 800; font-size: 8.5px; color: #0f172a; text-transform: uppercase;">Manager Operations & Administrative Head</div>
+              <div style="font-weight: 700; font-size: 8px; color: #047857;">Punjab Homeopathic Clinic & Pharmacy</div>
+            </div>
+          </div>
+
+          <div style="margin-top: 15px; border-top: 1px solid #e2e8f0; padding-top: 8px; display: flex; justify-content: space-between; align-items: center; font-size: 9px; color: #64748b; font-weight: 600;">
+            <div>Punjab Homeopathic Clinic & Pharmacy • Official Cash Book & Financial Statement</div>
+            <div>Authorized Administrator: Mr. Zaigham Ali Anjum</div>
           </div>
         </body>
       </html>

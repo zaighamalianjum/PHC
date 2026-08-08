@@ -1525,7 +1525,17 @@ export default function PatientDesk({
     }
 
     if (autoPrintTicket) {
-      window.print();
+      handlePrintThermalTokenSlip({
+        tokenNo: nextTokenNo,
+        patientId: patient.PatientID,
+        patientName: patient.PatientName,
+        shift: selectedShift,
+        date: targetDate,
+        fee: feeVal,
+        age: patient.AgeYears,
+        sex: patient.Sex,
+        phone: patient.PhoneMobile
+      });
     }
 
     setPvSaveSuccess(`Direct Consultation Token #${nextTokenNo} generated for ${selectedShift === 1 ? 'Morning Shift (08:30 AM - 12:30 PM)' : 'Evening Shift (05:00 PM - 09:00 PM)'}. Fee charged: PKR ${feeVal}.`);
@@ -2140,6 +2150,161 @@ export default function PatientDesk({
 
     return Array.from(groupsMap.values());
   })();
+
+  const handlePrintThermalTokenSlip = (data: {
+    tokenNo: number;
+    patientId: string;
+    patientName: string;
+    shift: 1 | 2;
+    date?: string;
+    fee?: number;
+    age?: number;
+    sex?: string;
+    phone?: string;
+  }) => {
+    const printWin = window.open('', '_blank', 'width=420,height=600');
+    if (!printWin) {
+      alert("Popup blocked! Please allow popups to print thermal token slips.");
+      return;
+    }
+
+    const clinicName = clinicSettings?.ClinicName || 'PUNJAB HOMEOPATHIC CLINIC & PHARMACY';
+    const cPhone = clinicSettings?.PhoneMobile || '0300-1234567';
+    const cAddress = clinicSettings?.ClinicAddress || 'Main Clinic, Punjab, Pakistan';
+    const shiftText = data.shift === 1 ? 'MORNING SHIFT (08:30 AM - 12:00 PM)' : 'EVENING SHIFT (04:30 PM - 09:00 PM)';
+    const dateStr = data.date || new Date().toISOString().split('T')[0];
+    const timeStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+    printWin.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Token Slip #${data.tokenNo} - ${data.patientName}</title>
+          <style>
+            @media print {
+              @page { margin: 0; size: 80mm auto; }
+              body { margin: 0; padding: 2mm 3mm; }
+            }
+            body {
+              font-family: 'Courier New', Courier, monospace, Arial, sans-serif;
+              width: 72mm;
+              margin: 0 auto;
+              padding: 8px 4px;
+              color: #000;
+              background: #fff;
+              font-size: 11px;
+            }
+            .text-center { text-align: center; }
+            .clinic-header { text-align: center; margin-bottom: 4px; }
+            .clinic-name { font-size: 13px; font-weight: 900; text-transform: uppercase; margin: 0; line-height: 1.2; font-family: sans-serif; }
+            .clinic-sub { font-size: 9px; font-weight: bold; color: #111; margin-top: 2px; text-transform: uppercase; }
+            .divider { border-top: 1px dashed #000; margin: 5px 0; }
+            .token-card {
+              border: 2px solid #000;
+              padding: 6px 4px;
+              margin: 6px 0;
+              text-align: center;
+              border-radius: 4px;
+              background: #fff;
+            }
+            .token-title { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; font-family: sans-serif; }
+            .token-number { font-size: 36px; font-weight: 900; font-family: Arial, sans-serif; margin: 2px 0; line-height: 1; }
+            .token-shift { font-size: 9px; font-weight: 800; text-transform: uppercase; background: #000; color: #fff; padding: 2px 5px; display: inline-block; border-radius: 2px; margin-top: 2px; }
+            .detail-row { display: flex; justify-content: space-between; margin: 3px 0; font-size: 11px; }
+            .detail-label { font-weight: bold; width: 38%; }
+            .detail-val { font-weight: bold; width: 62%; text-align: right; word-break: break-word; }
+            .fee-box { font-size: 12px; font-weight: 900; text-align: center; padding: 4px; border: 1.5px solid #000; margin-top: 5px; }
+            .footer-msg { font-size: 8.5px; text-align: center; margin-top: 8px; font-weight: bold; line-height: 1.3; }
+          </style>
+        </head>
+        <body>
+          <div class="clinic-header">
+            <h2 class="clinic-name">${clinicName}</h2>
+            <div class="clinic-sub">OPD CONSULTATION TOKEN SLIP</div>
+            <div style="font-size: 8.5px; margin-top: 2px;">${cAddress}</div>
+            <div style="font-size: 8.5px; font-weight: bold;">Ph: ${cPhone}</div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="token-card">
+            <div class="token-title">OPD TOKEN NO</div>
+            <div class="token-number">#${data.tokenNo}</div>
+            <div class="token-shift">${shiftText}</div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="detail-row">
+            <span class="detail-label">PATIENT ID:</span>
+            <span class="detail-val" style="font-family: monospace; font-size: 12px;">${data.patientId}</span>
+          </div>
+
+          <div class="detail-row">
+            <span class="detail-label">PATIENT NAME:</span>
+            <span class="detail-val" style="font-size: 12px; text-transform: uppercase;">${data.patientName}</span>
+          </div>
+
+          ${data.phone ? `
+          <div class="detail-row">
+            <span class="detail-label">MOBILE NO:</span>
+            <span class="detail-val" style="font-family: monospace;">${data.phone}</span>
+          </div>` : ''}
+
+          ${data.age ? `
+          <div class="detail-row">
+            <span class="detail-label">AGE / GENDER:</span>
+            <span class="detail-val">${data.age} Yrs / ${data.sex || 'Male'}</span>
+          </div>` : ''}
+
+          <div class="detail-row">
+            <span class="detail-label">DATE & TIME:</span>
+            <span class="detail-val">${dateStr} ${timeStr}</span>
+          </div>
+
+          <div class="fee-box">
+            OPD FEE CHARGED: PKR ${data.fee !== undefined ? Number(data.fee).toLocaleString() : '0'}
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="footer-msg">
+            <p style="margin: 2px 0; text-transform: uppercase;">Please watch LED screen for Token #${data.tokenNo}</p>
+            <p style="margin: 2px 0;">Kindly present this token slip to doctor.</p>
+            <p style="margin: 4px 0 0 0; font-size: 8px; font-weight: normal;">* Thermal Printer Token Receipt *</p>
+          </div>
+
+          <script>
+            window.onload = function() {
+              setTimeout(function() {
+                window.print();
+              }, 250);
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    printWin.document.close();
+  };
+
+  const handlePrintThermalFromToken = (tok: Token) => {
+    const pat = patients.find(p => p.PatientID === tok.PatientID);
+    const patName = pat?.PatientName || tok.PatientID;
+    const app = appointments.find(a => a.PatientID === tok.PatientID && a.AppointmentDate === tok.Date);
+    const feeVal = app?.FeeCharged || 0;
+
+    handlePrintThermalTokenSlip({
+      tokenNo: tok.TokenNo,
+      patientId: tok.PatientID,
+      patientName: patName,
+      shift: tok.Shift,
+      date: tok.Date,
+      fee: feeVal,
+      age: pat?.AgeYears,
+      sex: pat?.Sex,
+      phone: pat?.PhoneMobile
+    });
+  };
 
   const handleCleanTokenPrint = () => {
     if (currentUser?.Role !== 'Administrator' && (currentUser?.Permissions?.canPrintTokenSlip === false || userRights.find(r => r.MenuID === 'patients')?.PrintRec === false)) {
@@ -4784,6 +4949,19 @@ export default function PatientDesk({
 
       onAddToken(newToken);
 
+      // Print Short Thermal Printer Token Slip
+      handlePrintThermalTokenSlip({
+        tokenNo: nextTokenNo,
+        patientId: patient.PatientID,
+        patientName: patient.PatientName,
+        shift: shift,
+        date: appDate,
+        fee: tokenFeeToCharge,
+        age: patient.AgeYears,
+        sex: patient.Sex,
+        phone: patient.PhoneMobile
+      });
+
       // Automated SMS Sending engine
       if (smsSettings && smsSettings.Enabled) {
         const prevVisitsCount = appointments.filter((a) => a.PatientID === selectedPatientId).length;
@@ -5030,6 +5208,7 @@ export default function PatientDesk({
           canDeleteToken={canDeleteToken}
           onDeleteToken={onDeleteToken}
           onUpdateTokenStatus={onUpdateTokenStatus}
+          onPrintThermalSlip={handlePrintThermalFromToken}
           visits={visits}
           appointments={appointments}
           isSearchingArchive={isSearchingArchive}
@@ -9443,12 +9622,11 @@ export default function PatientDesk({
                           <div className="flex items-center space-x-1.5 justify-end">
                             <button
                               type="button"
-                              onClick={() => {
-                                window.print();
-                              }}
-                              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xxs font-bold rounded flex items-center transition border border-slate-200"
+                              onClick={() => handlePrintThermalFromToken(tok)}
+                              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xxs font-bold rounded flex items-center transition border border-slate-200 cursor-pointer"
+                              title="Print short thermal printer token slip"
                             >
-                              <Clock className="w-3 h-3 mr-1" />
+                              <Printer className="w-3 h-3 mr-1 text-slate-600" />
                               <span>Print Ticket</span>
                             </button>
                             <button
@@ -9523,12 +9701,11 @@ export default function PatientDesk({
                           <div className="flex items-center space-x-1.5 justify-end">
                             <button
                               type="button"
-                              onClick={() => {
-                                window.print();
-                              }}
-                              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xxs font-bold rounded flex items-center transition border border-slate-200"
+                              onClick={() => handlePrintThermalFromToken(tok)}
+                              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xxs font-bold rounded flex items-center transition border border-slate-200 cursor-pointer"
+                              title="Print short thermal printer token slip"
                             >
-                              <Clock className="w-3 h-3 mr-1" />
+                              <Printer className="w-3 h-3 mr-1 text-slate-600" />
                               <span>Print Ticket</span>
                             </button>
                             <button
@@ -9617,12 +9794,11 @@ export default function PatientDesk({
                           <div className="flex items-center space-x-1.5 justify-end">
                             <button
                               type="button"
-                              onClick={() => {
-                                window.print();
-                              }}
-                              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xxs font-bold rounded flex items-center transition border border-slate-200"
+                              onClick={() => handlePrintThermalFromToken(tok)}
+                              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xxs font-bold rounded flex items-center transition border border-slate-200 cursor-pointer"
+                              title="Print short thermal printer token slip"
                             >
-                              <Clock className="w-3 h-3 mr-1" />
+                              <Printer className="w-3 h-3 mr-1 text-slate-600" />
                               <span>Print Ticket</span>
                             </button>
                             <button

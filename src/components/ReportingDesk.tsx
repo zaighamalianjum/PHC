@@ -1140,27 +1140,34 @@ export default function ReportingDesk({
           ${tableHtml}
 
           <!-- Executive Signatures & Stamps Block -->
-          <div class="signature-section">
-            <div class="sig-box">
-              <div class="sig-line-text">
-                ${currentUser?.FullName || 'Accountant / Audit Officer'}
+          <div style="margin-top: 35px; padding-top: 15px; border-top: 2px solid #cbd5e1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; text-align: center; page-break-inside: avoid;">
+            <div>
+              <div style="border-bottom: 1.5px dashed #64748b; height: 35px; margin-bottom: 6px; display: flex; align-items: flex-end; justify-content: center; font-size: 10px; font-weight: 700; color: #334155;">
+                ${currentUser?.FullName || 'Accountant'}
               </div>
-              <div class="sig-title-primary" style="color: #0f172a;">PREPARED BY</div>
-              <div class="sig-title-sub" style="font-size: 9px; color: #475569;">Accounts & ERP Audit Desk</div>
+              <div style="font-weight: 800; font-size: 9.5px; text-transform: uppercase; color: #0f172a;">PREPARED BY</div>
+              <div style="font-size: 8.5px; color: #64748b;">Accounts & Audit Desk</div>
             </div>
 
-            <div class="stamp-box">
-              <span>PHC OFFICIAL STAMP</span>
-              <span style="font-size: 7px; color: #94a3b8; margin-top: 2px;">[ SEAL & STAMP ]</span>
+            <div>
+              <div style="border-bottom: 1.5px dashed #64748b; height: 35px; margin-bottom: 6px;"></div>
+              <div style="font-weight: 800; font-size: 9.5px; text-transform: uppercase; color: #0f172a;">CHECKED BY</div>
+              <div style="font-size: 8.5px; color: #64748b;">Internal Audit Wing</div>
             </div>
 
-            <div class="sig-box" style="width: 250px;">
-              <div class="sig-line-manager">
+            <div>
+              <div style="border-bottom: 1.5px dashed #64748b; height: 35px; margin-bottom: 6px;"></div>
+              <div style="font-weight: 800; font-size: 9.5px; text-transform: uppercase; color: #0f172a;">VERIFIED BY</div>
+              <div style="font-size: 8.5px; color: #64748b;">Finance Desk</div>
+            </div>
+
+            <div>
+              <div style="border-bottom: 2.5px solid #0f172a; height: 35px; margin-bottom: 6px; display: flex; align-items: flex-end; justify-content: center; font-size: 13px; font-weight: 900; color: #0f172a; font-family: Georgia, serif;">
                 Zaigham Ali Anjum
               </div>
-              <div class="sig-title-primary">MR. ZAIGHAM ALI ANJUM</div>
-              <div class="sig-title-sub">Manager Operations & Administrative Head</div>
-              <div class="sig-title-dept">Punjab Homeopathic Clinic & Pharmacy</div>
+              <div style="font-weight: 900; font-size: 10px; color: #881337; text-transform: uppercase;">MR. ZAIGHAM ALI ANJUM</div>
+              <div style="font-weight: 800; font-size: 8.5px; color: #0f172a; text-transform: uppercase;">Manager Operations & Administrative Head</div>
+              <div style="font-weight: 700; font-size: 8px; color: #047857;">Punjab Homeopathic Clinic & Pharmacy</div>
             </div>
           </div>
 
@@ -1516,8 +1523,40 @@ export default function ReportingDesk({
         </div>
       )}
 
-      {/* DETAILED DATA TABLE */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+      {/* DETAILED DATA TABLE / A4 REPORT CONTAINER */}
+      <div className="bg-white rounded-2xl border border-slate-300 p-6 sm:p-8 shadow-sm space-y-6">
+        {/* OFFICIAL A4 LETTERHEAD HEADER */}
+        <div className="border-b-4 border-double border-slate-900 pb-4 mb-2 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center space-x-3 text-center sm:text-left">
+            <img src={clinicSettings?.ClinicLogoImage || '/nhc_logo.svg'} alt="Clinic Logo" className="w-16 h-16 object-contain" />
+            <div>
+              <h1 className="text-xl font-black text-rose-900 tracking-tight font-serif uppercase">
+                {clinicSettings?.ClinicName || 'PUNJAB HOMEOPATHIC CLINIC'}
+              </h1>
+              <p className="text-[10px] font-extrabold text-rose-700 tracking-wider uppercase">
+                HEALING NATURALLY. RESTORING BALANCE.
+              </p>
+              <p className="text-[10px] text-slate-800 font-bold mt-0.5">
+                PHC Reg. # <u className="underline">R-___________</u> &nbsp;|&nbsp; PHC License #: ___________________
+              </p>
+              <p className="text-[9px] text-emerald-800 font-bold uppercase mt-0.5">
+                Clinic Timings: Morning 8:30 AM to 12:00 PM &nbsp;|&nbsp; Evening 4:30 PM to 9:00 PM
+              </p>
+            </div>
+          </div>
+          <div className="text-center sm:text-right flex flex-col items-center sm:items-end">
+            <span className="bg-slate-900 text-white font-black text-[10px] px-3 py-1 rounded-md uppercase tracking-wider shadow-xs">
+              OFFICIAL FINANCIAL AUDIT REPORT
+            </span>
+            <p className="text-[10px] text-slate-500 font-mono font-bold mt-1">
+              REF: PHC-RPT-{Date.now().toString().slice(-6)}
+            </p>
+            <p className="text-[10px] text-slate-600 font-bold mt-0.5">
+              Period: {startDate} to {endDate}
+            </p>
+          </div>
+        </div>
+
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <h3 className="font-bold text-slate-900 text-sm flex items-center space-x-2">
             <FileText className="w-4 h-4 text-indigo-600" />
@@ -1965,6 +2004,43 @@ export default function ReportingDesk({
             </div>
           </div>
         )}
+
+        {/* EXECUTIVE AUDIT SIGNATURES & STAMPS FOOTER */}
+        <div className="pt-8 mt-8 border-t-2 border-slate-300 grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+          <div className="space-y-1">
+            <div className="border-b-2 border-dashed border-slate-400 pb-1 h-10 flex items-end justify-center font-mono text-[11px] font-bold text-slate-700">
+              {currentUser?.FullName || 'Accountant / Audit Officer'}
+            </div>
+            <p className="uppercase tracking-wider font-extrabold text-[10px] text-slate-900">PREPARED BY</p>
+            <p className="text-[9px] text-slate-500 font-medium">Accounts & ERP Audit Desk</p>
+          </div>
+
+          <div className="space-y-1">
+            <div className="border-b-2 border-dashed border-slate-400 pb-1 h-10"></div>
+            <p className="uppercase tracking-wider font-extrabold text-[10px] text-slate-900">CHECKED BY</p>
+            <p className="text-[9px] text-slate-500 font-medium">Internal Audit Wing</p>
+          </div>
+
+          <div className="space-y-1">
+            <div className="border-b-2 border-dashed border-slate-400 pb-1 h-10"></div>
+            <p className="uppercase tracking-wider font-extrabold text-[10px] text-slate-900">VERIFIED BY</p>
+            <p className="text-[9px] text-slate-500 font-medium">Finance & Treasury Desk</p>
+          </div>
+
+          <div className="space-y-1">
+            <div className="border-b-2 border-slate-900 pb-1 h-10 flex items-end justify-center font-black text-sm text-slate-900 font-serif">
+              Zaigham Ali Anjum
+            </div>
+            <p className="uppercase tracking-wider font-extrabold text-[10px] text-rose-900">MR. ZAIGHAM ALI ANJUM</p>
+            <p className="text-[10px] text-slate-900 font-bold uppercase">Manager Operations & Administrative Head</p>
+            <p className="text-[9px] text-emerald-800 font-bold">Punjab Homeopathic Clinic & Pharmacy</p>
+          </div>
+        </div>
+
+        <div className="pt-4 mt-2 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between text-[10px] text-slate-500 font-medium gap-2">
+          <div>Punjab Homeopathic Clinic & Pharmacy • Official Financial & Operational Audit Document</div>
+          <div>Authorized Administrator: <strong className="text-slate-800 font-bold">Mr. Zaigham Ali Anjum</strong></div>
+        </div>
       </div>
     </div>
   );

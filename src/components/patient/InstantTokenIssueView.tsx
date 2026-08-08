@@ -9,6 +9,7 @@ import {
   UserCheck,
   ListOrdered,
   Trash2,
+  Printer,
   AlertTriangle
 } from 'lucide-react';
 import { Token, Patient, NhcPatientHistory, City, Visit, Appointment } from '../../types';
@@ -25,6 +26,7 @@ interface InstantTokenIssueViewProps {
   canDeleteToken?: boolean;
   onDeleteToken?: (tokenNo: number, shift: 1 | 2) => void;
   onUpdateTokenStatus?: (tokenNo: number, shift: 1 | 2, status: 1 | 2 | 3) => void;
+  onPrintThermalSlip?: (tok: Token) => void;
   visits?: Visit[];
   appointments?: Appointment[];
   selectedPatientId: string;
@@ -54,6 +56,7 @@ export default function InstantTokenIssueView({
   canDeleteToken = true,
   onDeleteToken,
   onUpdateTokenStatus,
+  onPrintThermalSlip,
   visits = [],
   appointments = [],
   selectedPatientId,
@@ -392,6 +395,17 @@ export default function InstantTokenIssueView({
                       }`}>
                         {isCompleted || t.Status === 2 ? 'Visited' : t.Status === 1 ? 'Waiting' : 'Closed'}
                       </span>
+
+                      {onPrintThermalSlip && (
+                        <button
+                          type="button"
+                          onClick={() => onPrintThermalSlip(t)}
+                          title="Print Thermal Printer Token Slip"
+                          className="p-1 rounded transition cursor-pointer flex items-center justify-center text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                        </button>
+                      )}
 
                       <button
                         type="button"
